@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "dynamic-foraging-processing"
 description = "Generated from aind-library-template"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     {name = "Allen Institute for Neural Dynamics"}
 ]
@@ -36,7 +36,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 120
-target-version = 'py311'
+target-version = 'py312'
 extend-exclude = [
     '.conda',
     '.venv',
