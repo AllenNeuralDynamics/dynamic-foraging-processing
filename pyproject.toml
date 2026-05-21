@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "dynamic-foraging-processing"
 description = "Generated from aind-library-template"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "Allen Institute for Neural Dynamics"}
 ]
@@ -17,15 +17,16 @@ readme = "README.md"
 version = "0.0.0"
 
 dependencies = [
+    "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@8382bade6f16d3442e00efd02ee0d06b3b55f5ff",
+    "ipykernel",
 ]
 
 [dependency-groups]
 dev = [
-    'black',
+    'ruff',
     'coverage',
-    'flake8',
     'interrogate',
-    'isort',
+    'pytest',
     'Sphinx',
     'furo'
 ]
@@ -33,30 +34,25 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.black]
-line-length = 79
-target_version = ['py310']
-exclude = '''
+[tool.ruff]
+line-length = 120
+target-version = 'py311'
+extend-exclude = [
+    '.conda',
+    '.venv',
+    'build',
+    'dist',
+]
 
-(
-  /(
-      \.eggs         # exclude a few common directories in the
-    | \.git          # root of the project
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | build
-    | dist
-    | .conda
-  )/
-  | .gitignore
-)
-'''
+[tool.ruff.lint]
+extend-select = ['Q', 'RUF100', 'C90', 'I']
+extend-ignore = []
+
+[tool.ruff.lint.pydocstyle]
+convention = 'google'
 
 [tool.coverage.run]
-omit = ["*__init__*"]
+omit = ["*__init__*", "*/temp_dataset.py"]
 source = ["dynamic_foraging_processing", "tests"]
 
 [tool.coverage.report]
@@ -64,14 +60,11 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "^from .* import .*",
     "^import .*",
+    "if t\\.TYPE_CHECKING:",
+    "if TYPE_CHECKING:",
     "pragma: no cover"
 ]
 fail_under = 100
-
-[tool.isort]
-line_length = 79
-profile = "black"
-skip = [".conda", ".venv"]
 
 [tool.interrogate]
 exclude = ["setup.py", "docs", "build", ".conda"]
