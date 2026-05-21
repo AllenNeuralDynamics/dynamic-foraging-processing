@@ -1,7 +1,8 @@
 """Temporary local dataset builder.
 
-This is a local copy of ``aind_behavior_dynamic_foraging.data_contract._dataset.make_dataset``
-with the ``BehaviorVideos`` stream removed. It will be removed once the full dataset is acquired.
+This is a local copy of ``aind_behavior_dynamic_foraging.data_contract._dataset.make_dataset``.
+This file ONLY exists because test data has only been acquired.
+It will be removed once the full dataset is acquired.
 """
 
 from pathlib import Path
