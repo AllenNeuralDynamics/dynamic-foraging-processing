@@ -2,33 +2,43 @@
 
 ### Linters and testing
 
-There are several libraries used to run linters, check documentation, and run tests.
+This project uses [uv](https://docs.astral.sh/uv/) to manage its environment and
+[ruff](https://docs.astral.sh/ruff/) for linting and formatting.
 
-- Please test your changes using the **coverage** library, which will run the tests and log a coverage report:
+- Install dependencies (including the `dev` group):
 
 ```bash
-coverage run -m unittest discover && coverage report
+uv sync
+```
+
+- Run tests with **pytest** under **coverage**:
+
+```bash
+uv run coverage run -m pytest && uv run coverage report
 ```
 
 - Use **interrogate** to check that modules, methods, etc. have been documented thoroughly:
 
 ```bash
-interrogate .
+uv run interrogate .
 ```
 
-- Use **flake8** to check that code is up to standards (no unused imports, etc.):
+- Use **ruff** to lint the code (catches unused imports, style issues, sorts imports, etc.):
+
 ```bash
-flake8 .
+uv run ruff check .
 ```
 
-- Use **black** to automatically format the code into PEP standards:
+- Use **ruff** to automatically format the code:
+
 ```bash
-black .
+uv run ruff format .
 ```
 
-- Use **isort** to automatically sort import statements:
+- To apply ruff's autofixes in one shot:
+
 ```bash
-isort .
+uv run ruff check --fix . && uv run ruff format .
 ```
 
 ### Pull requests
