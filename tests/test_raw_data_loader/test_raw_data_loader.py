@@ -126,14 +126,14 @@ def test_get_all_raw_data_leaf_has_error_raise():
 
 
 # ---------------------------------------------------------------------------
-# raw_data_metadata
+# raw_data_stream_descriptions
 # ---------------------------------------------------------------------------
 
 
-def test_raw_data_metadata():
+def test_raw_data_stream_descriptions():
     """Maps ``parent.name`` to each stream description."""
     s1 = _make_stream("A", parent_name="P", description="d1")
     s2 = _make_stream("B", parent_name="P", description="d2")
     ds = _make_dataset(streams_for_iter_all=[s1, s2])
     loader = RawDataLoader(path="p", dataset=ds)
-    assert loader.raw_data_metadata == {"P.A": "d1", "P.B": "d2"}
+    assert loader.raw_data_stream_descriptions == {"P.A": "d1", "P.B": "d2"}

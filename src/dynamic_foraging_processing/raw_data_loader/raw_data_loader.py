@@ -72,7 +72,7 @@ class RawDataLoader:
         return raw_data_dict
 
     @property
-    def raw_data_metadata(self) -> t.Dict[str, str]:
+    def raw_data_stream_descriptions(self) -> t.Dict[str, str]:
         """Descriptions for each stream in ``self.dataset``
         Will mainly be used for NWB.
 
@@ -81,4 +81,7 @@ class RawDataLoader:
         dict of str to str
             Mapping of stream name to the stream's description.
         """
-        return {f"{stream.parent.name}.{stream.name}": stream.description for stream in self.dataset.iter_all()}
+        return {
+            f"{stream.parent.name}.{stream.name}": stream.description
+            for stream in self.dataset.iter_all()
+        }
