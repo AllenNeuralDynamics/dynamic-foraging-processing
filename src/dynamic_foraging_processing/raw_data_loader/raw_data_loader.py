@@ -66,10 +66,6 @@ class RawDataLoader:
                 if self.raise_on_error:
                     raise ValueError(f"Stream {stream.name} has error: {stream.collect_errors()}")
 
-                raw_data_dict[stream.name] = (
-                    f"No data. Failed to load stream {stream.name} with error: {stream.collect_errors()}"
-                )
-
             raw_data_dict[f"{stream.parent.name}.{stream.name}"] = stream.data
             logger.debug(f"Stream {stream.name} loaded successfully.")
 
