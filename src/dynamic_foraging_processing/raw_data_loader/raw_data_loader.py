@@ -62,7 +62,9 @@ class RawDataLoader:
                 continue
 
             if stream.has_error:
-                logger.warning(f"Stream {stream.name} has error: {stream.collect_errors()}. Skipping")
+                logger.warning(
+                    f"Stream {stream.name} has error: {stream.collect_errors()}. Skipping"
+                )
                 if self.raise_on_error:
                     raise ValueError(f"Stream {stream.name} has error: {stream.collect_errors()}")
                 continue
