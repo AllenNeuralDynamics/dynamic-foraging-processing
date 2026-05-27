@@ -103,7 +103,7 @@ def test_get_all_raw_data_collection_with_errors_raise():
 
 
 def test_get_all_raw_data_leaf_has_error_no_raise():
-    """Leaf errors are tolerated when ``raise_on_error`` is False."""
+    """Leaf errors are skipped when ``raise_on_error`` is False."""
     leaf = _make_stream(
         "Leaf",
         parent_name="Col",
@@ -113,7 +113,7 @@ def test_get_all_raw_data_leaf_has_error_no_raise():
     )
     ds = _make_dataset(streams_for_load_all=[leaf])
     loader = RawDataLoader(path="p", dataset=ds, raise_on_error=False)
-    assert "Col.Leaf" in loader.get_all_raw_data()
+    assert "Col.Leaf" not in loader.get_all_raw_data()
 
 
 def test_get_all_raw_data_leaf_has_error_raise():
