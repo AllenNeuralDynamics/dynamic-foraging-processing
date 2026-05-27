@@ -56,15 +56,16 @@ class RawDataLoader:
             if stream.is_collection:  # only process leaf nodes for data
                 err = stream.collect_errors()
                 if err:
-                    logger.debug(f"Collection stream {stream.name} has errors: {err}")
+                    logger.warning(f"Collection stream {stream.name} has errors: {err}")
                     if self.raise_on_error:
                         raise ValueError(f"Collection stream {stream.name} has errors: {err}")
                 continue
 
             if stream.has_error:
-                logger.debug(f"Stream {stream.name} has error: {stream.collect_errors()}")
+                logger.warning(f"Stream {stream.name} has error: {stream.collect_errors()}. Skipping")
                 if self.raise_on_error:
                     raise ValueError(f"Stream {stream.name} has error: {stream.collect_errors()}")
+                continue
 
             raw_data_dict[f"{stream.parent.name}.{stream.name}"] = stream.data
             logger.debug(f"Stream {stream.name} loaded successfully.")
