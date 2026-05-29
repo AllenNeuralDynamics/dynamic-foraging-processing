@@ -1,4 +1,4 @@
-"""Tests for ``dynamic_foraging_processing.raw_data_loader.raw_data_loader``."""
+"""Tests for ``dynamic_foraging_processing.raw_data_loader.loader``."""
 
 from unittest.mock import MagicMock, patch
 
@@ -56,7 +56,7 @@ def test_init_without_dataset_builds():
     """When dataset is ``None`` the temp builder is invoked."""
     built = _make_dataset()
     with patch(
-        "dynamic_foraging_processing.raw_data_loader.raw_data_loader._build_dataset",
+        "dynamic_foraging_processing.raw_data_loader.loader._build_dataset",
         return_value=built,
     ) as build_mock:
         loader = RawDataLoader(path="root")

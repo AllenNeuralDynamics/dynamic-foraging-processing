@@ -19,7 +19,7 @@ class RawDataLoader:
 
     def __init__(
         self,
-        path: os.PathLike,
+        path: t.Union[str, os.PathLike],
         dataset: t.Optional["Dataset"] = None,
         raise_on_error: bool = False,
     ):
