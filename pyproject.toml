@@ -52,7 +52,7 @@ extend-ignore = []
 convention = 'google'
 
 [tool.coverage.run]
-omit = ["*__init__*", "*/temp_dataset.py"]
+omit = ["*__init__*"]
 source = ["dynamic_foraging_processing", "tests"]
 
 [tool.coverage.report]
