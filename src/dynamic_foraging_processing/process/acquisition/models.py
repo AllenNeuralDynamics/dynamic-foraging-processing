@@ -22,7 +22,7 @@ class AcquisitionSeries(BaseModel):
     timestamps : numpy.ndarray or pandas.Series
         Timestamps aligned with ``data``.
     unit : str
-        Unit of the samples in ``data``.
+        Unit describing the data.
     description : str
         Human-readable description of the series.
     """
