@@ -7,8 +7,8 @@ import pandas as pd
 
 from dynamic_foraging_processing.process.acquisition import AcqusitionBuilder
 from dynamic_foraging_processing.process.acquisition.models import (
+    AcquisitionCollection,
     AcquisitionSeries,
-    NWBAcquisition,
 )
 
 
@@ -71,14 +71,14 @@ def test_get_reward_delivery_filters_to_write_messages():
 
 
 def test_build_acquisition_returns_populated_nwb_acquisition():
-    """``build_acquisition`` returns an ``NWBAcquisition`` with both ports populated."""
+    """``build_acquisition`` returns an ``AcquisitionCollection`` with both ports populated."""
     frame = _make_output_set_frame()
     ds = _make_dataset(frame)
     builder = AcqusitionBuilder(dataset=ds)
 
     acquisition = builder.build_acquisition()
 
-    assert isinstance(acquisition, NWBAcquisition)
+    assert isinstance(acquisition, AcquisitionCollection)
 
     left = acquisition.left_reward_delivery_time
     right = acquisition.right_reward_delivery_time

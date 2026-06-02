@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from dynamic_foraging_processing.process.acquisition.models import (
+    AcquisitionCollection,
     AcquisitionSeries,
-    NWBAcquisition,
 )
 
 
@@ -54,15 +54,15 @@ def test_acquisition_series_is_frozen():
 
 
 # ---------------------------------------------------------------------------
-# NWBAcquisition
+# AcquisitionCollection
 # ---------------------------------------------------------------------------
 
 
-def test_nwb_acquisition_holds_series():
-    """``NWBAcquisition`` stores both reward delivery series."""
+def test_acquisition_collection_holds_series():
+    """``AcquisitionCollection`` stores both reward delivery series."""
     left = _make_series("reward_delivery_left")
     right = _make_series("reward_delivery_right")
-    acquisition = NWBAcquisition(
+    acquisition = AcquisitionCollection(
         left_reward_delivery_time=left,
         right_reward_delivery_time=right,
     )
@@ -70,9 +70,9 @@ def test_nwb_acquisition_holds_series():
     assert acquisition.right_reward_delivery_time is right
 
 
-def test_nwb_acquisition_is_frozen():
-    """``NWBAcquisition`` instances are immutable."""
-    acquisition = NWBAcquisition(
+def test_acquisition_collection_is_frozen():
+    """``AcquisitionCollection`` instances are immutable."""
+    acquisition = AcquisitionCollection(
         left_reward_delivery_time=_make_series("reward_delivery_left"),
         right_reward_delivery_time=_make_series("reward_delivery_right"),
     )
