@@ -80,20 +80,20 @@ def test_build_acquisition_returns_populated_nwb_acquisition():
 
     assert isinstance(acquisition, NWBAcquisition)
 
-    left = acquisition.reward_delivery_left
-    right = acquisition.reward_delivery_right
+    left = acquisition.left_reward_delivery_time
+    right = acquisition.right_reward_delivery_time
     assert isinstance(left, AcquisitionSeries)
     assert isinstance(right, AcquisitionSeries)
 
     expected_timestamps = np.array([0.1, 0.3])
     np.testing.assert_array_equal(left.data, np.array([1, 0]))
     np.testing.assert_array_equal(left.timestamps, expected_timestamps)
-    assert left.name == "reward_delivery_left"
+    assert left.name == "left_reward_delivery_time"
     assert left.unit == "second"
     assert "left lick port" in left.description
 
     np.testing.assert_array_equal(right.data, np.array([0, 1]))
     np.testing.assert_array_equal(right.timestamps, expected_timestamps)
-    assert right.name == "reward_delivery_right"
+    assert right.name == "right_reward_delivery_time"
     assert right.unit == "second"
     assert "right lick port" in right.description

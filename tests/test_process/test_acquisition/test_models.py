@@ -63,18 +63,18 @@ def test_nwb_acquisition_holds_series():
     left = _make_series("reward_delivery_left")
     right = _make_series("reward_delivery_right")
     acquisition = NWBAcquisition(
-        reward_delivery_left=left,
-        reward_delivery_right=right,
+        left_reward_delivery_time=left,
+        right_reward_delivery_time=right,
     )
-    assert acquisition.reward_delivery_left is left
-    assert acquisition.reward_delivery_right is right
+    assert acquisition.left_reward_delivery_time is left
+    assert acquisition.right_reward_delivery_time is right
 
 
 def test_nwb_acquisition_is_frozen():
     """``NWBAcquisition`` instances are immutable."""
     acquisition = NWBAcquisition(
-        reward_delivery_left=_make_series("reward_delivery_left"),
-        reward_delivery_right=_make_series("reward_delivery_right"),
+        left_reward_delivery_time=_make_series("reward_delivery_left"),
+        right_reward_delivery_time=_make_series("reward_delivery_right"),
     )
     with pytest.raises(ValueError):
-        acquisition.reward_delivery_left = _make_series("other")
+        acquisition.left_reward_delivery_time = _make_series("other")
