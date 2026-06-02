@@ -53,14 +53,14 @@ class NWBAcquisition(BaseModel):
 
     Parameters
     ----------
-    reward_delivery_left : AcquisitionSeries
+    left_reward_delivery_time : AcquisitionSeries
         Reward delivery events for the left port.
-    reward_delivery_right : AcquisitionSeries
+    right_reward_delivery_time : AcquisitionSeries
         Reward delivery events for the right port.
     """
 
     # Immutable container; nested AcquisitionSeries already permits arbitrary types.
     model_config = ConfigDict(frozen=True)
 
-    reward_delivery_left: AcquisitionSeries
-    reward_delivery_right: AcquisitionSeries
+    left_reward_delivery_time: AcquisitionSeries
+    right_reward_delivery_time: AcquisitionSeries

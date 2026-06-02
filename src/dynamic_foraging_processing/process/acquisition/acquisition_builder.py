@@ -47,15 +47,15 @@ class AcqusitionBuilder:
         writes = self.get_reward_delivery()
         # TODO: fix data so that it is array of annotations of whether the reward was earned, manual, or automatic
         return NWBAcquisition(
-            reward_delivery_left=AcquisitionSeries(
-                name="reward_delivery_left",
+            left_reward_delivery_time=AcquisitionSeries(
+                name="left_reward_delivery_time",
                 data=writes["SupplyPort0"].to_numpy(),
                 timestamps=writes.index.to_numpy(),
                 unit="second",
                 description="The reward delivery time of the left lick port. The data field annotates whether the reward was earned, manual, or automatic",
             ),
-            reward_delivery_right=AcquisitionSeries(
-                name="reward_delivery_right",
+            right_reward_delivery_time=AcquisitionSeries(
+                name="right_reward_delivery_time",
                 data=writes["SupplyPort1"].to_numpy(),
                 timestamps=writes.index.to_numpy(),
                 unit="second",
