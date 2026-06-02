@@ -48,7 +48,7 @@ class AcquisitionSeries(BaseModel):
         return self
 
 
-class NWBAcquisition(BaseModel):
+class AcquisitionCollection(BaseModel):
     """Collection of acquisition series for the NWB acquisition module.
 
     Parameters

@@ -4,8 +4,8 @@ import contraqctor
 import pandas as pd
 
 from dynamic_foraging_processing.process.acquisition.models import (
+    AcquisitionCollection,
     AcquisitionSeries,
-    NWBAcquisition,
 )
 
 
@@ -36,17 +36,17 @@ class AcqusitionBuilder:
 
         return data_write_messages
 
-    def build_acquisition(self) -> NWBAcquisition:
+    def build_acquisition(self) -> AcquisitionCollection:
         """Build the NWB acquisition collection.
 
         Returns
         -------
-        NWBAcquisition
+        AcquisitionCollection
             Object holding all acquisition series.
         """
         writes = self.get_reward_delivery()
         # TODO: fix data so that it is array of annotations of whether the reward was earned, manual, or automatic
-        return NWBAcquisition(
+        return AcquisitionCollection(
             left_reward_delivery_time=AcquisitionSeries(
                 name="left_reward_delivery_time",
                 data=writes["SupplyPort0"].to_numpy(),
