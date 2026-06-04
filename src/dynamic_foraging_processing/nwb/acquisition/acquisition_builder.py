@@ -47,6 +47,7 @@ class AcquisitionBuilder:
             Acquisition entries to write to the NWB acquisition module.
         """
         rewards = self.get_reward_delivery()
+
         acquisition_streams = self.loader.get_all_raw_data()
         acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
 
@@ -68,7 +69,7 @@ class AcquisitionBuilder:
             AcquisitionSeries(
                 name="left_reward_delivery_time",
                 data=rewards["SupplyPort0"].to_numpy(),
-                timestamps=rewards.index.to_numpy(),
+                timestamps=rewards["SupplyPort0"].index.to_numpy(),
                 unit="second",
                 description=(
                     "The reward delivery time of the left lick port. The data field "
@@ -80,7 +81,7 @@ class AcquisitionBuilder:
             AcquisitionSeries(
                 name="right_reward_delivery_time",
                 data=rewards["SupplyPort1"].to_numpy(),
-                timestamps=rewards.index.to_numpy(),
+                timestamps=rewards["SupplyPort1"].index.to_numpy(),
                 unit="second",
                 description=(
                     "The reward delivery time of the right lick port. The data field "
