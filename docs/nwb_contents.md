@@ -25,11 +25,7 @@ for the raw sources backing each of these four series.
 
 ## Events
 
-The `events` container follows the conventions in
-[aind-physio-arch#1072](https://github.com/AllenNeuralDynamics/aind-physio-arch/issues/1072).
-
-The events sidecar is version-controlled in this repository for now so that
-changes can be tracked alongside the code.
+Events are on pause pending validation by the HED team.
 
 ## Trials
 
@@ -44,3 +40,4 @@ discussion lives in issue
 | Date | Section | Change | Reason |
 | --- | --- | --- | --- |
 | 2026-06-03 | acquisition / trials | Initial scope confirmed: HARP streams + `{left,right}_lick_time` and `{left,right}_reward_delivery_time` in `acquisition`; trials mapping per issue #5. | Meeting with Alex. |
+| 2026-06-05 | events | Events on pause. | Pending validation by the HED team. |
