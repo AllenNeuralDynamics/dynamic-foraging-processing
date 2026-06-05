@@ -25,7 +25,14 @@ for the raw sources backing each of these four series.
 
 ## Events
 
-Events are on pause pending validation by the HED team.
+The `events` container follows the conventions in
+[aind-physio-arch#1072](https://github.com/AllenNeuralDynamics/aind-physio-arch/issues/1072).
+
+The events sidecar will be version-controlled in this repository for now so that
+changes can be tracked alongside the code.
+
+Events are on pause pending validation by the HED team. See the
+[Changelog](#changelog) for details.
 
 ## Trials
 
