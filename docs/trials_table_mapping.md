@@ -50,10 +50,13 @@ Columns are grouped by the raw source they map from.
 
 ### From `TrialOutcome.json` (`SoftwareEvents` stream)
 
+> **Note:** For `is_auto_response_right`, `True` means right and `False`
+> means left.
+
 | Trials column | Mapping |
 | --- | --- |
 | `auto_waterL` / `auto_waterR` | From `is_auto_response_right`. `NULL` for None, `true` for right, `false` for left. Encoded `0`/`1`. |
-| `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `auto_response_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `auto_response_right` is `None` or `True`. |
+| `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_response_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_response_right` is `None` or `True`. |
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
 | `reward_probabilityL` / `reward_probabilityR` | Most likely the block probability: `Trial -> Metadata -> p_reward_left` / `p_reward_right`. Confirm with Alex whether the actual lickspout probability is intended. |
