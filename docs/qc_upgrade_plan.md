@@ -179,17 +179,18 @@ For each `qc.Result`:
 | Tag key | Values |
 | --- | --- |
 | `behavior` | metric name (e.g. `average side bias`, `Left Lick Interval (%)`) |
-| `test_suite` | only on contraqctor metrics; suite name (e.g. `HarpHub`, `DynamicForaging`) |
-| `<suite name>` | only on contraqctor metrics; runner group name (e.g. `"NoGroup"`) |
+| `test_suite` | only on contraqctor metrics; suite name (e.g. `HarpEnvironmentSensorTestSuite`) |
 
-`default_grouping`:
+`default_grouping` tells the QC portal which tag *keys* to use when
+laying out the metrics hierarchically (see the schema field's
+[description](https://github.com/AllenNeuralDynamics/aind-data-schema/blob/dev/src/aind_data_schema/core/quality_control.py)).
+Each entry is a tag key (or a list of tag keys at the same level); the
+portal walks them in order and groups metrics by the values it finds for
+those keys.
 
-```python
-default_grouping = ["test_suite", [<every suite name seen in the metrics>]]
-```
-
-so the QC portal groups first by `test_suite`, then by the per-suite
-group keys. The `behavior` tag sits alongside as its own top-level group.
+So `behavior` and `test_suite` are siblings at the top level; a metric
+ends up under whichever one its tags match. They don't overlap because
+the two groups of metrics carry disjoint tag keys.
 
 ## Changelog
 
