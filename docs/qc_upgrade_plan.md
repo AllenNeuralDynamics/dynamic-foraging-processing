@@ -192,6 +192,18 @@ So `behavior` and `test_suite` are siblings at the top level; a metric
 ends up under whichever one its tags match. They don't overlap because
 the two groups of metrics carry disjoint tag keys.
 
+Sample portal layout:
+
+```
+behavior
+  Metric...
+  Metric...
+
+test_suite
+  Metric...
+  Metric...
+```
+
 ## Changelog
 
 | Date | Section | Change | Reason |
