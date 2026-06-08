@@ -20,6 +20,10 @@ NWB produced by the combined dynamic foraging + FIP pipeline:
 - `left_reward_delivery_time`
 - `right_reward_delivery_time`
 
+Each series stores both timestamps and a parallel `data` array. For the
+reward delivery series, `data` annotates each reward as `earned`, `manual`,
+or `automatic`.
+
 See [`trials_table_mapping.md`](trials_table_mapping.md#acquisition-container)
 for the raw sources backing each of these four series.
 
@@ -48,3 +52,4 @@ discussion lives in issue
 | --- | --- | --- | --- |
 | 2026-06-03 | acquisition / trials | Initial scope confirmed: HARP streams + `{left,right}_lick_time` and `{left,right}_reward_delivery_time` in `acquisition`; trials mapping per issue #5. | Meeting with Alex. |
 | 2026-06-05 | events | Events on pause. | Pending validation by the HED team. |
+| 2026-06-08 | acquisition | Documented `data` arrays alongside timestamps; reward delivery series annotate each reward as `earned`, `manual`, or `automatic`. | Clarify acquisition contents. |
