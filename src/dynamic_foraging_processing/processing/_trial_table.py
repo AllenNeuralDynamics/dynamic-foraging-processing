@@ -10,6 +10,8 @@ import typing as t
 
 import numpy as np
 import pandas as pd
+from aind_behavior_dynamic_foraging.task_logic import AindDynamicForagingTaskLogic
+from aind_behavior_dynamic_foraging.task_logic.trial_generators import TrialGeneratorSpec
 from aind_behavior_dynamic_foraging.task_logic.trial_models import Trial, TrialOutcome
 from aind_behavior_services.task.distributions import Distribution, DistributionFamily
 from contraqctor.contract import Dataset
@@ -274,7 +276,42 @@ class TrialTableBuilder:
     # ------------------------------------------------------------------ #
     # Session-level (constant across trials) columns
     # ------------------------------------------------------------------ #
-    def _session_columns(self, task_logic: t.Optional[t.Any]) -> t.Dict[str, t.Any]:
+    @staticmethod
+    def _coupled_generator(
+        generator: TrialGeneratorSpec,
+    ) -> t.Optional[TrialGeneratorSpec]:
+        """Resolve the ``CoupledTrialGenerator`` carrying the session parameters.
+
+        ``task_parameters.trial_generator`` may be a single generator spec or a
+        ``TrialGeneratorCompositeSpec`` wrapping several sub-generators in
+        ``.generators``. The block-length, ITI, delay, and reward-probability
+        summaries come from the coupled generator; this unwraps the composite
+        and returns it, or returns ``generator`` unchanged when it is not a
+        composite.
+
+        Parameters
+        ----------
+        generator : TrialGeneratorSpec
+            The ``trial_generator`` from the task parameters.
+
+        Returns
+        -------
+        TrialGeneratorSpec or None
+            The coupled generator, or ``None`` if a composite contains none.
+        """
+        sub_generators = getattr(generator, "generators", None)
+        if sub_generators is None:
+            return generator
+        for sub in sub_generators:
+            if getattr(sub, "type", None) == "CoupledTrialGenerator":
+                return sub
+        logger.warning(
+            "No CoupledTrialGenerator among composite trial generators; "
+            "session columns will be null."
+        )
+        return None
+
+    def _session_columns(self, task_logic: AindDynamicForagingTaskLogic) -> t.Dict[str, t.Any]:
         """Return the per-session trial columns derived from the task logic.
 
         These (block/ITI/delay distribution summaries and reward structure) are
@@ -284,7 +321,9 @@ class TrialTableBuilder:
         if task_logic is None:
             return columns
 
-        generator = task_logic.task_parameters.trial_generator
+        generator = self._coupled_generator(task_logic.task_parameters.trial_generator)
+        if generator is None:
+            return columns
 
         block_beta, block_min, block_max = self._distribution_stats(generator.block_length)
         iti_beta, iti_min, iti_max = self._distribution_stats(

@@ -9,6 +9,8 @@ from aind_behavior_dynamic_foraging.task_logic import (
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
+    TrialGeneratorCompositeSpec,
+    UncoupledTrialGeneratorSpec,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
 from aind_behavior_services.task.distributions import (
@@ -222,6 +224,41 @@ def test_build_exponential_quiescent_sets_delay_beta():
     assert table.iloc[0]["delay_beta"] == pytest.approx(1.0)
     assert table.iloc[0]["delay_min"] == 0.0
     assert table.iloc[0]["delay_max"] == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# _coupled_generator — composite trial generators
+# --------------------------------------------------------------------------- #
+def test_coupled_generator_returns_single_generator_unchanged():
+    """A non-composite generator (no ``.generators``) is returned as-is."""
+    spec = _task_logic().task_parameters.trial_generator
+    assert TrialTableBuilder._coupled_generator(spec) is spec
+
+
+def test_coupled_generator_unwraps_composite():
+    """The coupled sub-generator is selected from a composite."""
+    coupled = _task_logic().task_parameters.trial_generator
+    composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec(), coupled])
+    resolved = TrialTableBuilder._coupled_generator(composite)
+    assert resolved.type == "CoupledTrialGenerator"
+    assert resolved.min_block_reward == coupled.min_block_reward
+
+
+def test_coupled_generator_none_when_composite_has_no_coupled(caplog):
+    """A composite without a coupled generator yields ``None`` and warns."""
+    composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec()])
+    assert TrialTableBuilder._coupled_generator(composite) is None
+    assert "No CoupledTrialGenerator" in caplog.text
+
+
+def test_session_columns_empty_when_no_coupled_generator():
+    """A composite task logic with no coupled generator yields no session columns."""
+    task_logic = AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec()])
+        )
+    )
+    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {}
 
 
 # --------------------------------------------------------------------------- #
