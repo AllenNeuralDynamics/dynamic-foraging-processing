@@ -19,7 +19,7 @@ from aind_behavior_services.task.distributions import (
     TruncationParameters,
 )
 
-from dynamic_foraging_processing.processing import TrialRow, TrialTableBuilder
+from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
 
 
 # --------------------------------------------------------------------------- #
@@ -158,7 +158,7 @@ def test_build_full_dataset():
     """Two trials are assembled with the expected per-trial and session values."""
     table = TrialTableBuilder(_full_dataset()).build()
 
-    assert list(table.columns) == list(TrialRow.model_fields)
+    assert list(table.columns) == list(TrialConfig.model_fields)
     assert len(table) == 2
 
     first, second = table.iloc[0], table.iloc[1]
@@ -204,7 +204,7 @@ def test_build_empty_dataset_returns_empty_frame():
     """Missing streams yield an empty table with the full column set."""
     table = TrialTableBuilder(_Node({}), raise_on_error=False).build()
     assert len(table) == 0
-    assert list(table.columns) == list(TrialRow.model_fields)
+    assert list(table.columns) == list(TrialConfig.model_fields)
 
 
 def test_build_exponential_quiescent_sets_delay_beta():
