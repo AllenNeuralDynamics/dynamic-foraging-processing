@@ -1,8 +1,7 @@
 """Builder for the NWB trials table from raw dynamic foraging streams.
 
 The column-by-column source mapping is documented in
-``docs/trials_table_mapping.md``; this module implements it. See
-``processing/CLAUDE.md`` for design notes and the scope of in-/out-of-scope
+``docs/trials_table_mapping.md``
 columns.
 """
 
