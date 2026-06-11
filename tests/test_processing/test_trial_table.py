@@ -29,13 +29,16 @@ class _Stream:
     """Leaf node exposing ``load().data`` like a contraqctor stream."""
 
     def __init__(self, data):
+        """Store the stream's payload."""
         self._data = data
 
     def load(self):
+        """Return self, mirroring the contraqctor stream ``load()`` call."""
         return self
 
     @property
     def data(self):
+        """Return the stored payload."""
         return self._data
 
 
@@ -43,9 +46,11 @@ class _Node:
     """Branch node exposing ``at(name)`` navigation."""
 
     def __init__(self, children):
+        """Store the node's child streams/nodes by name."""
         self.children = children
 
     def at(self, name):
+        """Return the child registered under ``name``."""
         return self.children[name]
 
 
