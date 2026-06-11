@@ -286,7 +286,7 @@ class TrialTableBuilder:
 
         generator = task_logic.task_parameters.trial_generator
 
-        block_beta, block_min, block_max = self._distribution_stats(generator.block_len)
+        block_beta, block_min, block_max = self._distribution_stats(generator.block_length)
         iti_beta, iti_min, iti_max = self._distribution_stats(
             generator.inter_trial_interval_duration
         )

@@ -7,7 +7,7 @@ from aind_behavior_dynamic_foraging.task_logic import (
     AindDynamicForagingTaskLogic,
     AindDynamicForagingTaskParameters,
 )
-from aind_behavior_dynamic_foraging.task_logic.trial_generators.coupled_trial_generator import (
+from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
@@ -92,7 +92,7 @@ def _task_logic(quiescent_scalar=True):
             distribution_parameters=ExponentialDistributionParameters(rate=0.2),
             truncation_parameters=TruncationParameters(min=1.0, max=10.0),
         ),
-        block_len=ExponentialDistribution(
+        block_length=ExponentialDistribution(
             distribution_parameters=ExponentialDistributionParameters(rate=0.05),
             truncation_parameters=TruncationParameters(min=20.0, max=60.0),
         ),
