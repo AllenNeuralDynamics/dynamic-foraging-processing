@@ -1,5 +1,5 @@
 """Domain models for the processing module."""
 
-from .trial_row import TrialRow
+from .trial_config import TrialConfig
 
-__all__ = ["TrialRow"]
+__all__ = ["TrialConfig"]

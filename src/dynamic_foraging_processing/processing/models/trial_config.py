@@ -11,7 +11,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class TrialRow(BaseModel):
+class TrialConfig(BaseModel):
     """One row of the NWB trials table.
 
     Each field's ``description`` is the source of truth for the corresponding

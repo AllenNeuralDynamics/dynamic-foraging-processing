@@ -15,7 +15,7 @@ from aind_behavior_dynamic_foraging.task_logic.trial_models import Trial, TrialO
 from aind_behavior_services.task.distributions import Distribution, DistributionFamily
 from contraqctor.contract import Dataset
 
-from dynamic_foraging_processing.processing.models import TrialRow
+from dynamic_foraging_processing.processing.models import TrialConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class TrialTableBuilder:
 
     The builder reads the per-trial software events, the task-logic
     configuration, and the hardware (Harp) streams, then assembles one
-    ``TrialRow`` per trial.
+    ``TrialConfig`` per trial.
     """
 
     def __init__(self, dataset: Dataset, *, raise_on_error: bool = False):
@@ -351,13 +351,13 @@ class TrialTableBuilder:
         go_cue_times: np.ndarray,
         session: t.Dict[str, t.Any],
         lickspout: t.Dict[str, t.Optional[float]],
-    ) -> TrialRow:
-        """Assemble a single ``TrialRow`` from aligned per-trial inputs."""
+    ) -> TrialConfig:
+        """Assemble a single ``TrialConfig`` from aligned per-trial inputs."""
         trial = outcome.trial if outcome is not None else None
         is_right_choice = outcome.is_right_choice if outcome is not None else None
         is_rewarded = bool(outcome.is_rewarded) if outcome is not None else None
 
-        return TrialRow(
+        return TrialConfig(
             start_time=start,
             stop_time=stop,
             delay_start_time=start,
@@ -417,7 +417,7 @@ class TrialTableBuilder:
         session = self._session_columns(task_logic)
         lickspout = self._lickspout_columns(manipulator)
 
-        rows: t.List[TrialRow] = []
+        rows: t.List[TrialConfig] = []
         for i, outcome_payload in enumerate(outcome_payloads):
             outcome = self._parse_outcome(outcome_payload)
             start = float(start_times[i]) if i < start_times.size else np.nan
@@ -439,6 +439,6 @@ class TrialTableBuilder:
             )
 
         frame = pd.DataFrame(
-            [row.model_dump() for row in rows], columns=list(TrialRow.model_fields)
+            [row.model_dump() for row in rows], columns=list(TrialConfig.model_fields)
         )
         return frame.where(pd.notnull(frame), np.nan)
