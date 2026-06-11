@@ -3,7 +3,7 @@
 Field descriptions are copied verbatim from ``nwb_trial_column_info.json`` in the
 combined pipeline and become the NWB trial-column descriptions. Only in-scope
 columns are modeled; ``autoTrain`` curriculum and optogenetics columns are out of
-scope 
+scope
 """
 
 from typing import Optional
