@@ -186,8 +186,8 @@ def test_build_full_dataset():
     assert second["right_valve_open_time"] == 22.0
 
     # Reward history split by side.
-    assert first["rewarded_historyR"] is True or first["rewarded_historyR"] == True  # noqa: E712
-    assert first["rewarded_historyL"] is False or first["rewarded_historyL"] == False  # noqa: E712
+    assert bool(first["rewarded_historyR"]) is True
+    assert bool(first["rewarded_historyL"]) is False
     assert second["rewarded_historyL"] is np.nan or pd.isna(second["rewarded_historyL"])
 
     # Bait derived from p_reward and auto-response.
