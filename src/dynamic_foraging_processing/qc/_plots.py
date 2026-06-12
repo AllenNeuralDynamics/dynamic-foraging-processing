@@ -1,0 +1,286 @@
+"""QC plots for the dynamic foraging behavior metrics.
+
+Ported from the old ``aind-dynamic-foraging-qc`` capsule, adapted to take
+primitive arrays / DataFrames instead of a ``behavior.json`` dict. The Agg
+backend is forced so the plots render headlessly (no display required).
+"""
+
+import os
+import typing as t
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+from dynamic_foraging_processing.qc._behavior import (
+    LICK_INTERVALS_PLOT,
+    SIDE_BIAS_PLOT,
+    compute_rolling_bias,
+)
+
+#: Column -> color mapping for the lickspout-position panel.
+_LICKSPOUT_COLORS = {"x": "r", "y1": "b", "y2": "lightblue", "y": "b", "z": "m"}
+
+
+def plot_lick_intervals(
+    left_lick_times: np.ndarray, right_lick_times: np.ndarray, results_folder: str
+) -> str:
+    """Save the five-panel inter-lick-interval histogram.
+
+    Panels: left licks, right licks, left-to-right, right-to-left, all licks.
+
+    Parameters
+    ----------
+    left_lick_times : numpy.ndarray
+        Timestamps (s) of left-port licks.
+    right_lick_times : numpy.ndarray
+        Timestamps (s) of right-port licks.
+    results_folder : str
+        Directory to write ``lick_intervals.png`` into.
+
+    Returns
+    -------
+    str
+        The plot filename (``lick_intervals.png``), for use as a metric
+        ``reference``.
+    """
+    left = np.asarray(left_lick_times, dtype=float)
+    right = np.asarray(right_lick_times, dtype=float)
+
+    fig, ax = plt.subplots(1, 5, figsize=(8, 3), sharex=True, sharey=True)
+    titles = [
+        "left licks",
+        "right licks",
+        "left to right licks",
+        "right to left licks",
+        "all licks",
+    ]
+    for axis, title in zip(ax, titles):
+        axis.set_title(title)
+        axis.set_xlabel("time (s)")
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+    ax[0].set_xlim(-0.01, 0.3)
+    ax[0].set_ylabel("counts")
+
+    bins = np.linspace(-0.3, 0.3, 100)
+    left_index = np.zeros_like(left)
+    right_index = np.ones_like(right)
+    all_licks = np.concatenate((left, right))
+    all_index = np.concatenate((left_index, right_index))
+    sort_order = np.argsort(all_licks)
+    all_licks_sorted_diff = np.diff(all_licks[sort_order])
+    index_sorted_diff = np.diff(all_index[sort_order])
+    left_to_right = all_licks_sorted_diff[index_sorted_diff == 1]
+    right_to_left = all_licks_sorted_diff[index_sorted_diff == -1]
+
+    ax[0].hist(np.diff(left), bins=bins, color="red", alpha=0.7)
+    ax[1].hist(np.diff(right), bins=bins, color="blue", alpha=0.7)
+    ax[2].hist(left_to_right, bins=bins, color="black", alpha=0.7)
+    ax[3].hist(right_to_left, bins=bins, color="black", alpha=0.7)
+    ax[4].hist(all_licks_sorted_diff, bins=bins, color="black", alpha=0.7)
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(results_folder, LICK_INTERVALS_PLOT), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return LICK_INTERVALS_PLOT
+
+
+def _add_bias_plot(ax: plt.Axes, animal_response: np.ndarray, window: int) -> None:
+    """Draw the rolling side-bias trace with its confidence band."""
+    ax.set_xlabel("Trial #")
+    ax.set_ylabel("Side Bias")
+    ax.axhline(+0.7, color="r", linestyle="--")
+    ax.axhline(-0.7, color="r", linestyle="--")
+    ax.axhline(0, color="k", linestyle="--")
+    ax.set_ylim([-1, +1])
+
+    bias, ci = compute_rolling_bias(animal_response, window=window)
+    trials = np.arange(len(bias))
+    ax.fill_between(trials, ci[:, 0], ci[:, 1], color="gray", alpha=0.5)
+    ax.plot(trials, bias, "k", linewidth=2)
+    if len(bias):
+        ax.set_xlim([0, len(bias)])
+
+
+def _add_lickspout_position_plot(ax: plt.Axes, stage_positions: t.Optional[pd.DataFrame]) -> None:
+    """Draw lickspout x/y/z positions relative to session start (mm)."""
+    ax.set_xlabel("Trial #")
+    ax.set_ylabel("Lickspout Position \n relative to session start (mm)")
+    if stage_positions is None or len(stage_positions) == 0:
+        return
+    for col in stage_positions.columns:
+        if col not in _LICKSPOUT_COLORS:
+            continue
+        series = stage_positions[col].to_numpy(dtype=float)
+        ax.plot(series - series[0], _LICKSPOUT_COLORS[col], label=col.upper())
+    ax.legend()
+
+
+def _time_to_trial_index(go_cue_times: np.ndarray, times: np.ndarray) -> t.List[int]:
+    """Map event times to the index of the most recent preceding go cue."""
+    go_cue_times = np.asarray(go_cue_times, dtype=float)
+    trial_index = []
+    for event_time in np.asarray(times, dtype=float):
+        if len(go_cue_times) == 0 or event_time < go_cue_times[0]:
+            trial_index.append(-1)
+        else:
+            trial_index.append(int(np.where(go_cue_times < event_time)[0][-1]))
+    return trial_index
+
+
+def _add_behavior_plot(
+    ax: plt.Axes,
+    animal_response: np.ndarray,
+    rewarded_history: t.Optional[pd.DataFrame],
+    auto_water: t.Optional[pd.DataFrame],
+    manual_left_times: t.Optional[np.ndarray],
+    manual_right_times: t.Optional[np.ndarray],
+    go_cue_times: t.Optional[np.ndarray],
+) -> None:
+    """Draw the per-trial behavior raster (choices, rewards, water)."""
+    choices = np.asarray(animal_response)
+    ax.vlines(np.where(choices == 1)[0], 0.8, 1, linewidth=1, color="gray", label="Choice")
+    ax.vlines(np.where(choices == 0)[0], 0, 0.2, linewidth=1, color="gray")
+    ax.vlines(np.where(choices == 2)[0], 0.4, 0.6, linewidth=1, color="darkviolet", label="ignore")
+
+    if rewarded_history is not None:
+        left_rewards = np.where(rewarded_history["left"].to_numpy())[0]
+        right_rewards = np.where(rewarded_history["right"].to_numpy())[0]
+        ax.vlines(left_rewards, -0.2, 0, linewidth=1, color="black", label="Earned Water")
+        ax.vlines(right_rewards, 1, 1.2, linewidth=1, color="black")
+
+    if manual_right_times is not None and go_cue_times is not None:
+        ax.vlines(
+            _time_to_trial_index(go_cue_times, manual_right_times),
+            1.2,
+            1.4,
+            linewidth=1,
+            color="blue",
+            label="Manual Water",
+        )
+    if manual_left_times is not None and go_cue_times is not None:
+        ax.vlines(
+            _time_to_trial_index(go_cue_times, manual_left_times),
+            -0.4,
+            -0.2,
+            linewidth=1,
+            color="blue",
+        )
+
+    if auto_water is not None:
+        ax.vlines(
+            np.where(auto_water["right"].to_numpy() == 1)[0],
+            1.2,
+            1.4,
+            linewidth=1,
+            color="cyan",
+            label="Auto Water",
+        )
+        ax.vlines(
+            np.where(auto_water["left"].to_numpy() == 1)[0], -0.4, -0.2, linewidth=1, color="cyan"
+        )
+
+    ax.set_ylim([-0.4, 1.4])
+    ax.set_xlim([0, len(choices)])
+    ax.set_xlabel("Trial #")
+    ax.set_yticks(
+        [-0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3],
+        labels=[
+            "L Auto Water",
+            "L Reward",
+            "L Choice",
+            "Ignore",
+            "R Choice",
+            "R Reward",
+            "R Auto Water",
+        ],
+    )
+
+
+def _add_reward_probabilities(
+    ax: plt.Axes,
+    reward_probability_left: t.Optional[np.ndarray],
+    reward_probability_right: t.Optional[np.ndarray],
+) -> None:
+    """Draw the per-trial left/right reward probabilities."""
+    ax.set_xlabel("Trial #")
+    ax.set_ylim([0, 1])
+    if reward_probability_left is not None:
+        ax.plot(reward_probability_left, "b", label="Prob. L")
+    if reward_probability_right is not None:
+        ax.plot(reward_probability_right, "r", label="Prob. R")
+    ax.legend()
+
+
+def plot_side_bias(
+    animal_response: np.ndarray,
+    results_folder: str,
+    *,
+    stage_positions: t.Optional[pd.DataFrame] = None,
+    rewarded_history: t.Optional[pd.DataFrame] = None,
+    reward_probability_left: t.Optional[np.ndarray] = None,
+    reward_probability_right: t.Optional[np.ndarray] = None,
+    go_cue_times: t.Optional[np.ndarray] = None,
+    auto_water: t.Optional[pd.DataFrame] = None,
+    manual_left_times: t.Optional[np.ndarray] = None,
+    manual_right_times: t.Optional[np.ndarray] = None,
+    bias_window: int = 20,
+) -> str:
+    """Save the four-panel side-bias figure.
+
+    Panels: rolling side bias (with CI), lickspout position, behavior raster,
+    and reward probabilities.
+
+    Parameters
+    ----------
+    animal_response : numpy.ndarray
+        Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
+    results_folder : str
+        Directory to write ``side_bias.png`` into.
+    stage_positions : pandas.DataFrame, optional
+        Per-trial lickspout positions (columns among ``x``/``y1``/``y2``/``z``).
+    rewarded_history : pandas.DataFrame, optional
+        Boolean ``left``/``right`` reward columns per trial.
+    reward_probability_left, reward_probability_right : numpy.ndarray, optional
+        Per-trial reward probabilities.
+    go_cue_times : numpy.ndarray, optional
+        Go-cue timestamps (s), used to map manual-water times to trials.
+    auto_water : pandas.DataFrame, optional
+        ``left``/``right`` autowater indicators per trial.
+    manual_left_times, manual_right_times : numpy.ndarray, optional
+        Manual-water delivery timestamps (s).
+    bias_window : int, optional
+        Trailing window for the rolling bias. Defaults to ``20``.
+
+    Returns
+    -------
+    str
+        The plot filename (``side_bias.png``), for use as a metric
+        ``reference``.
+    """
+    fig, ax = plt.subplots(nrows=4, figsize=(10, 12))
+    for axis in ax:
+        axis.spines["top"].set_visible(False)
+        axis.spines["right"].set_visible(False)
+
+    _add_bias_plot(ax[0], animal_response, bias_window)
+    _add_lickspout_position_plot(ax[1], stage_positions)
+    _add_behavior_plot(
+        ax[2],
+        animal_response,
+        rewarded_history,
+        auto_water,
+        manual_left_times,
+        manual_right_times,
+        go_cue_times,
+    )
+    _add_reward_probabilities(ax[3], reward_probability_left, reward_probability_right)
+
+    fig.savefig(os.path.join(results_folder, SIDE_BIAS_PLOT), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return SIDE_BIAS_PLOT
