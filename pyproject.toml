@@ -21,6 +21,15 @@ dependencies = [
     "ipykernel",
 ]
 
+[project.optional-dependencies]
+qc = [
+    "aind-data-schema>=2.4.1",
+    "matplotlib",
+]
+full = [
+    "dynamic-foraging-processing[qc]",
+]
+
 [dependency-groups]
 dev = [
     'ruff',
