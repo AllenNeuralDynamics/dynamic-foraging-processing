@@ -38,7 +38,6 @@ class TrialConfig(BaseModel):
         default=None,
         description=(
             "Start time of the delay (quiescent) period preceding the go cue; equals the trial start time (QuiescentPeriod timestamp)."
-
         ),
     )
     goCue_start_time: Optional[float] = Field(default=None, description="The go cue start time")
