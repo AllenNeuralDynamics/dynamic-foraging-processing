@@ -9,6 +9,7 @@ from aind_behavior_dynamic_foraging.task_logic import (
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
+    CoupledWarmupTrialGeneratorSpec,
     TrialGeneratorCompositeSpec,
     UncoupledTrialGeneratorSpec,
 )
@@ -39,9 +40,27 @@ class _Stream:
         return self
 
     @property
+    def has_data(self):
+        """Report data as available, mirroring a successfully loaded stream."""
+        return True
+
+    @property
     def data(self):
         """Return the stored payload."""
         return self._data
+
+
+class _FailedStream:
+    """Leaf node that loads but reports no data, like a stream that failed to read."""
+
+    def load(self):
+        """Return self, mirroring the contraqctor stream ``load()`` call."""
+        return self
+
+    @property
+    def has_data(self):
+        """Report no data, mirroring a stream whose read failed."""
+        return False
 
 
 class _Node:
@@ -158,6 +177,15 @@ def _full_dataset():
     return _Node({"Behavior": behavior})
 
 
+def _misaligned_dataset():
+    """A two-trial dataset whose QuiescentPeriod (start) stream is one event short."""
+    dataset = _full_dataset()
+    software_events = dataset.children["Behavior"].children["SoftwareEvents"]
+    # One start time for two TrialOutcome events -> positional misalignment.
+    software_events.children["QuiescentPeriod"] = _Stream(_events([10.0], [None]))
+    return dataset
+
+
 # --------------------------------------------------------------------------- #
 # build() — full happy path
 # --------------------------------------------------------------------------- #
@@ -188,7 +216,9 @@ def test_build_full_dataset():
     # Reward history split by side.
     assert bool(first["rewarded_historyR"]) is True
     assert bool(first["rewarded_historyL"]) is False
-    assert second["rewarded_historyL"] is np.nan or pd.isna(second["rewarded_historyL"])
+    # Second trial was ignored (no choice) -> not rewarded on either side.
+    assert bool(second["rewarded_historyL"]) is False
+    assert bool(second["rewarded_historyR"]) is False
 
     # Bait derived from p_reward and auto-response.
     assert bool(first["bait_left"]) is True
@@ -226,39 +256,78 @@ def test_build_exponential_quiescent_sets_delay_beta():
     assert table.iloc[0]["delay_max"] == 1.0
 
 
+def test_build_warns_on_misaligned_streams(caplog):
+    """A per-trial stream shorter than TrialOutcome warns but still builds."""
+    table = TrialTableBuilder(_misaligned_dataset()).build()
+    assert len(table) == 2
+    assert "misaligned" in caplog.text.lower()
+
+
+def test_build_raises_on_misaligned_streams_when_configured():
+    """Misaligned per-trial streams raise ``ValueError`` when ``raise_on_error`` is True."""
+    with pytest.raises(ValueError, match="misaligned"):
+        TrialTableBuilder(_misaligned_dataset(), raise_on_error=True).build()
+
+
 # --------------------------------------------------------------------------- #
-# _coupled_generator — composite trial generators
+# _summary_generator — composite trial generators
 # --------------------------------------------------------------------------- #
-def test_coupled_generator_returns_single_generator_unchanged():
+def test_summary_generator_returns_single_generator_unchanged():
     """A non-composite generator (no ``.generators``) is returned as-is."""
     spec = _task_logic().task_parameters.trial_generator
-    assert TrialTableBuilder._coupled_generator(spec) is spec
+    assert TrialTableBuilder._summary_generator(spec) is spec
 
 
-def test_coupled_generator_unwraps_composite():
-    """The coupled sub-generator is selected from a composite."""
+def test_summary_generator_prefers_coupled_over_uncoupled():
+    """A coupled sub-generator is preferred even when an uncoupled one precedes it."""
     coupled = _task_logic().task_parameters.trial_generator
     composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec(), coupled])
-    resolved = TrialTableBuilder._coupled_generator(composite)
+    resolved = TrialTableBuilder._summary_generator(composite)
     assert resolved.type == "CoupledTrialGenerator"
     assert resolved.min_block_reward == coupled.min_block_reward
 
 
-def test_coupled_generator_none_when_composite_has_no_coupled(caplog):
-    """A composite without a coupled generator yields ``None`` and warns."""
-    composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec()])
-    assert TrialTableBuilder._coupled_generator(composite) is None
-    assert "No CoupledTrialGenerator" in caplog.text
+def test_summary_generator_falls_back_to_uncoupled():
+    """An uncoupled sub-generator is used when no coupled generator is present."""
+    composite = TrialGeneratorCompositeSpec(
+        generators=[CoupledWarmupTrialGeneratorSpec(), UncoupledTrialGeneratorSpec()]
+    )
+    resolved = TrialTableBuilder._summary_generator(composite)
+    assert resolved.type == "UncoupledTrialGenerator"
 
 
-def test_session_columns_empty_when_no_coupled_generator():
-    """A composite task logic with no coupled generator yields no session columns."""
+def test_summary_generator_none_when_no_coupled_or_uncoupled(caplog):
+    """A composite with neither coupled nor uncoupled generators yields ``None`` and warns."""
+    composite = TrialGeneratorCompositeSpec(generators=[CoupledWarmupTrialGeneratorSpec()])
+    assert TrialTableBuilder._summary_generator(composite) is None
+    assert "No coupled or uncoupled generator" in caplog.text
+
+
+def test_session_columns_empty_when_no_summary_generator():
+    """A composite task logic with no coupled/uncoupled generator yields no session columns."""
     task_logic = AindDynamicForagingTaskLogic(
         task_parameters=AindDynamicForagingTaskParameters(
-            trial_generator=TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec()])
+            trial_generator=TrialGeneratorCompositeSpec(
+                generators=[CoupledWarmupTrialGeneratorSpec()]
+            )
         )
     )
     assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {}
+
+
+def test_session_columns_uncoupled_has_null_reward_sum():
+    """An uncoupled generator populates distribution columns but no coupled-only fields."""
+    task_logic = AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=UncoupledTrialGeneratorSpec()
+        )
+    )
+    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic)
+    # Distribution summaries are common to all block-based generators.
+    assert "ITI_beta" in columns
+    # Coupled-only fields are absent / null for an uncoupled generator.
+    assert columns["base_reward_probability_sum"] is None
+    assert "min_reward_each_block" not in columns
 
 
 # --------------------------------------------------------------------------- #
@@ -275,6 +344,19 @@ def test_load_missing_stream_raises_when_configured():
     builder = TrialTableBuilder(_Node({}), raise_on_error=True)
     with pytest.raises(ValueError, match="Failed to load stream"):
         builder._load("Behavior", "Missing")
+
+
+def test_load_stream_failed_to_load_returns_none():
+    """A stream that loads without data returns ``None`` when not raising."""
+    builder = TrialTableBuilder(_Node({"Broken": _FailedStream()}), raise_on_error=False)
+    assert builder._load("Broken") is None
+
+
+def test_load_stream_failed_to_load_raises_when_configured():
+    """A stream that loads without data raises ``ValueError`` when configured."""
+    builder = TrialTableBuilder(_Node({"Broken": _FailedStream()}), raise_on_error=True)
+    with pytest.raises(ValueError, match="stream failed to load"):
+        builder._load("Broken")
 
 
 # --------------------------------------------------------------------------- #
@@ -311,10 +393,19 @@ def test_animal_response_encoding():
     assert TrialTableBuilder._animal_response(False) == 0
 
 
-def test_bait_none_trial_returns_none():
-    """A missing trial yields ``None`` bait for both sides."""
-    assert TrialTableBuilder._bait(None, side=True) is None
-    assert TrialTableBuilder._bait(None, side=False) is None
+def test_is_baited_none_trial_returns_false():
+    """A missing trial yields ``False`` bait for both sides."""
+    assert TrialTableBuilder._is_baited(None, is_right=True) is False
+    assert TrialTableBuilder._is_baited(None, is_right=False) is False
+
+
+def test_is_baited_forfeited_by_auto_response_on_same_side():
+    """A side with guaranteed reward stays baited unless auto-responded to that side."""
+    trial = TrialOutcome.model_validate(
+        _outcome(0.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
+    ).trial
+    # Right is guaranteed (p=1) but auto-responded right -> bait collected.
+    assert TrialTableBuilder._is_baited(trial, is_right=True) is False
 
 
 def test_auto_water_encodes_side_from_auto_response():
@@ -322,9 +413,9 @@ def test_auto_water_encodes_side_from_auto_response():
     trial = TrialOutcome.model_validate(
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
     ).trial
-    assert TrialTableBuilder._auto_water(trial, side=True) == 1
-    assert TrialTableBuilder._auto_water(trial, side=False) == 0
-    assert TrialTableBuilder._auto_water(None, side=True) is None
+    assert TrialTableBuilder._auto_water(trial, is_right=True) == 1
+    assert TrialTableBuilder._auto_water(trial, is_right=False) == 0
+    assert TrialTableBuilder._auto_water(None, is_right=True) is None
 
 
 @pytest.mark.parametrize(
