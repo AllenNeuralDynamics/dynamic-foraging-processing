@@ -87,7 +87,7 @@ class TrialConfig(BaseModel):
     # --- delay_duration ---
     delay_beta: Optional[float] = Field(
         default=None,
-        description="The beta of exponential distribution to generate the delay duration(s)",
+        description="The beta of exponential distribution to generate the delay duration(s). Can be none depending on distribution type (scalar for example)",
     )
     delay_min: Optional[float] = Field(
         default=None, description="The minimum duration(s) allowed for each delay"
@@ -102,7 +102,7 @@ class TrialConfig(BaseModel):
     # --- ITI_duration ---
     ITI_beta: Optional[float] = Field(
         default=None,
-        description="The beta of exponential distribution to generate the ITI duration(s). Can be none depending on distribution type (scalar for example)",
+        description="The beta of exponential distribution to generate the ITI duration(s).",
     )
     ITI_min: Optional[float] = Field(
         default=None, description="The minimum duration(s) allowed for each ITI"
