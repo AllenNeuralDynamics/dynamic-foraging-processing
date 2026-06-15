@@ -23,43 +23,50 @@ class TrialConfig(BaseModel):
     stop_time: float = Field(description="Trial stop time (ItiPeriod timestamp).")
 
     # --- trial_info ---
-    animal_response: Optional[int] = Field(
-        default=None,
+    animal_response: int = Field(
+        ge=0,
+        le=2,
         description="The response of the animal. 0, left choice; 1, right choice; 2, no response",
     )
-    rewarded_historyL: Optional[bool] = Field(
-        default=None, description="The reward history of left lick port"
+    rewarded_historyL: bool = Field(
+        default=False, description="The reward history of left lick port"
     )
-    rewarded_historyR: Optional[bool] = Field(
-        default=None, description="The reward history of right lick port"
+    rewarded_historyR: bool = Field(
+        default=False, description="The reward history of right lick port"
     )
     delay_start_time: Optional[float] = Field(
         default=None,
-        description="The delay start time, this is the first delay of the trial",
+        description=(
+            "Start time (s) of the delay (quiescent) period that precedes the go "
+            "cue; the animal must withhold licking from here until the go cue"
+        ),
     )
     goCue_start_time: Optional[float] = Field(default=None, description="The go cue start time")
 
     # --- behavior_structure ---
-    bait_left: Optional[bool] = Field(
-        default=None, description="Whether the current left lickport has a bait or not"
+    bait_left: bool = Field(
+        default=False, description="Whether the current left lickport has a bait or not"
     )
-    bait_right: Optional[bool] = Field(
-        default=None, description="Whether the current right lickport has a bait or not"
+    bait_right: bool = Field(
+        default=False, description="Whether the current right lickport has a bait or not"
     )
     base_reward_probability_sum: Optional[float] = Field(
-        default=None, description="The summation of left and right reward probability"
+        default=None,
+        ge=0,
+        le=1,
+        description="The summation of left and right reward probability",
     )
     reward_probabilityL: Optional[float] = Field(
-        default=None, description="The reward probability of left lick port"
+        default=None, ge=0, le=1, description="The reward probability of left lick port"
     )
     reward_probabilityR: Optional[float] = Field(
-        default=None, description="The reward probability of right lick port"
+        default=None, ge=0, le=1, description="The reward probability of right lick port"
     )
     left_valve_open_time: Optional[float] = Field(
-        default=None, description="The left valve open time"
+        default=None, description="Time (s) at which the left valve opened"
     )
     right_valve_open_time: Optional[float] = Field(
-        default=None, description="The right valve open time"
+        default=None, description="Time (s) at which the right valve opened"
     )
 
     # --- block_information ---
@@ -89,13 +96,13 @@ class TrialConfig(BaseModel):
         default=None, description="The maximum duration(s) allowed for each delay"
     )
     delay_duration: Optional[float] = Field(
-        default=None, description="The duration between delay start and go cue start"
+        default=None, description="The duration (s) between delay start and go cue start"
     )
 
     # --- ITI_duration ---
     ITI_beta: Optional[float] = Field(
         default=None,
-        description="The beta of exponential distribution to generate the ITI duration(s)",
+        description="The beta of exponential distribution to generate the ITI duration(s). Can be none depending on distribution type (scalar for example)",
     )
     ITI_min: Optional[float] = Field(
         default=None, description="The minimum duration(s) allowed for each ITI"
@@ -104,7 +111,7 @@ class TrialConfig(BaseModel):
         default=None, description="The maximum duration(s) allowed for each ITI"
     )
     ITI_duration: Optional[float] = Field(
-        default=None, description="The expected time duration between trial start and ITI start"
+        default=None, description="The expected time duration (s) between trial start and ITI start"
     )
 
     # --- response_and_reward_duration ---
@@ -145,4 +152,8 @@ class TrialConfig(BaseModel):
         dict of str to str
             Column name to description, suitable for adding NWB trial columns.
         """
-        return {name: field.description for name, field in cls.model_fields.items()}
+        return {
+            name: field.description
+            for name, field in cls.model_fields.items()
+            if field.description is not None
+        }
