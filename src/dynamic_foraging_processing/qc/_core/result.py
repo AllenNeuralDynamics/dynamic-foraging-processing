@@ -11,7 +11,7 @@ import typing as t
 
 from aind_data_schema.core.quality_control import QCMetric
 
-from dynamic_foraging_processing.qc._schema import bool_to_status, make_metric
+from dynamic_foraging_processing.qc._core.schema import bool_to_status, make_metric
 
 
 @dataclasses.dataclass(frozen=True)

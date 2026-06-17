@@ -11,7 +11,7 @@ import typing as t
 
 import numpy as np
 
-from dynamic_foraging_processing.qc._result import QCResult
+from dynamic_foraging_processing.qc._core.result import QCResult
 
 #: Reference plot assets shared by the behavior metrics.
 SIDE_BIAS_PLOT = "side_bias.png"

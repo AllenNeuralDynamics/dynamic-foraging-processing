@@ -1,8 +1,8 @@
 """QC plots for the dynamic foraging behavior metrics.
 
 Ported from the old ``aind-dynamic-foraging-qc`` capsule, adapted to take
-primitive arrays / DataFrames instead of a ``behavior.json`` dict. The Agg
-backend is forced so the plots render headlessly (no display required).
+primitive per-trial and event-time arrays instead of a ``behavior.json`` dict.
+The Agg backend is forced so the plots render headlessly (no display required).
 """
 
 import os
@@ -14,16 +14,12 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
-from dynamic_foraging_processing.qc._behavior import (
+from dynamic_foraging_processing.qc.processed.behavior import (
     LICK_INTERVALS_PLOT,
     SIDE_BIAS_PLOT,
     compute_rolling_bias,
 )
-
-#: Column -> color mapping for the lickspout-position panel.
-_LICKSPOUT_COLORS = {"x": "r", "y1": "b", "y2": "lightblue", "y": "b", "z": "m"}
 
 
 def plot_lick_intervals(
@@ -107,18 +103,31 @@ def _add_bias_plot(ax: plt.Axes, animal_response: np.ndarray, window: int) -> No
         ax.set_xlim([0, len(bias)])
 
 
-def _add_lickspout_position_plot(ax: plt.Axes, stage_positions: t.Optional[pd.DataFrame]) -> None:
+def _add_lickspout_position_plot(
+    ax: plt.Axes,
+    lickspout_x: t.Optional[np.ndarray],
+    lickspout_y1: t.Optional[np.ndarray],
+    lickspout_y2: t.Optional[np.ndarray],
+    lickspout_z: t.Optional[np.ndarray],
+) -> None:
     """Draw lickspout x/y/z positions relative to session start (mm)."""
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Lickspout Position \n relative to session start (mm)")
-    if stage_positions is None or len(stage_positions) == 0:
-        return
-    for col in stage_positions.columns:
-        if col not in _LICKSPOUT_COLORS:
+    positions = [
+        ("X", lickspout_x, "r"),
+        ("Y1", lickspout_y1, "b"),
+        ("Y2", lickspout_y2, "lightblue"),
+        ("Z", lickspout_z, "m"),
+    ]
+    plotted = False
+    for label, position, color in positions:
+        if position is None or len(position) == 0:
             continue
-        series = stage_positions[col].to_numpy(dtype=float)
-        ax.plot(series - series[0], _LICKSPOUT_COLORS[col], label=col.upper())
-    ax.legend()
+        values = np.asarray(position, dtype=float)
+        ax.plot(values - values[0], color, label=label)
+        plotted = True
+    if plotted:
+        ax.legend()
 
 
 def _time_to_trial_index(go_cue_times: np.ndarray, times: np.ndarray) -> t.List[int]:
@@ -136,8 +145,10 @@ def _time_to_trial_index(go_cue_times: np.ndarray, times: np.ndarray) -> t.List[
 def _add_behavior_plot(
     ax: plt.Axes,
     animal_response: np.ndarray,
-    rewarded_history: t.Optional[pd.DataFrame],
-    auto_water: t.Optional[pd.DataFrame],
+    rewarded_left: t.Optional[np.ndarray],
+    rewarded_right: t.Optional[np.ndarray],
+    autowater_left: t.Optional[np.ndarray],
+    autowater_right: t.Optional[np.ndarray],
     manual_left_times: t.Optional[np.ndarray],
     manual_right_times: t.Optional[np.ndarray],
     go_cue_times: t.Optional[np.ndarray],
@@ -148,10 +159,11 @@ def _add_behavior_plot(
     ax.vlines(np.where(choices == 0)[0], 0, 0.2, linewidth=1, color="gray")
     ax.vlines(np.where(choices == 2)[0], 0.4, 0.6, linewidth=1, color="darkviolet", label="ignore")
 
-    if rewarded_history is not None:
-        left_rewards = np.where(rewarded_history["left"].to_numpy())[0]
-        right_rewards = np.where(rewarded_history["right"].to_numpy())[0]
+    if rewarded_left is not None:
+        left_rewards = np.where(np.asarray(rewarded_left))[0]
         ax.vlines(left_rewards, -0.2, 0, linewidth=1, color="black", label="Earned Water")
+    if rewarded_right is not None:
+        right_rewards = np.where(np.asarray(rewarded_right))[0]
         ax.vlines(right_rewards, 1, 1.2, linewidth=1, color="black")
 
     if manual_right_times is not None and go_cue_times is not None:
@@ -172,17 +184,22 @@ def _add_behavior_plot(
             color="blue",
         )
 
-    if auto_water is not None:
+    if autowater_right is not None:
         ax.vlines(
-            np.where(auto_water["right"].to_numpy() == 1)[0],
+            np.where(np.asarray(autowater_right) == 1)[0],
             1.2,
             1.4,
             linewidth=1,
             color="cyan",
             label="Auto Water",
         )
+    if autowater_left is not None:
         ax.vlines(
-            np.where(auto_water["left"].to_numpy() == 1)[0], -0.4, -0.2, linewidth=1, color="cyan"
+            np.where(np.asarray(autowater_left) == 1)[0],
+            -0.4,
+            -0.2,
+            linewidth=1,
+            color="cyan",
         )
 
     ax.set_ylim([-0.4, 1.4])
@@ -211,9 +228,9 @@ def _add_reward_probabilities(
     ax.set_xlabel("Trial #")
     ax.set_ylim([0, 1])
     if reward_probability_left is not None:
-        ax.plot(reward_probability_left, "b", label="Prob. L")
+        ax.plot(np.asarray(reward_probability_left, dtype=float), "b", label="Prob. L")
     if reward_probability_right is not None:
-        ax.plot(reward_probability_right, "r", label="Prob. R")
+        ax.plot(np.asarray(reward_probability_right, dtype=float), "r", label="Prob. R")
     ax.legend()
 
 
@@ -221,12 +238,17 @@ def plot_side_bias(
     animal_response: np.ndarray,
     results_folder: str,
     *,
-    stage_positions: t.Optional[pd.DataFrame] = None,
-    rewarded_history: t.Optional[pd.DataFrame] = None,
+    lickspout_x: t.Optional[np.ndarray] = None,
+    lickspout_y1: t.Optional[np.ndarray] = None,
+    lickspout_y2: t.Optional[np.ndarray] = None,
+    lickspout_z: t.Optional[np.ndarray] = None,
+    rewarded_left: t.Optional[np.ndarray] = None,
+    rewarded_right: t.Optional[np.ndarray] = None,
     reward_probability_left: t.Optional[np.ndarray] = None,
     reward_probability_right: t.Optional[np.ndarray] = None,
     go_cue_times: t.Optional[np.ndarray] = None,
-    auto_water: t.Optional[pd.DataFrame] = None,
+    autowater_left: t.Optional[np.ndarray] = None,
+    autowater_right: t.Optional[np.ndarray] = None,
     manual_left_times: t.Optional[np.ndarray] = None,
     manual_right_times: t.Optional[np.ndarray] = None,
     bias_window: int = 20,
@@ -242,16 +264,16 @@ def plot_side_bias(
         Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
     results_folder : str
         Directory to write ``side_bias.png`` into.
-    stage_positions : pandas.DataFrame, optional
-        Per-trial lickspout positions (columns among ``x``/``y1``/``y2``/``z``).
-    rewarded_history : pandas.DataFrame, optional
-        Boolean ``left``/``right`` reward columns per trial.
+    lickspout_x, lickspout_y1, lickspout_y2, lickspout_z : numpy.ndarray, optional
+        Per-trial lickspout positions (one array each).
+    rewarded_left, rewarded_right : numpy.ndarray, optional
+        Boolean per-trial earned-reward arrays.
     reward_probability_left, reward_probability_right : numpy.ndarray, optional
         Per-trial reward probabilities.
     go_cue_times : numpy.ndarray, optional
         Go-cue timestamps (s), used to map manual-water times to trials.
-    auto_water : pandas.DataFrame, optional
-        ``left``/``right`` autowater indicators per trial.
+    autowater_left, autowater_right : numpy.ndarray, optional
+        Per-trial autowater indicator arrays.
     manual_left_times, manual_right_times : numpy.ndarray, optional
         Manual-water delivery timestamps (s).
     bias_window : int, optional
@@ -269,12 +291,14 @@ def plot_side_bias(
         axis.spines["right"].set_visible(False)
 
     _add_bias_plot(ax[0], animal_response, bias_window)
-    _add_lickspout_position_plot(ax[1], stage_positions)
+    _add_lickspout_position_plot(ax[1], lickspout_x, lickspout_y1, lickspout_y2, lickspout_z)
     _add_behavior_plot(
         ax[2],
         animal_response,
-        rewarded_history,
-        auto_water,
+        rewarded_left,
+        rewarded_right,
+        autowater_left,
+        autowater_right,
         manual_left_times,
         manual_right_times,
         go_cue_times,
