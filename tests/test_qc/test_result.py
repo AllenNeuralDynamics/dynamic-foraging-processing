@@ -1,6 +1,6 @@
-"""Tests for ``dynamic_foraging_processing.qc._result``."""
+"""Tests for ``dynamic_foraging_processing.qc._core.result``."""
 
-from dynamic_foraging_processing.qc import _result
+from dynamic_foraging_processing.qc._core import result as _result
 
 
 def _result_obj(passed=True):

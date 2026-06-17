@@ -1,11 +1,10 @@
-"""Tests for ``dynamic_foraging_processing.qc._plots``."""
+"""Tests for ``dynamic_foraging_processing.qc.processed.plots``."""
 
 import os
 
 import numpy as np
-import pandas as pd
 
-from dynamic_foraging_processing.qc import _plots
+from dynamic_foraging_processing.qc.processed import plots as _plots
 
 
 def test_plot_lick_intervals_writes_file(tmp_path):
@@ -27,33 +26,22 @@ def test_time_to_trial_index_covers_all_branches():
 
 
 def test_plot_side_bias_full_inputs(tmp_path):
-    """All optional panels render when every input is supplied."""
+    """All optional panels render when every per-trial array is supplied."""
     animal_response = np.array([0, 1, 2, 1, 0, 1])
-    stage_positions = pd.DataFrame(
-        {
-            "x": [1.0, 1.1, 1.0, 1.2, 1.1, 1.0],
-            "y1": [2.0, 2.0, 2.1, 2.0, 2.0, 2.1],
-            "y2": [3.0, 3.1, 3.0, 3.1, 3.0, 3.1],
-            "z": [4.0, 4.0, 4.0, 4.1, 4.0, 4.0],
-            "ignored_column": [0, 0, 0, 0, 0, 0],  # not in the color map -> skipped
-        }
-    )
-    rewarded_history = pd.DataFrame(
-        {
-            "left": [True, False, False, False, True, False],
-            "right": [False, True, False, True, False, True],
-        }
-    )
-    auto_water = pd.DataFrame({"left": [1, 0, 0, 0, 0, 0], "right": [0, 0, 0, 1, 0, 0]})
     name = _plots.plot_side_bias(
         animal_response,
         str(tmp_path),
-        stage_positions=stage_positions,
-        rewarded_history=rewarded_history,
+        lickspout_x=np.array([1.0, 1.1, 1.0, 1.2, 1.1, 1.0]),
+        lickspout_y1=np.array([2.0, 2.0, 2.1, 2.0, 2.0, 2.1]),
+        lickspout_y2=np.array([3.0, 3.1, 3.0, 3.1, 3.0, 3.1]),
+        lickspout_z=np.array([4.0, 4.0, 4.0, 4.1, 4.0, 4.0]),
+        rewarded_left=np.array([True, False, False, False, True, False]),
+        rewarded_right=np.array([False, True, False, True, False, True]),
         reward_probability_left=np.array([0.5, 0.6, 0.4, 0.5, 0.5, 0.6]),
         reward_probability_right=np.array([0.5, 0.4, 0.6, 0.5, 0.5, 0.4]),
         go_cue_times=np.array([0.5, 1.5, 2.5, 3.5, 4.5, 5.5]),
-        auto_water=auto_water,
+        autowater_left=np.array([1, 0, 0, 0, 0, 0]),
+        autowater_right=np.array([0, 0, 0, 1, 0, 0]),
         manual_left_times=np.array([0.1, 3.6]),  # 0.1 -> -1, 3.6 -> trial index
         manual_right_times=np.array([5.6]),
         bias_window=3,
@@ -68,9 +56,7 @@ def test_plot_side_bias_minimal_inputs(tmp_path):
     assert os.path.exists(tmp_path / name)
 
 
-def test_plot_side_bias_empty_stage_positions(tmp_path):
-    """An empty stage-positions frame is handled without plotting positions."""
-    name = _plots.plot_side_bias(
-        np.array([0, 1]), str(tmp_path), stage_positions=pd.DataFrame({"x": []})
-    )
+def test_plot_side_bias_empty_position_array(tmp_path):
+    """An empty lickspout-position array is skipped without plotting."""
+    name = _plots.plot_side_bias(np.array([0, 1]), str(tmp_path), lickspout_x=np.array([]))
     assert os.path.exists(tmp_path / name)

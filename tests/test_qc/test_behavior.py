@@ -1,9 +1,9 @@
-"""Tests for ``dynamic_foraging_processing.qc._behavior``."""
+"""Tests for ``dynamic_foraging_processing.qc.processed.behavior``."""
 
 import numpy as np
 import pytest
 
-from dynamic_foraging_processing.qc import _behavior
+from dynamic_foraging_processing.qc.processed import behavior as _behavior
 
 
 def test_calculate_lick_intervals_both_empty():

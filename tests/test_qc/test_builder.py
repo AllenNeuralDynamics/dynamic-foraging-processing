@@ -1,17 +1,19 @@
-"""Tests for ``dynamic_foraging_processing.qc._builder``."""
+"""Tests for ``dynamic_foraging_processing.qc._core.builder`` and
+``dynamic_foraging_processing.qc.processed.results``."""
 
 import os
 
 import numpy as np
 from aind_data_schema.core.quality_control import QualityControl
 
-from dynamic_foraging_processing.qc import _builder
-from dynamic_foraging_processing.qc._result import to_metrics
+from dynamic_foraging_processing.qc._core import builder as _builder
+from dynamic_foraging_processing.qc._core.result import to_metrics
+from dynamic_foraging_processing.qc.processed import results as _results
 
 
 def test_behavior_qc_results_without_plots():
     """Five behavior results are produced and no plots are written."""
-    results = _builder.behavior_qc_results(
+    results = _results.behavior_qc_results(
         np.array([0, 1, 2, 1]), np.array([1.0, 1.01]), np.array([2.0, 2.01])
     )
     assert len(results) == 5
@@ -20,7 +22,7 @@ def test_behavior_qc_results_without_plots():
 
 def test_behavior_qc_results_writes_plots(tmp_path):
     """Supplying a results folder writes both behavior plots."""
-    results = _builder.behavior_qc_results(
+    results = _results.behavior_qc_results(
         np.array([0, 1, 2, 1]),
         np.array([1.0, 1.01]),
         np.array([2.0, 2.01]),
@@ -34,7 +36,7 @@ def test_behavior_qc_results_writes_plots(tmp_path):
 def test_build_quality_control_defaults():
     """Defaults fill in the standard grouping and an empty failure allowlist."""
     metrics = to_metrics(
-        _builder.behavior_qc_results(np.array([0, 1]), np.array([1.0]), np.array([2.0]))
+        _results.behavior_qc_results(np.array([0, 1]), np.array([1.0]), np.array([2.0]))
     )
     qc = _builder.build_quality_control(metrics)
     assert isinstance(qc, QualityControl)
@@ -45,7 +47,7 @@ def test_build_quality_control_defaults():
 def test_build_quality_control_overrides():
     """Explicit grouping / allowlist / metadata are passed through."""
     metrics = to_metrics(
-        _builder.behavior_qc_results(np.array([0, 1]), np.array([1.0]), np.array([2.0]))
+        _results.behavior_qc_results(np.array([0, 1]), np.array([1.0]), np.array([2.0]))
     )
     qc = _builder.build_quality_control(
         metrics,

@@ -1,4 +1,4 @@
-"""Tests for ``dynamic_foraging_processing.qc._contract_qa``."""
+"""Tests for ``dynamic_foraging_processing.qc.raw.contract_qa``."""
 
 import os
 
@@ -9,7 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from contraqctor import qc as cqc
 
-from dynamic_foraging_processing.qc import _contract_qa
+from dynamic_foraging_processing.qc.raw import contract_qa as _contract_qa
 
 
 def _result(

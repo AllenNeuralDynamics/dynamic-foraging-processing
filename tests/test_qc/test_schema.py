@@ -1,4 +1,4 @@
-"""Tests for ``dynamic_foraging_processing.qc._schema``."""
+"""Tests for ``dynamic_foraging_processing.qc._core.schema``."""
 
 import datetime
 
@@ -7,7 +7,7 @@ from aind_data_schema.core.quality_control import Stage, Status
 from aind_data_schema_models.modalities import Modality
 from contraqctor import qc as cqc
 
-from dynamic_foraging_processing.qc import _schema
+from dynamic_foraging_processing.qc._core import schema as _schema
 
 
 def test_status_converter_maps_all_contraqctor_statuses():
