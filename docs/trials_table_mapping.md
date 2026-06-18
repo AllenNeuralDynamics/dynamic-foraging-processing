@@ -46,7 +46,7 @@ Columns are grouped by the raw source they map from.
 
 | Trials column | Mapping |
 | --- | --- |
-| `animal_response` | `0` = left choice, `1` = right choice, `2` = no response. |
+| `animal_response` | From the event payload `{ "Item1": <time>, "Item2": <choice> }`. `Item2` `True` → right (`1`), `False` → left (`0`); a missing payload or `None` `Item2` → no response (`2`). |
 
 ### From `TrialOutcome.json` (`SoftwareEvents` stream)
 
@@ -55,7 +55,7 @@ Columns are grouped by the raw source they map from.
 
 | Trials column | Mapping |
 | --- | --- |
-| `auto_waterL` / `auto_waterR` | From `is_auto_response_right`. `NULL` for None, `true` for right, `false` for left. Encoded `0`/`1`. |
+| `auto_waterL` / `auto_waterR` | From `is_auto_response_right`. `1` on the auto-responded side; `0` on the other side, when there was no auto-response (`None`), or when the trial is missing. |
 | `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_response_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_response_right` is `None` or `True`. |
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
@@ -122,3 +122,10 @@ These were mapped during exploration but are no longer in scope:
 | Trials column | Mapping |
 | --- | --- |
 | `reward_random_L` / `reward_random_R` | None — no task component drives these. |
+
+## Changelog
+
+| Date | Change |
+| --- | --- |
+| 2026-06-17 | `animal_response` now decodes the `Response` event's `{ "Item1": <time>, "Item2": <choice> }` payload via `Item2` (`True` → right `1`, `False` → left `0`, missing/`None` → no response `2`), rather than treating the whole payload as the choice. |
+| 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_response_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
