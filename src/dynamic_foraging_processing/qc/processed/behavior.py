@@ -120,12 +120,12 @@ def compute_side_bias(animal_response: np.ndarray) -> float:
     Returns
     -------
     float
-        The average side bias, or ``0.0`` if no trial was responded to.
+        The average side bias, or ``nan`` if no trial was responded to.
     """
     responses = np.asarray(animal_response)
     responded = responses != _IGNORE
     if not responded.any():
-        return 0.0
+        return float("nan")
     chosen = responses[responded]
     return float(np.mean(chosen == _RIGHT) - np.mean(chosen == _LEFT))
 
@@ -180,7 +180,8 @@ def side_bias_result(animal_response: np.ndarray) -> QCResult:
     Returns
     -------
     QCResult
-        Passes when ``abs(mean_bias) < 0.5``; tagged ``{"behavior": ...}`` and
+        Passes when ``abs(mean_bias) < 0.5``. Fails when no trial was responded
+        to (``mean_bias`` is ``nan``). Tagged ``{"behavior": ...}`` and
         referencing ``side_bias.png``.
     """
     mean_bias = compute_side_bias(animal_response)
@@ -188,7 +189,7 @@ def side_bias_result(animal_response: np.ndarray) -> QCResult:
     return QCResult(
         name=name,
         value=mean_bias,
-        passed=abs(mean_bias) < 0.5,
+        passed=bool(abs(mean_bias) < 0.5),  # nan comparisons are False -> fails
         description="Average side bias over responded trials (right minus left).",
         reference=SIDE_BIAS_PLOT,
         tags={"behavior": name},
