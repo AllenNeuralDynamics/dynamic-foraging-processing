@@ -43,36 +43,25 @@ def test_calculate_lick_intervals_detects_artifacts():
     assert result["ArtifactPercent"] > 0
 
 
-def test_compute_side_bias_balanced_and_all_ignore():
-    """Bias is right-minus-left over responses; all-ignore gives nan."""
-    assert _behavior.compute_side_bias(np.array([0, 1, 0, 1])) == 0.0
-    assert _behavior.compute_side_bias(np.array([1, 1, 1, 0])) == pytest.approx(0.5)
-    assert np.isnan(_behavior.compute_side_bias(np.array([2, 2, 2])))
-
-
-def test_compute_rolling_bias_shapes_and_empty_window():
-    """Rolling bias is nan where a window has no responses, set otherwise."""
-    responses = np.array([2, 1, 1, 0])  # first trial is ignore -> nan
-    bias, ci = _behavior.compute_rolling_bias(responses, window=2)
-    assert bias.shape == (4,)
-    assert ci.shape == (4, 2)
-    assert np.isnan(bias[0])
-    assert not np.isnan(bias[1])
-
-
 def test_side_bias_result_pass_and_fail():
-    """Side-bias result passes under 0.5 absolute bias and fails above it."""
-    passing = _behavior.side_bias_result(np.array([0, 1, 0, 1]))
+    """Side-bias result averages the column; passes under 0.5 absolute bias."""
+    passing = _behavior.side_bias_result(np.array([-0.2, 0.1, np.nan, 0.1]))
     assert passing.passed is True
+    assert passing.value == pytest.approx(0.0)
     assert passing.reference == _behavior.SIDE_BIAS_PLOT
     assert passing.tags == {"behavior": "average side bias"}
 
-    failing = _behavior.side_bias_result(np.array([1, 1, 1, 1]))
+    failing = _behavior.side_bias_result(np.array([0.8, 0.9, 1.0]))
     assert failing.passed is False
+    assert failing.value == pytest.approx(0.9)
 
-    no_response = _behavior.side_bias_result(np.array([2, 2, 2]))
+    no_response = _behavior.side_bias_result(np.array([np.nan, np.nan]))
     assert no_response.passed is False
     assert np.isnan(no_response.value)
+
+    empty = _behavior.side_bias_result(np.array([]))
+    assert empty.passed is False
+    assert np.isnan(empty.value)
 
 
 def test_lick_interval_results_names_and_count():

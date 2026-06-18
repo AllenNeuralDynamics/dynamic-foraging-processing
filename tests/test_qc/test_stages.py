@@ -46,7 +46,10 @@ def test_raw_qc_run_delegates_to_contract_metrics(monkeypatch):
 def test_processed_qc_run_returns_metrics():
     """``ProcessedQC.run`` produces the five behavior metrics."""
     metrics = ProcessedQC().run(
-        np.array([0, 1, 2, 1]), np.array([1.0, 1.01]), np.array([2.0, 2.01])
+        np.array([0, 1, 2, 1]),
+        np.array([-0.1, 0.0, np.nan, 0.1]),
+        np.array([1.0, 1.01]),
+        np.array([2.0, 2.01]),
     )
     assert len(metrics) == 5
     assert all(isinstance(m, QCMetric) for m in metrics)
@@ -57,6 +60,7 @@ def test_processed_qc_run_writes_plots(tmp_path):
     """Supplying a results folder writes the supporting plots."""
     metrics = ProcessedQC().run(
         np.array([0, 1, 2, 1]),
+        np.array([-0.1, 0.0, np.nan, 0.1]),
         np.array([1.0, 1.01]),
         np.array([2.0, 2.01]),
         str(tmp_path),
