@@ -151,7 +151,11 @@ def _full_dataset():
             ),
             "QuiescentPeriod": _Stream(_events([10.0, 20.0], [None, None])),
             "ItiPeriod": _Stream(_events([20.0, 30.0], [None, None])),
-            "Response": _Stream(_events([10.5, 20.5], [True, None])),
+            "Response": _Stream(
+                _events(
+                    [10.5, 20.5], [{"Item1": 10.5, "Item2": True}, {"Item1": 20.5, "Item2": None}]
+                )
+            ),
             "InitialManipulatorPosition": _Stream(
                 _events([5.0], [{"x": 1.0, "y1": 2.0, "y2": 3.0, "z": 4.0}])
             ),
@@ -387,10 +391,13 @@ def test_write_times_without_message_type_uses_all_rows():
 
 
 def test_animal_response_encoding():
-    """``Response`` payloads map to the documented 0/1/2 codes."""
+    """``Response`` ``{"Item1", "Item2"}`` payloads map to the 0/1/2 codes."""
     assert TrialTableBuilder._animal_response(None) == 2
-    assert TrialTableBuilder._animal_response(True) == 1
-    assert TrialTableBuilder._animal_response(False) == 0
+    assert TrialTableBuilder._animal_response({"Item1": 1.0, "Item2": True}) == 1
+    assert TrialTableBuilder._animal_response({"Item1": 1.0, "Item2": False}) == 0
+    assert TrialTableBuilder._animal_response({"Item1": 1.0, "Item2": None}) == 2
+    # A payload missing Item2 entirely is treated as no choice.
+    assert TrialTableBuilder._animal_response({"Item1": 1.0}) == 2
 
 
 def test_is_baited_none_trial_returns_false():
@@ -415,7 +422,12 @@ def test_auto_water_encodes_side_from_auto_response():
     ).trial
     assert TrialTableBuilder._auto_water(trial, is_right=True) == 1
     assert TrialTableBuilder._auto_water(trial, is_right=False) == 0
-    assert TrialTableBuilder._auto_water(None, is_right=True) is None
+    # A missing trial or no auto-response counts as no autowater (0).
+    assert TrialTableBuilder._auto_water(None, is_right=True) == 0
+    no_auto = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
+    ).trial
+    assert TrialTableBuilder._auto_water(no_auto, is_right=True) == 0
 
 
 @pytest.mark.parametrize(
