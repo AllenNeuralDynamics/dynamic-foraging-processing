@@ -44,10 +44,10 @@ def test_calculate_lick_intervals_detects_artifacts():
 
 
 def test_compute_side_bias_balanced_and_all_ignore():
-    """Bias is right-minus-left over responses; all-ignore gives 0."""
+    """Bias is right-minus-left over responses; all-ignore gives nan."""
     assert _behavior.compute_side_bias(np.array([0, 1, 0, 1])) == 0.0
     assert _behavior.compute_side_bias(np.array([1, 1, 1, 0])) == pytest.approx(0.5)
-    assert _behavior.compute_side_bias(np.array([2, 2, 2])) == 0.0
+    assert np.isnan(_behavior.compute_side_bias(np.array([2, 2, 2])))
 
 
 def test_compute_rolling_bias_shapes_and_empty_window():
@@ -69,6 +69,10 @@ def test_side_bias_result_pass_and_fail():
 
     failing = _behavior.side_bias_result(np.array([1, 1, 1, 1]))
     assert failing.passed is False
+
+    no_response = _behavior.side_bias_result(np.array([2, 2, 2]))
+    assert no_response.passed is False
+    assert np.isnan(no_response.value)
 
 
 def test_lick_interval_results_names_and_count():
