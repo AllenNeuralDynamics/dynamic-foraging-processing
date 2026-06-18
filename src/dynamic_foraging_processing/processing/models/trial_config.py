@@ -123,8 +123,8 @@ class TrialConfig(BaseModel):
     )
 
     # --- auto_waterL/R (autowater per-side; autoTrain curriculum fields out of scope) ---
-    auto_waterL: Optional[int] = Field(default=None, description="Autowater given at Left")
-    auto_waterR: Optional[int] = Field(default=None, description="Autowater given at Right")
+    auto_waterL: int = Field(default=0, description="Autowater given at Left")
+    auto_waterR: int = Field(default=0, description="Autowater given at Right")
 
     # --- lickspout_position (mapping's `lickspout_positions` -> these four components) ---
     lickspout_position_x: Optional[float] = Field(

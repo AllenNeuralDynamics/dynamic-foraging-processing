@@ -208,13 +208,16 @@ class TrialTableBuilder:
     def _animal_response(payload: t.Any) -> int:
         """Encode a ``Response`` payload as ``0`` (left), ``1`` (right), ``2`` (none).
 
-        The ``Response`` event serializes ``null`` for no choice, ``true`` for
-        right, and ``false`` for left. A missing payload is treated as no choice
-        (``2``), so this always returns a code and never ``None``.
+        The ``Response`` event serializes a ``{"Item1": <timestamp>,
+        "Item2": <choice>}`` pair, where ``Item2`` is ``True`` for a right choice,
+        ``False`` for left, and ``None`` for no choice. A missing payload (or a
+        missing/``None`` ``Item2``) is treated as no choice (``2``), so this always
+        returns a code and never ``None``.
         """
-        if payload is None:
+        choice = payload.get("Item2") if isinstance(payload, dict) else payload
+        if choice is None:
             return 2
-        return 1 if bool(payload) else 0
+        return 1 if bool(choice) else 0
 
     @staticmethod
     def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
@@ -335,14 +338,16 @@ class TrialTableBuilder:
         return trial.p_reward_left == 1 and auto in (None, True)
 
     @staticmethod
-    def _auto_water(trial: t.Optional[Trial], *, is_right: bool) -> t.Optional[int]:
+    def _auto_water(trial: t.Optional[Trial], *, is_right: bool) -> int:
         """Encode autowater for a side from ``is_auto_response_right``.
 
-        ``None`` maps to ``None``; otherwise ``1`` if the auto response was to
-        the requested side, else ``0``. ``is_right`` is ``True`` for right.
+        Returns ``1`` if the auto response was to the requested side, else ``0``.
+        A missing trial or no auto-response (``is_auto_response_right`` is
+        ``None``) counts as no autowater (``0``). ``is_right`` is ``True`` for
+        right.
         """
         if trial is None or trial.is_auto_response_right is None:
-            return None
+            return 0
         return int(trial.is_auto_response_right is is_right)
 
     # ------------------------------------------------------------------ #
