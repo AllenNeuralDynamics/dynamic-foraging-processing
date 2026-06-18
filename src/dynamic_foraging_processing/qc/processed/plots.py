@@ -18,7 +18,6 @@ import numpy as np
 from dynamic_foraging_processing.qc.processed.behavior import (
     LICK_INTERVALS_PLOT,
     SIDE_BIAS_PLOT,
-    compute_rolling_bias,
 )
 
 
@@ -86,8 +85,8 @@ def plot_lick_intervals(
     return LICK_INTERVALS_PLOT
 
 
-def _add_bias_plot(ax: plt.Axes, animal_response: np.ndarray, window: int) -> None:
-    """Draw the rolling side-bias trace with its confidence band."""
+def _add_bias_plot(ax: plt.Axes, side_bias: np.ndarray) -> None:
+    """Draw the per-trial side-bias trace from the trial-table column."""
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Side Bias")
     ax.axhline(+0.7, color="r", linestyle="--")
@@ -95,9 +94,8 @@ def _add_bias_plot(ax: plt.Axes, animal_response: np.ndarray, window: int) -> No
     ax.axhline(0, color="k", linestyle="--")
     ax.set_ylim([-1, +1])
 
-    bias, ci = compute_rolling_bias(animal_response, window=window)
+    bias = np.asarray(side_bias, dtype=float)
     trials = np.arange(len(bias))
-    ax.fill_between(trials, ci[:, 0], ci[:, 1], color="gray", alpha=0.5)
     ax.plot(trials, bias, "k", linewidth=2)
     if len(bias):
         ax.set_xlim([0, len(bias)])
@@ -236,6 +234,7 @@ def _add_reward_probabilities(
 
 def plot_side_bias(
     animal_response: np.ndarray,
+    side_bias: np.ndarray,
     results_folder: str,
     *,
     lickspout_x: t.Optional[np.ndarray] = None,
@@ -251,17 +250,18 @@ def plot_side_bias(
     autowater_right: t.Optional[np.ndarray] = None,
     manual_left_times: t.Optional[np.ndarray] = None,
     manual_right_times: t.Optional[np.ndarray] = None,
-    bias_window: int = 20,
 ) -> str:
     """Save the four-panel side-bias figure.
 
-    Panels: rolling side bias (with CI), lickspout position, behavior raster,
-    and reward probabilities.
+    Panels: per-trial side bias, lickspout position, behavior raster, and
+    reward probabilities.
 
     Parameters
     ----------
     animal_response : numpy.ndarray
         Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
+    side_bias : numpy.ndarray
+        Per-trial side bias from the trial table (right minus left).
     results_folder : str
         Directory to write ``side_bias.png`` into.
     lickspout_x, lickspout_y1, lickspout_y2, lickspout_z : numpy.ndarray, optional
@@ -276,8 +276,6 @@ def plot_side_bias(
         Per-trial autowater indicator arrays.
     manual_left_times, manual_right_times : numpy.ndarray, optional
         Manual-water delivery timestamps (s).
-    bias_window : int, optional
-        Trailing window for the rolling bias. Defaults to ``20``.
 
     Returns
     -------
@@ -290,7 +288,7 @@ def plot_side_bias(
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
 
-    _add_bias_plot(ax[0], animal_response, bias_window)
+    _add_bias_plot(ax[0], side_bias)
     _add_lickspout_position_plot(ax[1], lickspout_x, lickspout_y1, lickspout_y2, lickspout_z)
     _add_behavior_plot(
         ax[2],

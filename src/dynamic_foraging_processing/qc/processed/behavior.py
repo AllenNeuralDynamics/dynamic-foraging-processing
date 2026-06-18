@@ -17,9 +17,6 @@ from dynamic_foraging_processing.qc._core.result import QCResult
 SIDE_BIAS_PLOT = "side_bias.png"
 LICK_INTERVALS_PLOT = "lick_intervals.png"
 
-#: ``animal_response`` choice codes.
-_LEFT, _RIGHT, _IGNORE = 0, 1, 2
-
 
 def calculate_lick_intervals(
     left_lick_times: np.ndarray, right_lick_times: np.ndarray
@@ -105,92 +102,36 @@ def calculate_lick_intervals(
     }
 
 
-def compute_side_bias(animal_response: np.ndarray) -> float:
-    """Compute the average side bias over responded trials.
+def side_bias_result(side_bias: np.ndarray) -> QCResult:
+    """Build the average-side-bias ``QCResult`` from the trial-table column.
 
-    Bias is ``mean(is_right) - mean(is_left)`` across trials where the animal
-    responded (``ignore`` trials excluded). The result lies in ``[-1, +1]``;
-    positive means a rightward bias.
-
-    Parameters
-    ----------
-    animal_response : numpy.ndarray
-        Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
-
-    Returns
-    -------
-    float
-        The average side bias, or ``nan`` if no trial was responded to.
-    """
-    responses = np.asarray(animal_response)
-    responded = responses != _IGNORE
-    if not responded.any():
-        return float("nan")
-    chosen = responses[responded]
-    return float(np.mean(chosen == _RIGHT) - np.mean(chosen == _LEFT))
-
-
-def compute_rolling_bias(
-    animal_response: np.ndarray, window: int = 20
-) -> t.Tuple[np.ndarray, np.ndarray]:
-    """Compute a trailing-window side-bias trace with a normal-approx CI.
-
-    For each trial, the bias is ``p_right - p_left`` over responded trials in
-    the trailing ``window``; the confidence band is a 95% normal approximation
-    for that difference. Replaces the GUI-precomputed ``B_Bias`` / ``B_Bias_CI``.
+    The per-trial side bias is read directly from the trial table rather than
+    recomputed; this check averages it over the session.
 
     Parameters
     ----------
-    animal_response : numpy.ndarray
-        Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
-    window : int, optional
-        Number of trailing trials in the rolling window. Defaults to ``20``.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``(bias, ci)`` where ``bias`` has shape ``(n_trials,)`` and ``ci`` has
-        shape ``(n_trials, 2)``. Trials with no responses are ``nan``.
-    """
-    responses = np.asarray(animal_response)
-    n = len(responses)
-    bias = np.full(n, np.nan)
-    ci = np.full((n, 2), np.nan)
-    for i in range(n):
-        window_slice = responses[max(0, i - window + 1) : i + 1]
-        chosen = window_slice[window_slice != _IGNORE]
-        if len(chosen) == 0:
-            continue
-        p_right = float(np.mean(chosen == _RIGHT))
-        b = 2.0 * p_right - 1.0  # p_right - p_left, since p_left + p_right == 1
-        se = 2.0 * np.sqrt(p_right * (1.0 - p_right) / len(chosen))
-        bias[i] = b
-        ci[i] = (b - 1.96 * se, b + 1.96 * se)
-    return bias, ci
-
-
-def side_bias_result(animal_response: np.ndarray) -> QCResult:
-    """Build the average-side-bias ``QCResult``.
-
-    Parameters
-    ----------
-    animal_response : numpy.ndarray
-        Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
+    side_bias : numpy.ndarray
+        Per-trial side bias from the trial table (right minus left); positive
+        means a rightward bias. Trials with no response are ``nan``.
 
     Returns
     -------
     QCResult
-        Passes when ``abs(mean_bias) < 0.5``. Fails when no trial was responded
-        to (``mean_bias`` is ``nan``). Tagged ``{"behavior": ...}`` and
+        Passes when ``abs(mean_bias) < 0.5``. Fails when the column is empty or
+        all ``nan`` (``mean_bias`` is ``nan``). Tagged ``{"behavior": ...}`` and
         referencing ``side_bias.png``.
     """
-    mean_bias = compute_side_bias(animal_response)
+    values = np.asarray(side_bias, dtype=float)
+    if values.size == 0 or np.all(np.isnan(values)):
+        mean_bias = float("nan")
+    else:
+        mean_bias = float(np.nanmean(values))
     name = "average side bias"
     return QCResult(
         name=name,
         value=mean_bias,
         passed=bool(abs(mean_bias) < 0.5),  # nan comparisons are False -> fails
-        description="Average side bias over responded trials (right minus left).",
+        description="Average of the per-trial side bias (right minus left).",
         reference=SIDE_BIAS_PLOT,
         tags={"behavior": name},
     )

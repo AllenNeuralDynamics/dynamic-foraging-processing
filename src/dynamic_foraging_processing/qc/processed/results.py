@@ -21,6 +21,7 @@ from dynamic_foraging_processing.qc.processed.plots import plot_lick_intervals, 
 
 def behavior_qc_results(
     animal_response: np.ndarray,
+    side_bias: np.ndarray,
     left_lick_times: np.ndarray,
     right_lick_times: np.ndarray,
     results_folder: t.Optional[str] = None,
@@ -50,6 +51,8 @@ def behavior_qc_results(
     ----------
     animal_response : numpy.ndarray
         Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
+    side_bias : numpy.ndarray
+        Per-trial side bias from the trial table (right minus left).
     left_lick_times, right_lick_times : numpy.ndarray
         Timestamps (s) of left/right-port licks.
     results_folder : str, optional
@@ -68,12 +71,13 @@ reward_probability_left, reward_probability_right : numpy.ndarray, optional
         The average-side-bias result followed by the four lick-interval results.
     """
     results = [
-        side_bias_result(animal_response),
+        side_bias_result(side_bias),
         *lick_interval_results(left_lick_times, right_lick_times),
     ]
     if results_folder is not None:
         plot_side_bias(
             animal_response,
+            side_bias,
             results_folder,
             lickspout_x=lickspout_x,
             lickspout_y1=lickspout_y1,

@@ -21,6 +21,7 @@ class ProcessedQC(BaseQC):
     def run(
         self,
         animal_response: np.ndarray,
+        side_bias: np.ndarray,
         left_lick_times: np.ndarray,
         right_lick_times: np.ndarray,
         results_folder: t.Optional[str] = None,
@@ -49,6 +50,8 @@ class ProcessedQC(BaseQC):
         ----------
         animal_response : numpy.ndarray
             Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
+        side_bias : numpy.ndarray
+            Per-trial side bias from the trial table (right minus left).
         left_lick_times, right_lick_times : numpy.ndarray
             Timestamps (s) of left/right-port licks.
         results_folder : str, optional
@@ -67,6 +70,7 @@ reward_probability_right : numpy.ndarray, optional
         """
         results = behavior_qc_results(
             animal_response,
+            side_bias,
             left_lick_times,
             right_lick_times,
             results_folder,

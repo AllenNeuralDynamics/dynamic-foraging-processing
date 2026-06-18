@@ -2,8 +2,6 @@
 
 from dynamic_foraging_processing.qc.processed.behavior import (
     calculate_lick_intervals,
-    compute_rolling_bias,
-    compute_side_bias,
     lick_interval_results,
     side_bias_result,
 )
@@ -18,8 +16,6 @@ __all__ = [
     "ProcessedQC",
     "behavior_qc_results",
     "calculate_lick_intervals",
-    "compute_rolling_bias",
-    "compute_side_bias",
     "lick_interval_results",
     "plot_lick_intervals",
     "plot_side_bias",
