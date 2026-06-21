@@ -6,6 +6,7 @@ import pytest
 from aind_behavior_dynamic_foraging.task_logic import (
     AindDynamicForagingTaskLogic,
     AindDynamicForagingTaskParameters,
+    RewardSize,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
@@ -80,18 +81,35 @@ def _events(timestamps, payloads):
     return pd.DataFrame({"data": payloads}, index=pd.Index(timestamps, name="timestamp"))
 
 
-def _outcome(p_left, p_right, is_right_choice, is_rewarded, auto=None):
-    """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader)."""
+def _outcome(
+    p_left,
+    p_right,
+    is_right_choice,
+    is_rewarded,
+    auto=None,
+    block_p_left=None,
+    block_p_right=None,
+):
+    """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader).
+
+    ``p_left`` / ``p_right`` are the per-trial probabilities (top-level ``trial``
+    fields); ``block_p_left`` / ``block_p_right``, when given, are the block
+    probabilities stored under ``trial.metadata`` (the source of the
+    ``reward_probability`` columns).
+    """
+    trial = {
+        "p_reward_left": p_left,
+        "p_reward_right": p_right,
+        "response_deadline_duration": 3.0,
+        "reward_consumption_duration": 1.0,
+        "quiescence_period_duration": 0.5,
+        "inter_trial_interval_duration": 4.0,
+        "is_auto_response_right": auto,
+    }
+    if block_p_left is not None or block_p_right is not None:
+        trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
     return {
-        "trial": {
-            "p_reward_left": p_left,
-            "p_reward_right": p_right,
-            "response_deadline_duration": 3.0,
-            "reward_consumption_duration": 1.0,
-            "quiescence_period_duration": 0.5,
-            "inter_trial_interval_duration": 4.0,
-            "is_auto_response_right": auto,
-        },
+        "trial": trial,
         "is_right_choice": is_right_choice,
         "is_rewarded": is_rewarded,
     }
@@ -120,7 +138,10 @@ def _task_logic(quiescent_scalar=True):
         min_block_reward=2,
     )
     return AindDynamicForagingTaskLogic(
-        task_parameters=AindDynamicForagingTaskParameters(trial_generator=spec)
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=spec,
+            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
+        )
     )
 
 
@@ -144,7 +165,14 @@ def _full_dataset():
                 _events(
                     [10.1, 20.1],
                     [
-                        _outcome(1.0, 0.2, is_right_choice=True, is_rewarded=True),
+                        _outcome(
+                            1.0,
+                            0.2,
+                            is_right_choice=True,
+                            is_rewarded=True,
+                            block_p_left=0.7,
+                            block_p_right=0.1,
+                        ),
                         _outcome(0.5, 0.5, is_right_choice=None, is_rewarded=False),
                     ],
                 )
@@ -159,6 +187,7 @@ def _full_dataset():
             "InitialManipulatorPosition": _Stream(
                 _events([5.0], [{"x": 1.0, "y1": 2.0, "y2": 3.0, "z": 4.0}])
             ),
+            "TrialMetrics": _Stream(_events([10.2, 20.2], [{"bias": 0.3}, {"bias": None}])),
         }
     )
     behavior = _Node(
@@ -224,9 +253,17 @@ def test_build_full_dataset():
     assert bool(second["rewarded_historyL"]) is False
     assert bool(second["rewarded_historyR"]) is False
 
-    # Bait derived from p_reward and auto-response.
+    # Bait derived from the per-trial p_reward and auto-response.
     assert bool(first["bait_left"]) is True
     assert bool(first["bait_right"]) is False
+
+    # reward_probability columns are the block probability from trial.metadata,
+    # not the top-level per-trial p_reward (1.0 / 0.2 here).
+    assert first["reward_probabilityL"] == pytest.approx(0.7)
+    assert first["reward_probabilityR"] == pytest.approx(0.1)
+    # The second trial has no metadata -> null block probabilities.
+    assert pd.isna(second["reward_probabilityL"])
+    assert pd.isna(second["reward_probabilityR"])
 
     # Session-level distribution summaries.
     assert first["ITI_beta"] == pytest.approx(5.0)
@@ -239,6 +276,24 @@ def test_build_full_dataset():
     # Lickspout positions from InitialManipulatorPosition.
     assert first["lickspout_position_x"] == 1.0
     assert first["lickspout_position_z"] == 4.0
+
+    # Session-level reward volumes (uL) from task_parameters.reward_size.
+    assert first["reward_size_left"] == 2.0
+    assert first["reward_size_right"] == 4.0
+    assert second["reward_size_left"] == 2.0
+
+    # Per-trial side bias from the TrialMetrics event; null when not recorded.
+    assert first["side_bias"] == pytest.approx(0.3)
+    assert pd.isna(second["side_bias"])
+
+
+def test_build_raises_when_task_logic_missing_with_trials():
+    """A missing TaskLogic stream is an error when there are trials (reward size is required)."""
+    dataset = _full_dataset()
+    input_schemas = dataset.children["Behavior"].children["InputSchemas"]
+    input_schemas.children["TaskLogic"] = _FailedStream()
+    with pytest.raises(ValueError, match="TaskLogic stream is required"):
+        TrialTableBuilder(dataset).build()
 
 
 def test_build_empty_dataset_returns_empty_frame():
@@ -307,16 +362,51 @@ def test_summary_generator_none_when_no_coupled_or_uncoupled(caplog):
     assert "No coupled or uncoupled generator" in caplog.text
 
 
-def test_session_columns_empty_when_no_summary_generator():
-    """A composite task logic with no coupled/uncoupled generator yields no session columns."""
+def test_session_columns_only_reward_size_when_no_summary_generator():
+    """With no coupled/uncoupled generator, only the generator-independent reward size remains."""
     task_logic = AindDynamicForagingTaskLogic(
         task_parameters=AindDynamicForagingTaskParameters(
             trial_generator=TrialGeneratorCompositeSpec(
                 generators=[CoupledWarmupTrialGeneratorSpec()]
-            )
+            ),
+            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
         )
     )
-    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {}
+    # Reward size lives on the task parameters, not the generator, so it is the
+    # only column populated when no summarising generator is found.
+    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {
+        "reward_size_left": 2.0,
+        "reward_size_right": 4.0,
+    }
+
+
+def test_session_columns_include_reward_size():
+    """Reward volumes are read from ``task_parameters.reward_size``."""
+    columns = TrialTableBuilder(_Node({}))._session_columns(_task_logic())
+    assert columns["reward_size_left"] == 2.0
+    assert columns["reward_size_right"] == 4.0
+
+
+def test_side_bias_parses_dict_model_json_and_none():
+    """``_side_bias`` extracts ``bias`` from a dict, model, JSON, or ``None``."""
+    from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialMetrics
+
+    assert TrialTableBuilder._side_bias(None) is None
+    assert TrialTableBuilder._side_bias({"bias": -0.4}) == pytest.approx(-0.4)
+    assert TrialTableBuilder._side_bias({"bias": None}) is None
+    assert TrialTableBuilder._side_bias(TrialMetrics(bias=0.5)) == pytest.approx(0.5)
+    assert TrialTableBuilder._side_bias(TrialMetrics(bias=0.5).model_dump_json()) == pytest.approx(
+        0.5
+    )
+
+
+def test_build_missing_trial_metrics_leaves_side_bias_null():
+    """A missing ``TrialMetrics`` stream leaves ``side_bias`` null on every trial."""
+    dataset = _full_dataset()
+    software_events = dataset.children["Behavior"].children["SoftwareEvents"]
+    del software_events.children["TrialMetrics"]
+    table = TrialTableBuilder(dataset).build()
+    assert table["side_bias"].isna().all()
 
 
 def test_session_columns_uncoupled_has_null_reward_sum():
@@ -428,6 +518,27 @@ def test_auto_water_encodes_side_from_auto_response():
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
     ).trial
     assert TrialTableBuilder._auto_water(no_auto, is_right=True) == 0
+
+
+def test_block_reward_probability_reads_metadata_not_trial():
+    """The block probability comes from ``trial.metadata``, not the top-level p_reward."""
+    trial = TrialOutcome.model_validate(
+        _outcome(
+            1.0, 0.2, is_right_choice=True, is_rewarded=True, block_p_left=0.7, block_p_right=0.1
+        )
+    ).trial
+    assert TrialTableBuilder._block_reward_probability(trial, is_right=False) == pytest.approx(0.7)
+    assert TrialTableBuilder._block_reward_probability(trial, is_right=True) == pytest.approx(0.1)
+
+
+def test_block_reward_probability_none_without_metadata_or_trial():
+    """A missing trial or absent metadata yields ``None``."""
+    assert TrialTableBuilder._block_reward_probability(None, is_right=True) is None
+    no_meta = TrialOutcome.model_validate(
+        _outcome(1.0, 0.2, is_right_choice=True, is_rewarded=True)
+    ).trial
+    assert no_meta.metadata is None
+    assert TrialTableBuilder._block_reward_probability(no_meta, is_right=False) is None
 
 
 @pytest.mark.parametrize(
