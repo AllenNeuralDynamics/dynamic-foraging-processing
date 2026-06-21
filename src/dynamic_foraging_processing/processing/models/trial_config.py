@@ -56,16 +56,30 @@ class TrialConfig(BaseModel):
         description="The summation of left and right reward probability",
     )
     reward_probabilityL: Optional[float] = Field(
-        default=None, ge=0, le=1, description="The reward probability of left lick port"
+        default=None, ge=0, le=1, description="The block reward probability of the left lick port"
     )
     reward_probabilityR: Optional[float] = Field(
-        default=None, ge=0, le=1, description="The reward probability of right lick port"
+        default=None, ge=0, le=1, description="The block reward probability of the right lick port"
     )
     left_valve_open_time: Optional[float] = Field(
         default=None, description="Time (s) at which the left valve opened"
     )
     right_valve_open_time: Optional[float] = Field(
         default=None, description="Time (s) at which the right valve opened"
+    )
+    reward_size_left: float = Field(
+        description="The reward volume (uL) delivered at the left lick port if rewarded.",
+    )
+    reward_size_right: float = Field(
+        description="The reward volume (uL) delivered at the right lick port if rewarded.",
+    )
+
+    # --- trial_metrics (per-trial metrics emitted by the acquisition system) ---
+    side_bias: Optional[float] = Field(
+        default=None,
+        description=(
+            "Per-trial side bias computed by the acquisition system. Negative values correspond to a left bias, positive values to a right bias."
+        ),
     )
 
     # --- block_information ---

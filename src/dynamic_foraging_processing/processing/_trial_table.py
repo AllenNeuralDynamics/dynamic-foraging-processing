@@ -12,7 +12,11 @@ import numpy as np
 import pandas as pd
 from aind_behavior_dynamic_foraging.task_logic import AindDynamicForagingTaskLogic
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import TrialGeneratorSpec
-from aind_behavior_dynamic_foraging.task_logic.trial_models import Trial, TrialOutcome
+from aind_behavior_dynamic_foraging.task_logic.trial_models import (
+    Trial,
+    TrialMetrics,
+    TrialOutcome,
+)
 from aind_behavior_services.task.distributions import Distribution, DistributionFamily
 from contraqctor.contract import Dataset
 
@@ -242,6 +246,36 @@ class TrialTableBuilder:
             return TrialOutcome.model_validate_json(payload)
         return TrialOutcome.model_validate(payload)
 
+    @staticmethod
+    def _side_bias(payload: t.Any) -> t.Optional[float]:
+        """Extract the per-trial side bias from a ``TrialMetrics`` event payload.
+
+        The ``TrialMetrics`` event serializes a model with a ``bias`` field
+        (negative for left bias, positive for right). Accepts the parsed model, a
+        ``dict``, or a JSON string; returns ``None`` for a missing payload or a
+        ``bias`` that was not recorded.
+
+        Parameters
+        ----------
+        payload : Any
+            The event's ``data`` payload (a ``TrialMetrics`` model, ``dict``, or
+            JSON string), or ``None``.
+
+        Returns
+        -------
+        float or None
+            The side bias, or ``None`` when unavailable.
+        """
+        if payload is None:
+            return None
+        if isinstance(payload, TrialMetrics):
+            metrics = payload
+        elif isinstance(payload, str):
+            metrics = TrialMetrics.model_validate_json(payload)
+        else:
+            metrics = TrialMetrics.model_validate(payload)
+        return metrics.bias
+
     # ------------------------------------------------------------------ #
     # Per-trial column helpers
     # ------------------------------------------------------------------ #
@@ -350,6 +384,31 @@ class TrialTableBuilder:
             return 0
         return int(trial.is_auto_response_right is is_right)
 
+    @staticmethod
+    def _block_reward_probability(trial: t.Optional[Trial], *, is_right: bool) -> t.Optional[float]:
+        """Return the block reward probability for a side from the trial metadata.
+
+        The top-level ``trial.p_reward_left/right`` is the *per-trial* probability;
+        the block probability that the ``reward_probability`` columns represent
+        lives on ``trial.metadata.p_reward_left/right``.
+
+        Parameters
+        ----------
+        trial : Trial or None
+            The per-trial task-logic model, or ``None`` when unavailable.
+        is_right : bool
+            ``True`` for the right port, ``False`` for the left port.
+
+        Returns
+        -------
+        float or None
+            The block reward probability, or ``None`` when the trial or its
+            metadata is unavailable.
+        """
+        if trial is None or trial.metadata is None:
+            return None
+        return trial.metadata.p_reward_right if is_right else trial.metadata.p_reward_left
+
     # ------------------------------------------------------------------ #
     # Session-level (constant across trials) columns
     # ------------------------------------------------------------------ #
@@ -411,6 +470,15 @@ class TrialTableBuilder:
         columns: t.Dict[str, t.Any] = {}
         if task_logic is None:
             return columns
+
+        # Reward volumes live on the task parameters, not the trial generator, so
+        # populate them before the generator resolution (which may bail out).
+        # Known limitation: the acquisition system can vary reward size per trial,
+        # but the current data format only exposes a single session-level value.
+        reward_size = task_logic.task_parameters.reward_size
+        if reward_size is not None:
+            columns["reward_size_left"] = reward_size.left_value_volume
+            columns["reward_size_right"] = reward_size.right_value_volume
 
         generator = self._summary_generator(task_logic.task_parameters.trial_generator)
         if generator is None:
@@ -491,6 +559,7 @@ class TrialTableBuilder:
         start: float,
         stop: float,
         response: t.Any,
+        side_bias: t.Optional[float],
         left_valve_times: np.ndarray,
         right_valve_times: np.ndarray,
         go_cue_times: np.ndarray,
@@ -514,8 +583,9 @@ class TrialTableBuilder:
             right_valve_open_time=self._closest_time_in_window(right_valve_times, start, stop),
             bait_left=self._is_baited(trial, is_right=False),
             bait_right=self._is_baited(trial, is_right=True),
-            reward_probabilityL=trial.p_reward_left if trial is not None else None,
-            reward_probabilityR=trial.p_reward_right if trial is not None else None,
+            reward_probabilityL=self._block_reward_probability(trial, is_right=False),
+            reward_probabilityR=self._block_reward_probability(trial, is_right=True),
+            side_bias=side_bias,
             response_duration=trial.response_deadline_duration if trial is not None else None,
             reward_consumption_duration=(
                 trial.reward_consumption_duration if trial is not None else None
@@ -586,13 +656,16 @@ class TrialTableBuilder:
         Raises
         ------
         ValueError
-            If ``raise_on_error`` is ``True`` and a per-trial stream length
+            If the ``TaskLogic`` stream is missing while there are trials to
+            build (the required reward-size columns are sourced from it), or if
+            ``raise_on_error`` is ``True`` and a per-trial stream length
             disagrees with the ``TrialOutcome`` trial count.
         """
         outcomes = self._load("Behavior", "SoftwareEvents", "TrialOutcome")
         quiescent = self._load("Behavior", "SoftwareEvents", "QuiescentPeriod")
         iti = self._load("Behavior", "SoftwareEvents", "ItiPeriod")
         responses = self._load("Behavior", "SoftwareEvents", "Response")
+        metrics = self._load("Behavior", "SoftwareEvents", "TrialMetrics")
 
         output_set = self._load("Behavior", "HarpBehavior", "OutputSet")
         go_cue = self._load("Behavior", "HarpSoundCard", "PlaySoundOrFrequency")
@@ -604,15 +677,28 @@ class TrialTableBuilder:
         start_times = self._event_times(quiescent)
         stop_times = self._event_times(iti)
         response_payloads = self._event_payloads(responses)
+        metric_payloads = self._event_payloads(metrics)
 
         # Guard the positional alignment before we pair streams by index.
         n_trials = len(outcome_payloads)
+
+        # Reward size is sourced from the task logic and is a required column, so
+        # a missing TaskLogic stream cannot yield a valid table when there are
+        # trials to build. Surface that clearly rather than failing later with a
+        # cryptic per-row validation error.
+        if n_trials > 0 and task_logic is None:
+            raise ValueError(
+                "TaskLogic stream is required to build the trials table "
+                f"(reward sizes are sourced from it) but it failed to load for {n_trials} trials."
+            )
+
         warnings = self._check_aligned(
             n_trials,
             {
                 "QuiescentPeriod (start_time)": start_times.size,
                 "ItiPeriod (stop_time)": stop_times.size,
                 "Response": len(response_payloads),
+                "TrialMetrics (side_bias)": len(metric_payloads),
             },
         )
         if warnings:
@@ -640,6 +726,7 @@ class TrialTableBuilder:
             start = float(start_times[i]) if i < start_times.size else np.nan
             stop = float(stop_times[i]) if i < stop_times.size else np.nan
             response = response_payloads[i] if i < len(response_payloads) else None
+            side_bias = self._side_bias(metric_payloads[i] if i < len(metric_payloads) else None)
 
             rows.append(
                 self._build_row(
@@ -647,6 +734,7 @@ class TrialTableBuilder:
                     start=start,
                     stop=stop,
                     response=response,
+                    side_bias=side_bias,
                     left_valve_times=left_valve_times,
                     right_valve_times=right_valve_times,
                     go_cue_times=go_cue_times,
