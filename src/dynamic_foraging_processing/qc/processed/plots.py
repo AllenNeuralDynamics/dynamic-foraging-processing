@@ -5,8 +5,8 @@ primitive per-trial and event-time arrays instead of a ``behavior.json`` dict.
 The Agg backend is forced so the plots render headlessly (no display required).
 """
 
-import os
 import typing as t
+from pathlib import Path
 
 import matplotlib
 
@@ -80,7 +80,7 @@ def plot_lick_intervals(
     ax[4].hist(all_licks_sorted_diff, bins=bins, color="black", alpha=0.7)
 
     fig.tight_layout()
-    fig.savefig(os.path.join(results_folder, LICK_INTERVALS_PLOT), dpi=300, bbox_inches="tight")
+    fig.savefig(Path(results_folder) / LICK_INTERVALS_PLOT, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return LICK_INTERVALS_PLOT
 
@@ -303,6 +303,6 @@ def plot_side_bias(
     )
     _add_reward_probabilities(ax[3], reward_probability_left, reward_probability_right)
 
-    fig.savefig(os.path.join(results_folder, SIDE_BIAS_PLOT), dpi=300, bbox_inches="tight")
+    fig.savefig(Path(results_folder) / SIDE_BIAS_PLOT, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return SIDE_BIAS_PLOT

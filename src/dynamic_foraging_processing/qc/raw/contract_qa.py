@@ -7,9 +7,9 @@ runner over a dataset and maps each ``contraqctor`` ``Result`` onto a schema
 ``QCMetric``, tagged so the QC portal groups them under ``test_suite``.
 """
 
-import os
 import re
 import typing as t
+from pathlib import Path
 
 import matplotlib.figure
 from aind_behavior_dynamic_foraging.data_qc.suite import make_qc_runner
@@ -51,7 +51,7 @@ def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optiona
     if not isinstance(asset, matplotlib.figure.Figure) or results_folder is None:
         return None
     filename = f"{_sanitize(result.suite_name)}_{_sanitize(result.test_name)}.png"
-    asset.savefig(os.path.join(results_folder, filename), dpi=300, bbox_inches="tight")
+    asset.savefig(Path(results_folder) / filename, dpi=300, bbox_inches="tight")
     return filename
 
 
