@@ -70,6 +70,7 @@ any dataset on disk.
 | `left_lick_times` | `np.ndarray` of seconds | `B_LeftLickTime` |
 | `right_lick_times` | `np.ndarray` of seconds | `B_RightLickTime` |
 | `animal_response` | `np.ndarray` of `{0,1,2}` per trial | `B_AnimalResponseHistory` |
+| `side_bias` | `np.ndarray` per trial (right minus left, `nan` on no-response) | `B_Bias` |
 | `go_cue_times` | `np.ndarray` of seconds | `B_GoCueTimeSoundCard` |
 | `rewarded_history` | `pd.DataFrame` with `left`/`right` boolean columns | `B_RewardedHistory` |
 | `stage_positions` | `pd.DataFrame` with `x`/`y`/`z` columns per trial | `B_StagePositions` |
@@ -78,8 +79,8 @@ any dataset on disk.
 
 - `drop_frames_tag`, `frame_num`, `trigger_length` — dropped-frames check.
 - `Experimenter`, `dirty_files`, `repo_dirty_flag` — basic-configuration check.
-- `B_Bias`, `B_Bias_CI` — pre-computed side bias; recompute from
-  `animal_response` instead (rolling fraction of right vs. left choices).
+- `B_Bias_CI` — side-bias confidence interval; dropped (the bias trace plots
+  the per-trial `side_bias` column directly, with no CI band).
 
 ## 3. Metrics in the new capsule
 
@@ -88,10 +89,12 @@ Keep only what maps cleanly. All metrics get `stage=Stage.RAW` and
 
 ### Side bias (`tags={"behavior": "average side bias"}`)
 
-- Input: `animal_response: np.ndarray` (`0=left`, `1=right`, `2=ignore`).
-- Average bias = `mean(is_right) - mean(is_left)` over responded trials (or
-  the rolling form, matching the old `B_Bias`).
-- Metric: `"average side bias"`, pass when `abs(mean_bias) < 0.5`.
+- Input: `side_bias: np.ndarray` — the per-trial side bias read directly from
+  the trial table (right minus left; `nan` on no-response trials). It is *not*
+  recomputed from `animal_response`.
+- Average bias = `nanmean(side_bias)` over the session.
+- Metric: `"average side bias"`, pass when `abs(mean_bias) < 0.5`. An empty or
+  all-`nan` column yields `nan`, which fails.
 - `reference="side_bias.png"`.
 
 ### Lick intervals
@@ -118,8 +121,8 @@ All carry `reference="lick_intervals.png"`.
   (`left licks`, `right licks`, `left to right licks`, `right to left licks`,
   `all licks`); inputs are `left_lick_times` and `right_lick_times`.
 - `side_bias.png` — four-panel figure:
-  - Side bias trace (with confidence interval band) — rolling `B_Bias` /
-    `B_Bias_CI` recomputed from `animal_response`.
+  - Side bias trace — the per-trial `side_bias` column read from the trial
+    table (no confidence-interval band).
   - Lickspout position over trials — `stage_positions` (x / y1 / y2 / z,
     relative to session start, in mm).
   - Behavior event raster — `animal_response` (L/R choice, ignore),
@@ -210,3 +213,4 @@ test_suite
 | --- | --- | --- | --- |
 | 2026-06-03 | metrics | Confirmed kept QC metrics: side bias, lick intervals, and Harp/contract QA via `make_qc_runner`. Dropped checks tied to old `behavior.json` (dropped frames, basic configuration). | Meeting with Alex. |
 | 2026-06-03 | qa | Adopt contraqctor `qc.Runner` output (`make_qc_runner(dataset)`) as the source for Harp / camera / contract / DynamicForaging QA, converted into `QCMetric`s. | Meeting with Alex. |
+| 2026-06-22 | metrics, data inputs, plots | Side bias is read from the precomputed per-trial `side_bias` column (averaged via `nanmean`) instead of being recomputed from `animal_response`; dropped the `B_Bias_CI` confidence-interval band. | Reflect implemented `side_bias_result` / `plot_side_bias`. |
