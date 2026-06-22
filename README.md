@@ -36,6 +36,16 @@ To use the software, in the root directory, run
 pip install -e .
 ```
 
+> [!IMPORTANT]
+> The base install includes **only** the raw data loader and does **not** pull in
+> `aind-data-schema` or `matplotlib`. The quality-control (`qc`) module requires
+> both, so importing `dynamic_foraging_processing.qc` will fail on a base install.
+> To use the QC module, install the `qc` (or equivalent `full`) extra:
+> ```bash
+> pip install -e ".[qc]"
+> ```
+> The `full` extra is currently an alias for `qc`.
+
 To develop the code, run
 ```bash
 pip install -e . --group dev
@@ -45,4 +55,8 @@ Note: --group flag is available only in pip versions >=25.1
 Alternatively, if using [uv](https://docs.astral.sh/uv/), run
 ```bash
 uv sync
+```
+To include the QC dependencies with uv, run
+```bash
+uv sync --extra qc
 ```
