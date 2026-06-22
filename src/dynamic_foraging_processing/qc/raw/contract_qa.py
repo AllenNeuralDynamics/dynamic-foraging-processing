@@ -42,7 +42,9 @@ def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optiona
     -------
     str or None
         The saved figure's filename, or ``None`` when there is no figure asset
-        (or no ``results_folder``).
+        (or no ``results_folder``). The name combines the (sanitized) suite and
+        test names, e.g. a ``CameraTestSuite`` result for ``test_frame_rate``
+        becomes ``"CameraTestSuite_test_frame_rate.png"``.
     """
     context = result.context
     if not isinstance(context, dict):
@@ -65,7 +67,12 @@ def results_to_metrics(
     ----------
     results : dict
         Mapping of group name to list of ``contraqctor`` ``Result`` objects, as
-        returned by ``contraqctor.qc.Runner.run_all``.
+        returned by ``contraqctor.qc.Runner.run_all``. The keys are the group
+        names passed to ``runner.add_suite`` (e.g. ``"Data contract"``,
+        ``"HarpHub"``, ``"HarpLickometerRight"``, ``"DynamicForaging"``), and
+        each ``Result`` carries its suite's class name as ``suite_name`` (e.g.
+        ``"ContractTestSuite"``, ``"HarpDeviceTestSuite"``, ``"CameraTestSuite"``,
+        ``"DynamicForagingQcSuite"``). A ``None`` key becomes :data:`NO_GROUP`.
     results_folder : str, optional
         Directory to save figure assets into. If ``None``, assets are skipped.
 
@@ -73,6 +80,24 @@ def results_to_metrics(
     -------
     list of QCMetric
         One metric per result, tagged ``{"test_suite": suite, suite: group}``.
+
+    Examples
+    --------
+    The dynamic foraging runner produces results grouped roughly like::
+
+        {
+            "Data contract": [<ContractTestSuite results>],
+            "HarpHub": [<HarpHubTestSuite results>],
+            "HarpLickometerRight": [<HarpLicketySplitTestSuite results>],
+            "DynamicForaging": [<DynamicForagingQcSuite results>],
+        }
+
+    Each result becomes a metric named ``"<suite_name>::<test_name>"`` tagged
+    with both its suite and group, e.g. a ``ContractTestSuite`` result in the
+    ``"Data contract"`` group yields::
+
+        name = "ContractTestSuite::test_no_load_errors"
+        tags = {"test_suite": "ContractTestSuite", "ContractTestSuite": "Data contract"}
     """
     metrics: t.List[QCMetric] = []
     for group, group_results in results.items():
