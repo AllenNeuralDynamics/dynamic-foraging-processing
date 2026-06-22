@@ -476,9 +476,8 @@ class TrialTableBuilder:
         # Known limitation: the acquisition system can vary reward size per trial,
         # but the current data format only exposes a single session-level value.
         reward_size = task_logic.task_parameters.reward_size
-        if reward_size is not None:
-            columns["reward_size_left"] = reward_size.left_value_volume
-            columns["reward_size_right"] = reward_size.right_value_volume
+        columns["reward_size_left"] = reward_size.left_value_volume
+        columns["reward_size_right"] = reward_size.right_value_volume
 
         generator = self._summary_generator(task_logic.task_parameters.trial_generator)
         if generator is None:
