@@ -46,9 +46,7 @@ def test_raw_qc_run_delegates_to_contract_metrics(monkeypatch):
 
 def test_processed_qc_run_returns_metrics():
     """``ProcessedQC.run`` produces the five behavior metrics."""
-    trials = pd.DataFrame(
-        {"animal_response": [0, 1, 2, 1], "side_bias": [-0.1, 0.0, np.nan, 0.1]}
-    )
+    trials = pd.DataFrame({"animal_response": [0, 1, 2, 1], "side_bias": [-0.1, 0.0, np.nan, 0.1]})
     metrics = ProcessedQC().run(
         trials,
         np.array([1.0, 1.01]),
@@ -61,9 +59,7 @@ def test_processed_qc_run_returns_metrics():
 
 def test_processed_qc_run_writes_plots(tmp_path):
     """Supplying a results folder writes the supporting plots."""
-    trials = pd.DataFrame(
-        {"animal_response": [0, 1, 2, 1], "side_bias": [-0.1, 0.0, np.nan, 0.1]}
-    )
+    trials = pd.DataFrame({"animal_response": [0, 1, 2, 1], "side_bias": [-0.1, 0.0, np.nan, 0.1]})
     metrics = ProcessedQC().run(
         trials,
         np.array([1.0, 1.01]),
