@@ -62,10 +62,10 @@ class TrialConfig(BaseModel):
         default=None, ge=0, le=1, description="The block reward probability of the right lick port"
     )
     left_valve_open_time: Optional[float] = Field(
-        default=None, description="Time (s) at which the left valve opened"
+        default=None, description="Duration (s) the left valve was open"
     )
     right_valve_open_time: Optional[float] = Field(
-        default=None, description="Time (s) at which the right valve opened"
+        default=None, description="Duration (s) the right valve was open"
     )
     reward_size_left: float = Field(
         description="The reward volume (uL) delivered at the left lick port if rewarded.",

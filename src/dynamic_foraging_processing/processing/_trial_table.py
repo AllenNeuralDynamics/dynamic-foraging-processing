@@ -149,26 +149,38 @@ class TrialTableBuilder:
         return float(in_window[np.argmin(in_window - start)])
 
     @staticmethod
-    def _valve_open_times(output_set: t.Optional[pd.DataFrame], port: str) -> np.ndarray:
-        """Return Harp valve-open timestamps for ``port`` (``WRITE`` messages only).
+    def _pulse_duration(pulse_register: t.Optional[pd.DataFrame], column: str) -> t.Optional[float]:
+        """Return the configured valve-open pulse width (seconds) for a supply port.
+
+        The Harp ``PulseSupplyPort{0,1}`` register holds the valve-open pulse
+        width in milliseconds. It is a per-session configuration value (a reward
+        opens the valve for this fixed duration), so the same value applies to
+        every trial. Returns the most recent value converted to seconds.
 
         Parameters
         ----------
-        output_set : pandas.DataFrame or None
-            ``HarpBehavior`` ``OutputSet`` register data.
-        port : str
-            Supply-port column, e.g. ``"SupplyPort0"`` (left) or
-            ``"SupplyPort1"`` (right).
+        pulse_register : pandas.DataFrame or None
+            ``HarpBehavior`` ``PulseSupplyPort{0,1}`` register data.
+        column : str
+            The register's value column, e.g. ``"PulseSupplyPort0"`` (left) or
+            ``"PulseSupplyPort1"`` (right).
 
         Returns
         -------
-        numpy.ndarray
-            Sorted timestamps at which ``port`` was set high via a ``WRITE``.
+        float or None
+            The pulse width in seconds, or ``None`` when the register or column
+            is absent or has no value.
         """
-        if output_set is None or len(output_set) == 0 or port not in output_set.columns:
-            return np.empty(0)
-        writes = output_set[(output_set["MessageType"] == "WRITE") & output_set[port]]
-        return np.sort(writes.index.to_numpy(dtype=float))
+        if (
+            pulse_register is None
+            or len(pulse_register) == 0
+            or column not in pulse_register.columns
+        ):
+            return None
+        values = pulse_register.sort_index()[column].dropna()
+        if values.empty:
+            return None
+        return float(values.iloc[-1]) / 1000.0
 
     @staticmethod
     def _write_times(register: t.Optional[pd.DataFrame]) -> np.ndarray:
@@ -559,8 +571,8 @@ class TrialTableBuilder:
         stop: float,
         response: t.Any,
         side_bias: t.Optional[float],
-        left_valve_times: np.ndarray,
-        right_valve_times: np.ndarray,
+        left_valve_open_time: t.Optional[float],
+        right_valve_open_time: t.Optional[float],
         go_cue_times: np.ndarray,
         session: t.Dict[str, t.Any],
         lickspout: t.Dict[str, t.Optional[float]],
@@ -578,8 +590,8 @@ class TrialTableBuilder:
             rewarded_historyL=self._rewarded_history(is_rewarded, is_right_choice, is_right=False),
             rewarded_historyR=self._rewarded_history(is_rewarded, is_right_choice, is_right=True),
             goCue_start_time=self._closest_time_in_window(go_cue_times, start, stop),
-            left_valve_open_time=self._closest_time_in_window(left_valve_times, start, stop),
-            right_valve_open_time=self._closest_time_in_window(right_valve_times, start, stop),
+            left_valve_open_time=left_valve_open_time,
+            right_valve_open_time=right_valve_open_time,
             bait_left=self._is_baited(trial, is_right=False),
             bait_right=self._is_baited(trial, is_right=True),
             reward_probabilityL=self._block_reward_probability(trial, is_right=False),
@@ -643,8 +655,10 @@ class TrialTableBuilder:
         so a slipped stream surfaces as a warning (or a ``ValueError`` when
         ``raise_on_error`` is set) rather than silently misaligned rows.
 
-        Hardware streams (valves, go cue) are not per-trial; each trial selects
-        the closest hardware event falling inside its ``[start, stop)`` window.
+        Hardware streams are handled per their nature: the go cue is an event
+        each trial selects within its ``[start, stop)`` window, while the valve
+        open duration is a constant session-configured supply-port pulse width
+        applied to every trial.
 
         Returns
         -------
@@ -666,7 +680,8 @@ class TrialTableBuilder:
         responses = self._load("Behavior", "SoftwareEvents", "Response")
         metrics = self._load("Behavior", "SoftwareEvents", "TrialMetrics")
 
-        output_set = self._load("Behavior", "HarpBehavior", "OutputSet")
+        pulse_supply_left = self._load("Behavior", "HarpBehavior", "PulseSupplyPort0")
+        pulse_supply_right = self._load("Behavior", "HarpBehavior", "PulseSupplyPort1")
         go_cue = self._load("Behavior", "HarpSoundCard", "PlaySoundOrFrequency")
         manipulator = self._load("Behavior", "SoftwareEvents", "InitialManipulatorPosition")
         task_logic = self._load("Behavior", "InputSchemas", "TaskLogic")
@@ -709,9 +724,11 @@ class TrialTableBuilder:
             if self.raise_on_error:
                 raise ValueError(msg)
 
-        # Hardware streams: not per-trial; each trial picks events in its window.
-        left_valve_times = self._valve_open_times(output_set, "SupplyPort0")
-        right_valve_times = self._valve_open_times(output_set, "SupplyPort1")
+        # Hardware streams. The valve open duration is the configured supply-port
+        # pulse width (constant per session); the go cue is a per-trial event each
+        # trial picks within its window.
+        left_valve_open_time = self._pulse_duration(pulse_supply_left, "PulseSupplyPort0")
+        right_valve_open_time = self._pulse_duration(pulse_supply_right, "PulseSupplyPort1")
         go_cue_times = self._write_times(go_cue)
 
         session = self._session_columns(task_logic)
@@ -734,8 +751,8 @@ class TrialTableBuilder:
                     stop=stop,
                     response=response,
                     side_bias=side_bias,
-                    left_valve_times=left_valve_times,
-                    right_valve_times=right_valve_times,
+                    left_valve_open_time=left_valve_open_time,
+                    right_valve_open_time=right_valve_open_time,
                     go_cue_times=go_cue_times,
                     session=session,
                     lickspout=lickspout,
