@@ -127,7 +127,7 @@ def side_bias_result(side_bias: np.ndarray) -> QCResult:
     if values.size == 0 or np.all(np.isnan(values)):
         mean_bias = float("nan")
     else:
-        mean_bias = float(np.nanmean(values))
+        mean_bias = round(float(np.nanmean(values)), 3)
     name = "average side bias"
     return QCResult(
         name=name,
@@ -160,10 +160,10 @@ def lick_interval_results(
     """
     results = calculate_lick_intervals(left_lick_times, right_lick_times)
     specs = [
-        ("Left Lick Interval (%)", results["LeftLickIntervalPercent"], 10.0),
-        ("Right Lick Interval (%)", results["RightLickIntervalPercent"], 10.0),
-        ("Cross Side Lick Interval (%)", results["CrossSideIntervalPercent"], 10.0),
-        ("Artifact Percent (%)", results["ArtifactPercent"], 1.0),
+        ("Left Lick Interval (%)", round(results["LeftLickIntervalPercent"], 3), 10.0),
+        ("Right Lick Interval (%)", round(results["RightLickIntervalPercent"], 3), 10.0),
+        ("Cross Side Lick Interval (%)", round(results["CrossSideIntervalPercent"], 3), 10.0),
+        ("Artifact Percent (%)", round(results["ArtifactPercent"], 3), 1.0),
     ]
     return [
         QCResult(
