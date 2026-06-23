@@ -112,7 +112,9 @@ def side_bias_result(side_bias: np.ndarray) -> QCResult:
     ----------
     side_bias : numpy.ndarray
         Per-trial side bias from the trial table (right minus left); positive
-        means a rightward bias. Trials with no response are ``nan``.
+        means a rightward bias. Computed over a sliding window, so a single
+        no-response trial still has a value; entries are ``nan`` only when the
+        mouse has not responded for many consecutive trials.
 
     Returns
     -------
@@ -131,7 +133,7 @@ def side_bias_result(side_bias: np.ndarray) -> QCResult:
         name=name,
         value=mean_bias,
         passed=bool(abs(mean_bias) < 0.5),  # nan comparisons are False -> fails
-        description="Average of the per-trial side bias (right minus left).",
+        description="Average side bias across the session (right is positive).",
         reference=SIDE_BIAS_PLOT,
         tags={"behavior": name},
     )
