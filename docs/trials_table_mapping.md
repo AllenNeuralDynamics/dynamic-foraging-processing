@@ -21,8 +21,8 @@ The NWB `acquisition` container holds four behavior-related time series:
 | --- | --- | --- |
 | `left_lick_time` | `Behavior/Lickometer` | |
 | `right_lick_time` | `Behavior/Lickometer` | |
-| `left_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort0`, `WRITE` messages) | Same as left valve open. |
-| `right_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort1`, `WRITE` messages) | Same as right valve open. |
+| `left_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort0`, `WRITE` messages) | The left valve open timestamp. |
+| `right_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort1`, `WRITE` messages) | The right valve open timestamp. |
 
 Earlier mapping used `Response.json` (`SoftwareEvents`) for lick times (where
 `Item1` is the time and `Item2` is `left`/`right`) and `TrialOutcome.json`
@@ -103,16 +103,19 @@ Columns are grouped by the raw source they map from.
 | --- | --- |
 | `stop_time` | `timestamp` column. Possible QC check: length should match `QuiescentPeriod.json`. |
 
-### From `HarpBehavior` (`OutputSet`)
+### From `HarpBehavior` (`PulseSupplyPort{0,1}`)
 
 | Trials column | Mapping |
 | --- | --- |
-| `left_valve_open_time` | `SupplyPort0`. |
-| `right_valve_open_time` | `SupplyPort1`. |
+| `left_valve_open_time` | `PulseSupplyPort0` value (ms -> s). Duration the valve is open. |
+| `right_valve_open_time` | `PulseSupplyPort1` value (ms -> s). Duration the valve is open. |
 
-Cross-correlate with software-event manual-reward times from the UI against
-trial `start_time`/`stop_time` to disambiguate manual valve opens. Double-check
-this.
+The `PulseSupplyPort{0,1}` register holds the valve-open pulse width in
+milliseconds — a reward opens the valve for this fixed duration. It is a
+per-session configuration value, so the same duration is written to every trial
+(converted to seconds). Note: `OutputSet`'s `SupplyPort` columns are *not* the
+reward pulse — they track a sustained left/right state sampled only every few
+seconds, far too coarse for the ~tens-of-ms valve pulse.
 
 ### From `SoundCard` (`WRITE` messages)
 
