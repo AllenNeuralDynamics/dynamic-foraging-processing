@@ -1,15 +1,18 @@
-"""Build the behavior QC results from per-trial and event-time arrays.
+"""Build the behavior QC results from the trials table and lick-time arrays.
 
 Combines the side-bias and lick-interval checks into the ordered list of
 ``QCResult`` objects the processed stage returns, optionally writing the
-supporting plots so the result references resolve. Convert the results to
-schema metrics with ``to_metrics`` / ``QCResult.to_metric`` when assembling a
-``QualityControl``.
+supporting plots so the result references resolve. The per-trial inputs are
+pulled from the trials table by column; the lick and manual-water timestamps
+are event-time arrays (variable length, not per-trial) and stay explicit.
+Convert the results to schema metrics with ``to_metrics`` /
+``QCResult.to_metric`` when assembling a ``QualityControl``.
 """
 
 import typing as t
 
 import numpy as np
+import pandas as pd
 
 from dynamic_foraging_processing.qc._core.result import QCResult
 from dynamic_foraging_processing.qc.processed.behavior import (
@@ -18,25 +21,44 @@ from dynamic_foraging_processing.qc.processed.behavior import (
 )
 from dynamic_foraging_processing.qc.processed.plots import plot_lick_intervals, plot_side_bias
 
+# Logical input -> trials-table column name. Centralized so the mapping is easy
+# to correct against the trial-table builder; ``side_bias`` and the
+# ``lickspout_*`` arrays are not yet pinned down in trials_table_mapping.md.
+_COLUMNS = {
+    "animal_response": "animal_response",
+    "side_bias": "side_bias",
+    "lickspout_x": "lickspout_x",
+    "lickspout_y1": "lickspout_y1",
+    "lickspout_y2": "lickspout_y2",
+    "lickspout_z": "lickspout_z",
+    "rewarded_left": "rewarded_historyL",
+    "rewarded_right": "rewarded_historyR",
+    "reward_probability_left": "reward_probabilityL",
+    "reward_probability_right": "reward_probabilityR",
+    "autowater_left": "auto_waterL",
+    "autowater_right": "auto_waterR",
+    "go_cue_times": "goCue_start_time",
+}
+
+
+def _column(trials: pd.DataFrame, key: str) -> t.Optional[np.ndarray]:
+    """Return the trials-table column for ``key`` as an array, or ``None``.
+
+    Missing columns return ``None`` so optional plot inputs degrade gracefully,
+    matching the previous per-array signature.
+    """
+    column = _COLUMNS[key]
+    if column in trials.columns:
+        return trials[column].to_numpy()
+    return None
+
 
 def behavior_qc_results(
-    animal_response: np.ndarray,
-    side_bias: np.ndarray,
+    trials: pd.DataFrame,
     left_lick_times: np.ndarray,
     right_lick_times: np.ndarray,
     results_folder: t.Optional[str] = None,
     *,
-    lickspout_x: t.Optional[np.ndarray] = None,
-    lickspout_y1: t.Optional[np.ndarray] = None,
-    lickspout_y2: t.Optional[np.ndarray] = None,
-    lickspout_z: t.Optional[np.ndarray] = None,
-    rewarded_left: t.Optional[np.ndarray] = None,
-    rewarded_right: t.Optional[np.ndarray] = None,
-    reward_probability_left: t.Optional[np.ndarray] = None,
-    reward_probability_right: t.Optional[np.ndarray] = None,
-    go_cue_times: t.Optional[np.ndarray] = None,
-    autowater_left: t.Optional[np.ndarray] = None,
-    autowater_right: t.Optional[np.ndarray] = None,
     manual_left_times: t.Optional[np.ndarray] = None,
     manual_right_times: t.Optional[np.ndarray] = None,
 ) -> t.List[QCResult]:
@@ -49,47 +71,47 @@ def behavior_qc_results(
 
     Parameters
     ----------
-    animal_response : numpy.ndarray
-        Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore).
-    side_bias : numpy.ndarray
-        Per-trial side bias from the trial table (right minus left).
+    trials : pandas.DataFrame
+        Trials table. The per-trial inputs are read by column (see
+        ``_COLUMNS``): ``animal_response``, ``side_bias``, the ``lickspout_*``
+        positions, the earned-reward / autowater / reward-probability left/right
+        columns, and the go-cue start times. Columns that are absent are treated
+        as unavailable and skipped in the side-bias figure.
     left_lick_times, right_lick_times : numpy.ndarray
-        Timestamps (s) of left/right-port licks.
+        Timestamps (s) of left/right-port licks. Event-time arrays, not
+        per-trial, so they are passed explicitly rather than read from ``trials``.
     results_folder : str, optional
         Directory to write the plots into. If ``None``, plots are skipped.
-    lickspout_x, lickspout_y1, lickspout_y2, lickspout_z : numpy.ndarray, optional
-        Per-trial lickspout position arrays passed through to the side-bias figure.
-    rewarded_left, rewarded_right, autowater_left, autowater_right, \
-reward_probability_left, reward_probability_right : numpy.ndarray, optional
-        Per-trial arrays passed through to the side-bias figure.
-    go_cue_times, manual_left_times, manual_right_times : numpy.ndarray, optional
-        Event timestamps (s) passed through to the side-bias figure.
+    manual_left_times, manual_right_times : numpy.ndarray, optional
+        Manual-water delivery timestamps (s); event-time arrays passed through
+        to the side-bias figure.
 
     Returns
     -------
     list of QCResult
         The average-side-bias result followed by the four lick-interval results.
     """
+    side_bias = _column(trials, "side_bias")
     results = [
         side_bias_result(side_bias),
         *lick_interval_results(left_lick_times, right_lick_times),
     ]
     if results_folder is not None:
         plot_side_bias(
-            animal_response,
+            _column(trials, "animal_response"),
             side_bias,
             results_folder,
-            lickspout_x=lickspout_x,
-            lickspout_y1=lickspout_y1,
-            lickspout_y2=lickspout_y2,
-            lickspout_z=lickspout_z,
-            rewarded_left=rewarded_left,
-            rewarded_right=rewarded_right,
-            reward_probability_left=reward_probability_left,
-            reward_probability_right=reward_probability_right,
-            go_cue_times=go_cue_times,
-            autowater_left=autowater_left,
-            autowater_right=autowater_right,
+            lickspout_x=_column(trials, "lickspout_x"),
+            lickspout_y1=_column(trials, "lickspout_y1"),
+            lickspout_y2=_column(trials, "lickspout_y2"),
+            lickspout_z=_column(trials, "lickspout_z"),
+            rewarded_left=_column(trials, "rewarded_left"),
+            rewarded_right=_column(trials, "rewarded_right"),
+            reward_probability_left=_column(trials, "reward_probability_left"),
+            reward_probability_right=_column(trials, "reward_probability_right"),
+            go_cue_times=_column(trials, "go_cue_times"),
+            autowater_left=_column(trials, "autowater_left"),
+            autowater_right=_column(trials, "autowater_right"),
             manual_left_times=manual_left_times,
             manual_right_times=manual_right_times,
         )
