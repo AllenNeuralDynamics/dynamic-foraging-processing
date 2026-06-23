@@ -145,15 +145,15 @@ def _task_logic(quiescent_scalar=True):
     )
 
 
-def _output_set():
-    """Build a HarpBehavior OutputSet frame with left/right valve WRITE events."""
+def _pulse_supply(column, value_ms):
+    """Build a HarpBehavior PulseSupplyPort register frame with one config value.
+
+    The register reports its pulse width (ms) as a single ``READ`` row, mirroring
+    a real session where the valve open time is configured once.
+    """
     return pd.DataFrame(
-        {
-            "SupplyPort0": [True, False, True],
-            "SupplyPort1": [False, True, False],
-            "MessageType": ["WRITE", "WRITE", "READ"],
-        },
-        index=pd.Index([12.0, 22.0, 12.5], name="Time"),
+        {column: [value_ms], "MessageType": ["READ"]},
+        index=pd.Index([12.0], name="Time"),
     )
 
 
@@ -193,7 +193,12 @@ def _full_dataset():
     behavior = _Node(
         {
             "SoftwareEvents": software_events,
-            "HarpBehavior": _Node({"OutputSet": _Stream(_output_set())}),
+            "HarpBehavior": _Node(
+                {
+                    "PulseSupplyPort0": _Stream(_pulse_supply("PulseSupplyPort0", 20)),
+                    "PulseSupplyPort1": _Stream(_pulse_supply("PulseSupplyPort1", 30)),
+                }
+            ),
             "HarpSoundCard": _Node(
                 {
                     "PlaySoundOrFrequency": _Stream(
@@ -239,12 +244,12 @@ def test_build_full_dataset():
     assert first["animal_response"] == 1
     assert second["animal_response"] == 2
 
-    # Hardware times resolved within each trial window.
+    # Go cue resolved within each trial window.
     assert first["goCue_start_time"] == 11.0
     assert second["goCue_start_time"] == 21.0
-    assert first["left_valve_open_time"] == 12.0
-    assert np.isnan(first["right_valve_open_time"])
-    assert second["right_valve_open_time"] == 22.0
+    # Valve columns hold the configured pulse width (ms -> s), constant per trial.
+    assert first["left_valve_open_time"] == 0.02 and second["left_valve_open_time"] == 0.02
+    assert first["right_valve_open_time"] == 0.03 and second["right_valve_open_time"] == 0.03
 
     # Reward history split by side.
     assert bool(first["rewarded_historyR"]) is True
@@ -468,10 +473,31 @@ def test_closest_time_in_window_none_when_empty_or_outside():
     assert TrialTableBuilder._closest_time_in_window(np.array([5.0, 25.0]), 10.0, 20.0) is None
 
 
-def test_valve_open_times_missing_column_returns_empty():
-    """A missing supply-port column yields no valve times."""
-    df = pd.DataFrame({"MessageType": ["WRITE"]}, index=[1.0])
-    assert TrialTableBuilder._valve_open_times(df, "SupplyPort0").size == 0
+def test_pulse_duration_converts_ms_to_seconds():
+    """The pulse-width register value (ms) is returned in seconds."""
+    df = pd.DataFrame(
+        {"PulseSupplyPort0": [20], "MessageType": ["READ"]},
+        index=pd.Index([12.0], name="Time"),
+    )
+    assert TrialTableBuilder._pulse_duration(df, "PulseSupplyPort0") == 0.02
+
+
+def test_pulse_duration_uses_most_recent_value():
+    """When the pulse width is reconfigured, the latest value wins."""
+    df = pd.DataFrame(
+        {"PulseSupplyPort0": [20, 50], "MessageType": ["READ", "WRITE"]},
+        index=pd.Index([12.0, 30.0], name="Time"),
+    )
+    assert TrialTableBuilder._pulse_duration(df, "PulseSupplyPort0") == 0.05
+
+
+def test_pulse_duration_missing_or_empty_returns_none():
+    """An absent register/column or an all-null value column yields ``None``."""
+    assert TrialTableBuilder._pulse_duration(None, "PulseSupplyPort0") is None
+    no_col = pd.DataFrame({"MessageType": ["READ"]}, index=[1.0])
+    assert TrialTableBuilder._pulse_duration(no_col, "PulseSupplyPort0") is None
+    all_null = pd.DataFrame({"PulseSupplyPort0": [np.nan], "MessageType": ["READ"]}, index=[1.0])
+    assert TrialTableBuilder._pulse_duration(all_null, "PulseSupplyPort0") is None
 
 
 def test_write_times_without_message_type_uses_all_rows():
