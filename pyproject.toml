@@ -17,7 +17,7 @@ readme = "README.md"
 version = "0.0.0"
 
 dependencies = [
-    "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@v0.0.2rc27",
+    "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@v0.0.2",
     "ipykernel",
 ]
 
