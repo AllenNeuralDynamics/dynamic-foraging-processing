@@ -9,6 +9,7 @@ from dynamic_foraging_processing.nwb.acquisition.models import (
     AcquisitionTable,
 )
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
+from dynamic_foraging_processing.utils.rewards import get_annotated_rewards
 
 
 class AcquisitionBuilder:
@@ -30,13 +31,109 @@ class AcquisitionBuilder:
         Returns
         -------
         pandas.DataFrame
-            DataFrame from the loaded ``OutputSet`` stream under
+            ``WRITE`` messages from the loaded ``OutputSet`` stream under
             ``Behavior/HarpBehavior``.
         """
         data = self.loader.dataset.at("Behavior").at("HarpBehavior").at("OutputSet").load().data
         data_write_messages = data[data["MessageType"] == "WRITE"]
 
         return data_write_messages
+
+    def get_trial_outcomes(self) -> pd.DataFrame:
+        """Get the ``TrialOutcome`` software-event stream.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The ``TrialOutcome`` stream under ``Behavior/SoftwareEvents``,
+            indexed by trial timestamp with a ``data`` payload column.
+        """
+        return (
+            self.loader.dataset.at("Behavior").at("SoftwareEvents").at("TrialOutcome").load().data
+        )
+
+    def get_manual_water_times(self) -> pd.DataFrame:
+        """Get the manual-water software-event stream.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The ``GiveManualWaterRight`` stream under ``Behavior/SoftwareEvents``,
+            indexed by event timestamp with a ``data`` column that is ``True``
+            for right-port manual water and ``False`` for left-port manual water.
+            An empty frame (with a ``data`` column) is returned when the stream
+            is absent.
+        """
+        try:
+            return (
+                self.loader.dataset.at("Behavior")
+                .at("SoftwareEvents")
+                .at("GiveManualWaterRight")
+                .load()
+                .data
+            )
+        except (KeyError, FileNotFoundError):
+            return pd.DataFrame({"data": []})
+
+    def _reward_delivery_series(
+        self,
+        writes: pd.DataFrame,
+        trial_outcomes: pd.DataFrame,
+        manual_water: pd.DataFrame,
+        *,
+        port_column: str,
+        is_right: bool,
+        name: str,
+        side_label: str,
+    ) -> AcquisitionSeries:
+        """Build one lick port's reward-delivery series with reward annotations.
+
+        Only valve-open events (``port_column`` is truthy) are reward
+        deliveries; the ``data`` field annotates each as earned, manual, or
+        automatic via :func:`get_annotated_rewards`.
+
+        Parameters
+        ----------
+        writes : pandas.DataFrame
+            ``OutputSet`` ``WRITE`` messages indexed by timestamp.
+        trial_outcomes : pandas.DataFrame
+            The ``TrialOutcome`` stream, indexed by trial timestamp.
+        manual_water : pandas.DataFrame
+            The ``GiveManualWaterRight`` stream; the ``data`` column selects the
+            side (``True`` right, ``False`` left).
+        port_column : str
+            Supply-port column for this side (``"SupplyPort0"`` left,
+            ``"SupplyPort1"`` right).
+        is_right : bool
+            ``True`` for the right lick port, ``False`` for the left.
+        name : str
+            Acquisition series name.
+        side_label : str
+            Human-readable side label used in the description.
+
+        Returns
+        -------
+        AcquisitionSeries
+            The reward-delivery series for this lick port.
+        """
+        open_writes = writes[writes[port_column].fillna(False).astype(bool)]
+        delivery_times = open_writes.index.to_numpy()
+        manual_water_times = manual_water.index[manual_water["data"] == is_right].to_numpy()
+        annotations = get_annotated_rewards(
+            delivery_times,
+            trial_outcomes,
+            manual_water_times,
+        )
+        return AcquisitionSeries(
+            name=name,
+            data=annotations,
+            timestamps=delivery_times,
+            unit="second",
+            description=(
+                f"The reward delivery time of the {side_label} lick port. The data field "
+                "annotates whether the reward was earned, manual, or automatic"
+            ),
+        )
 
     def build_acquisition(self) -> t.List[t.Union[AcquisitionSeries, AcquisitionTable]]:
         """Build the NWB acquisition entries.
@@ -47,6 +144,8 @@ class AcquisitionBuilder:
             Acquisition entries to write to the NWB acquisition module.
         """
         rewards = self.get_reward_delivery()
+        trial_outcomes = self.get_trial_outcomes()
+        manual_water = self.get_manual_water_times()
 
         acquisition_streams = self.loader.get_all_raw_data()
         acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
@@ -63,30 +162,27 @@ class AcquisitionBuilder:
                 )
             )
 
-        # TODO: fix data so that it is array of annotations of whether the reward was earned, manual, or automatic
         # TODO: add left and right lick times
         acquisiton_entries.append(
-            AcquisitionSeries(
+            self._reward_delivery_series(
+                rewards,
+                trial_outcomes,
+                manual_water,
+                port_column="SupplyPort0",
+                is_right=False,
                 name="left_reward_delivery_time",
-                data=rewards["SupplyPort0"].to_numpy(),
-                timestamps=rewards["SupplyPort0"].index.to_numpy(),
-                unit="second",
-                description=(
-                    "The reward delivery time of the left lick port. The data field "
-                    "annotates whether the reward was earned, manual, or automatic"
-                ),
+                side_label="left",
             )
         )
         acquisiton_entries.append(
-            AcquisitionSeries(
+            self._reward_delivery_series(
+                rewards,
+                trial_outcomes,
+                manual_water,
+                port_column="SupplyPort1",
+                is_right=True,
                 name="right_reward_delivery_time",
-                data=rewards["SupplyPort1"].to_numpy(),
-                timestamps=rewards["SupplyPort1"].index.to_numpy(),
-                unit="second",
-                description=(
-                    "The reward delivery time of the right lick port. The data field "
-                    "annotates whether the reward was earned, manual, or automatic"
-                ),
+                side_label="right",
             )
         )
 
