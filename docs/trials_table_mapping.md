@@ -21,8 +21,8 @@ The NWB `acquisition` container holds four behavior-related time series:
 | --- | --- | --- |
 | `left_lick_time` | `Behavior/Lickometer` | |
 | `right_lick_time` | `Behavior/Lickometer` | |
-| `left_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort0`, `WRITE` messages) | Same as left valve open. |
-| `right_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort1`, `WRITE` messages) | Same as right valve open. |
+| `left_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort0`, `WRITE` messages) | The left valve open timestamp. |
+| `right_reward_delivery_time` | `Behavior/HarpBehavior` `OutputSet` (`SupplyPort1`, `WRITE` messages) | The right valve open timestamp. |
 
 Earlier mapping used `Response.json` (`SoftwareEvents`) for lick times (where
 `Item1` is the time and `Item2` is `left`/`right`) and `TrialOutcome.json`
@@ -42,11 +42,32 @@ Columns are grouped by the raw source they map from.
 | `block_beta`, `block_duration`, `block_min`, `block_max` | `block_length` |
 | `delay_beta`, `delay_duration`, `delay_min`, `delay_max` | `quiescent_duration_key` (scalar distribution, so no beta/min/max) |
 
+### From `task_logic_input` (under `task_parameters`)
+
+| Trials column | Source field |
+| --- | --- |
+| `reward_size_left` | `task_parameters.reward_size.left_value_volume` — the reward volume (uL) at the left port. |
+| `reward_size_right` | `task_parameters.reward_size.right_value_volume` — the reward volume (uL) at the right port. |
+
+> **Note:** `reward_size` is read from the task parameters, not the trial
+> generator, so it is populated even when no summarising generator is resolved.
+> The acquisition system can in principle vary reward size per trial, but the
+> current data format only exposes a single session-level value, so these
+> columns are constant across trials. They are **required** (non-nullable): a
+> missing `TaskLogic` stream raises rather than silently producing null reward
+> sizes when there are trials to build.
+
+### From `TrialMetrics.json` (`SoftwareEvents` stream)
+
+| Trials column | Mapping |
+| --- | --- |
+| `side_bias` | Per-trial `bias` field from the `TrialMetrics` event (negative → left bias, positive → right bias). `None` when not recorded. Aligned by position with `TrialOutcome`. |
+
 ### From `Response.json` (`SoftwareEvents` stream)
 
 | Trials column | Mapping |
 | --- | --- |
-| `animal_response` | `0` = left choice, `1` = right choice, `2` = no response. |
+| `animal_response` | From the event payload `{ "Item1": <time>, "Item2": <choice> }`. `Item2` `True` → right (`1`), `False` → left (`0`); a missing payload or `None` `Item2` → no response (`2`). |
 
 ### From `TrialOutcome.json` (`SoftwareEvents` stream)
 
@@ -55,11 +76,11 @@ Columns are grouped by the raw source they map from.
 
 | Trials column | Mapping |
 | --- | --- |
-| `auto_waterL` / `auto_waterR` | From `is_auto_response_right`. `NULL` for None, `true` for right, `false` for left. Encoded `0`/`1`. |
+| `auto_waterL` / `auto_waterR` | From `is_auto_response_right`. `1` on the auto-responded side; `0` on the other side, when there was no auto-response (`None`), or when the trial is missing. |
 | `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_response_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_response_right` is `None` or `True`. |
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
-| `reward_probabilityL` / `reward_probabilityR` | Most likely the block probability: `Trial -> Metadata -> p_reward_left` / `p_reward_right`. Confirm with Alex whether the actual lickspout probability is intended. |
+| `reward_probabilityL` / `reward_probabilityR` | The **block** probability from `Trial -> metadata -> p_reward_left` / `p_reward_right`. The top-level `trial.p_reward_left` / `p_reward_right` is the per-trial probability, not the block probability, so it is not used here. `None` when the trial or its metadata is missing. |
 | `rewarded_historyL` / `rewarded_historyR` | Filter `is_rewarded == True`, then on `is_right_choice`. |
 
 ### From `TrialGeneratorSpec.json` (`SoftwareEvents` stream)
@@ -82,16 +103,19 @@ Columns are grouped by the raw source they map from.
 | --- | --- |
 | `stop_time` | `timestamp` column. Possible QC check: length should match `QuiescentPeriod.json`. |
 
-### From `HarpBehavior` (`OutputSet`)
+### From `HarpBehavior` (`PulseSupplyPort{0,1}`)
 
 | Trials column | Mapping |
 | --- | --- |
-| `left_valve_open_time` | `SupplyPort0`. |
-| `right_valve_open_time` | `SupplyPort1`. |
+| `left_valve_open_time` | `PulseSupplyPort0` value (ms -> s). Duration the valve is open. |
+| `right_valve_open_time` | `PulseSupplyPort1` value (ms -> s). Duration the valve is open. |
 
-Cross-correlate with software-event manual-reward times from the UI against
-trial `start_time`/`stop_time` to disambiguate manual valve opens. Double-check
-this.
+The `PulseSupplyPort{0,1}` register holds the valve-open pulse width in
+milliseconds — a reward opens the valve for this fixed duration. It is a
+per-session configuration value, so the same duration is written to every trial
+(converted to seconds). Note: `OutputSet`'s `SupplyPort` columns are *not* the
+reward pulse — they track a sustained left/right state sampled only every few
+seconds, far too coarse for the ~tens-of-ms valve pulse.
 
 ### From `SoundCard` (`WRITE` messages)
 
@@ -122,3 +146,12 @@ These were mapped during exploration but are no longer in scope:
 | Trials column | Mapping |
 | --- | --- |
 | `reward_random_L` / `reward_random_R` | None — no task component drives these. |
+
+## Changelog
+
+| Date | Change |
+| --- | --- |
+| 2026-06-17 | `animal_response` now decodes the `Response` event's `{ "Item1": <time>, "Item2": <choice> }` payload via `Item2` (`True` → right `1`, `False` → left `0`, missing/`None` → no response `2`), rather than treating the whole payload as the choice. |
+| 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_response_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
+| 2026-06-20 | Added `reward_size_left` / `reward_size_right` (reward volume in uL) from `task_parameters.reward_size`, and `side_bias` from the per-trial `TrialMetrics` event (`bias` field). |
+| 2026-06-20 | `reward_probabilityL` / `reward_probabilityR` now read the block probability from `trial.metadata.p_reward_left` / `p_reward_right` instead of the top-level per-trial `trial.p_reward_left` / `p_reward_right`. |

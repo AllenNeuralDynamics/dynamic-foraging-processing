@@ -5,8 +5,7 @@ import os
 import typing as t
 
 import pandas as pd
-
-from .temp_dataset import dataset as _build_dataset
+from aind_behavior_dynamic_foraging.data_contract import dataset as _build_dataset
 
 if t.TYPE_CHECKING:
     from contraqctor.contract import Dataset
