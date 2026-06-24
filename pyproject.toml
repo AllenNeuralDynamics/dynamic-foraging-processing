@@ -17,7 +17,7 @@ readme = "README.md"
 version = "0.0.0"
 
 dependencies = [
-    "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@v0.0.2rc27",
+    "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@v0.0.2",
     "ipykernel",
 ]
 
@@ -52,7 +52,7 @@ extend-ignore = []
 convention = 'google'
 
 [tool.coverage.run]
-omit = ["*__init__*", "*/temp_dataset.py"]
+omit = ["*__init__*"]
 source = ["dynamic_foraging_processing", "tests"]
 
 [tool.coverage.report]
