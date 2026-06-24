@@ -2,6 +2,7 @@
 
 import typing as t
 
+import numpy as np
 import pandas as pd
 
 from dynamic_foraging_processing.nwb.acquisition.models import (
@@ -74,6 +75,71 @@ class AcquisitionBuilder:
             )
         except (KeyError, FileNotFoundError):
             return pd.DataFrame({"data": []})
+
+    def get_lick_times(self, is_right: bool) -> np.ndarray:
+        """Get the lick times for one lick port from the behavior board DI ports.
+
+        Licks are read from the HarpBehavior ``DigitalInputState`` stream. Left
+        licks are on ``DIPort0`` and right licks on ``DIPort1``; a lick time is a
+        timestamp at which that port's digital input is high.
+
+        Parameters
+        ----------
+        is_right : bool
+            ``True`` for the right lick port (``DIPort1``), ``False`` for the
+            left lick port (``DIPort0``).
+
+        Returns
+        -------
+        numpy.ndarray
+            Sorted lick timestamps for the requested port, or an empty array
+            when the stream is absent.
+        """
+        port_column = "DIPort1" if is_right else "DIPort0"
+        try:
+            data = (
+                self.loader.dataset.at("Behavior")
+                .at("HarpBehavior")
+                .at("DigitalInputState")
+                .load()
+                .data
+            )
+        except (KeyError, FileNotFoundError):
+            return np.array([])
+        licks = data[data[port_column].fillna(False).astype(bool)]
+        return licks.index.to_numpy()
+
+    def _lick_time_series(self, *, is_right: bool, name: str, side_label: str) -> AcquisitionSeries:
+        """Build one lick port's lick-time series from the behavior board DI ports.
+
+        Parameters
+        ----------
+        is_right : bool
+            ``True`` for the right lick port (``DIPort1``), ``False`` for the
+            left lick port (``DIPort0``).
+        name : str
+            Acquisition series name.
+        side_label : str
+            Human-readable side label used in the description.
+
+        Returns
+        -------
+        AcquisitionSeries
+            The lick-time series for this lick port. The ``data`` array marks
+            each timestamp as a detected lick (``True``).
+        """
+        lick_times = self.get_lick_times(is_right)
+        port_column = "DIPort1" if is_right else "DIPort0"
+        return AcquisitionSeries(
+            name=name,
+            data=np.ones(lick_times.shape[0], dtype=bool),
+            timestamps=lick_times,
+            unit="second",
+            description=(
+                f"The lick times of the {side_label} lick port ({port_column} on the "
+                "behavior board)."
+            ),
+        )
 
     def _reward_delivery_series(
         self,
@@ -162,7 +228,6 @@ class AcquisitionBuilder:
                 )
             )
 
-        # TODO: add left and right lick times
         acquisiton_entries.append(
             self._reward_delivery_series(
                 rewards,
@@ -182,6 +247,20 @@ class AcquisitionBuilder:
                 port_column="SupplyPort1",
                 is_right=True,
                 name="right_reward_delivery_time",
+                side_label="right",
+            )
+        )
+        acquisiton_entries.append(
+            self._lick_time_series(
+                is_right=False,
+                name="left_lick_time",
+                side_label="left",
+            )
+        )
+        acquisiton_entries.append(
+            self._lick_time_series(
+                is_right=True,
+                name="right_lick_time",
                 side_label="right",
             )
         )

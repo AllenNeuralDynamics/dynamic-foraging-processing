@@ -87,6 +87,17 @@ def _empty_manual_water_frame() -> pd.DataFrame:
     return pd.DataFrame({"data": []}, index=pd.Index([], name="time"))
 
 
+def _make_digital_input_frame() -> pd.DataFrame:
+    """Build a DigitalInputState frame: left licks high at 1.0, right at 2.0/2.5."""
+    return pd.DataFrame(
+        {
+            "DIPort0": [True, False, False],
+            "DIPort1": [False, True, True],
+        },
+        index=pd.Index([1.0, 2.0, 2.5], name="time"),
+    )
+
+
 def _make_dataset(manual_water=None):
     """Build a path-aware fake dataset rooted at ``Behavior``."""
     if manual_water is None:
@@ -95,7 +106,12 @@ def _make_dataset(manual_water=None):
         {
             "Behavior": _FakeNode(
                 {
-                    "HarpBehavior": _FakeNode({"OutputSet": _FakeStream(_make_output_set_frame())}),
+                    "HarpBehavior": _FakeNode(
+                        {
+                            "OutputSet": _FakeStream(_make_output_set_frame()),
+                            "DigitalInputState": _FakeStream(_make_digital_input_frame()),
+                        }
+                    ),
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
@@ -168,8 +184,41 @@ def test_get_manual_water_times_returns_empty_when_absent():
     assert result.empty
 
 
+def test_get_lick_times_selects_di_port_by_side():
+    """Left licks come from DIPort0 and right licks from DIPort1."""
+    builder = AcquisitionBuilder(loader=_make_loader())
+
+    np.testing.assert_array_equal(builder.get_lick_times(is_right=False), np.array([1.0]))
+    np.testing.assert_array_equal(builder.get_lick_times(is_right=True), np.array([2.0, 2.5]))
+
+
+def test_get_lick_times_returns_empty_when_absent():
+    """A missing DigitalInputState stream yields an empty array."""
+    dataset = _FakeNode(
+        {
+            "Behavior": _FakeNode(
+                {
+                    "HarpBehavior": _FakeNode({"OutputSet": _FakeStream(_make_output_set_frame())}),
+                    "SoftwareEvents": _FakeNode(
+                        {
+                            "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "GiveManualWaterRight": _FakeStream(_empty_manual_water_frame()),
+                        }
+                    ),
+                }
+            )
+        }
+    )
+    builder = AcquisitionBuilder(loader=_make_loader(dataset))
+
+    result = builder.get_lick_times(is_right=True)
+
+    assert isinstance(result, np.ndarray)
+    assert result.size == 0
+
+
 def test_build_acquisition_returns_populated_list():
-    """``build_acquisition`` returns table entries plus both reward port series."""
+    """``build_acquisition`` returns the table plus reward and lick port series."""
     # A right-side manual-water event (data=True) near the second right delivery.
     manual = pd.DataFrame({"data": [True]}, index=pd.Index([0.49], name="time"))
     builder = AcquisitionBuilder(loader=_make_loader(_make_dataset(manual)))
@@ -177,25 +226,36 @@ def test_build_acquisition_returns_populated_list():
     acquisition = builder.build_acquisition()
 
     assert isinstance(acquisition, list)
-    assert len(acquisition) == 3
+    assert len(acquisition) == 5
 
-    table, left, right = acquisition
+    table, left_reward, right_reward, left_lick, right_lick = acquisition
     assert isinstance(table, AcquisitionTable)
     assert table.name == "Behavior.RawStream"
     assert table.description == "raw stream desc"
 
-    # Left: one valve-open delivery, earned (no auto-response, no left manual).
-    assert isinstance(left, AcquisitionSeries)
-    np.testing.assert_array_equal(left.timestamps, np.array([0.1]))
-    np.testing.assert_array_equal(left.data, np.array(["earned"]))
-    assert left.name == "left_reward_delivery_time"
-    assert left.unit == "second"
-    assert "left lick port" in left.description
+    # Left reward: one valve-open delivery, earned (no auto-response, no left manual).
+    assert isinstance(left_reward, AcquisitionSeries)
+    np.testing.assert_array_equal(left_reward.timestamps, np.array([0.1]))
+    np.testing.assert_array_equal(left_reward.data, np.array(["earned"]))
+    assert left_reward.name == "left_reward_delivery_time"
+    assert left_reward.unit == "second"
+    assert "left lick port" in left_reward.description
 
-    # Right: two deliveries. Both nearest the auto-response trial (0.4); the
-    # second is overridden to manual by the right-side manual-water event.
-    assert isinstance(right, AcquisitionSeries)
-    np.testing.assert_array_equal(right.timestamps, np.array([0.3, 0.5]))
-    np.testing.assert_array_equal(right.data, np.array(["automatic", "manual"]))
-    assert right.name == "right_reward_delivery_time"
-    assert "right lick port" in right.description
+    # Right reward: two deliveries. Both nearest the auto-response trial (0.4);
+    # the second is overridden to manual by the right-side manual-water event.
+    assert isinstance(right_reward, AcquisitionSeries)
+    np.testing.assert_array_equal(right_reward.timestamps, np.array([0.3, 0.5]))
+    np.testing.assert_array_equal(right_reward.data, np.array(["automatic", "manual"]))
+    assert right_reward.name == "right_reward_delivery_time"
+    assert "right lick port" in right_reward.description
+
+    # Lick series: timestamps from the DI ports, data marks each as a lick.
+    assert left_lick.name == "left_lick_time"
+    np.testing.assert_array_equal(left_lick.timestamps, np.array([1.0]))
+    np.testing.assert_array_equal(left_lick.data, np.array([True]))
+    assert "DIPort0" in left_lick.description
+
+    assert right_lick.name == "right_lick_time"
+    np.testing.assert_array_equal(right_lick.timestamps, np.array([2.0, 2.5]))
+    np.testing.assert_array_equal(right_lick.data, np.array([True, True]))
+    assert "DIPort1" in right_lick.description
