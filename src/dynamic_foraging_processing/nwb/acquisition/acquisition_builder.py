@@ -213,8 +213,8 @@ class AcquisitionBuilder:
         trial_outcomes = self.get_trial_outcomes()
         manual_water = self.get_manual_water_times()
 
-        acquisition_streams = self.loader.get_all_raw_data()
-        acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
+        # acquisition_streams = self.loader.get_all_raw_data()
+        # acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
 
         acquisiton_entries: t.List[t.Union[AcquisitionSeries, AcquisitionTable]] = []
 
