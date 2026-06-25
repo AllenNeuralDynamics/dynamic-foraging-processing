@@ -87,6 +87,18 @@ This project uses [uv](https://docs.astral.sh/uv/). From the root directory, run
 ```bash
 uv sync
 ```
+
+> [!IMPORTANT]
+> The base install includes **only** the raw data loader and does **not** pull in
+> `aind-data-schema` or `matplotlib`. The quality-control (`qc`) module requires
+> both, so importing `dynamic_foraging_processing.qc` will fail on a base install.
+> To use the QC module, install the `qc` (or equivalent `full`) extra:
+> ```bash
+> pip install -e ".[qc]"
+> ```
+> The `full` extra is currently an alias for `qc`.
+
+To develop the code, run
 to create the environment and install the package. To include the development
 dependencies (linting, tests, docs), run
 ```bash
@@ -100,6 +112,10 @@ Tests and style checks run on every pull request via
 uv run ruff check . && uv run ruff format --check .   # lint + format
 uv run interrogate -v .                               # docstring coverage
 uv run coverage run -m pytest && uv run coverage report
+```
+To include the QC dependencies with uv, run
+```bash
+uv sync --extra qc
 ```
 
 ## Release Status
