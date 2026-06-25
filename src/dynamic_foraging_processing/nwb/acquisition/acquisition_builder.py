@@ -218,15 +218,15 @@ class AcquisitionBuilder:
 
         acquisiton_entries: t.List[t.Union[AcquisitionSeries, AcquisitionTable]] = []
 
-        for stream_name, stream_data in acquisition_streams.items():
-            description = acqusition_streams_descriptions.get(stream_name, "")
-            acquisiton_entries.append(
-                AcquisitionTable(
-                    name=stream_name,
-                    data=stream_data,
-                    description=description,
-                )
-            )
+        # for stream_name, stream_data in acquisition_streams.items():
+        #     description = acqusition_streams_descriptions.get(stream_name, "")
+        #     acquisiton_entries.append(
+        #         AcquisitionTable(
+        #             name=stream_name,
+        #             data=stream_data,
+        #             description=description,
+        #         )
+        #     )
 
         acquisiton_entries.append(
             self._reward_delivery_series(
