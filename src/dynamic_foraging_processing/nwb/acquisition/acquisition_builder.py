@@ -13,6 +13,28 @@ from dynamic_foraging_processing.raw_data_loader import RawDataLoader
 from dynamic_foraging_processing.utils.rewards import get_annotated_rewards
 
 
+class LickSource(t.NamedTuple):
+    """Location of one lick port's signal in the raw dataset.
+
+    Attributes
+    ----------
+    device : str
+        The Harp device node under ``Behavior`` (``"HarpBehavior"`` for the
+        standard behavior board, ``"HarpLickometerLeft"`` /
+        ``"HarpLickometerRight"`` for the lickometer board).
+    stream : str
+        The digital-input stream on that device (``"DigitalInputState"`` for
+        the behavior board, ``"LickState"`` for the lickometer board).
+    port : str
+        The column (``"DIPort0"`` / ``"DIPort1"``
+        for the behavior board, ``"Channel0"`` for the lickometer board).
+    """
+
+    device: str
+    stream: str
+    port: str
+
+
 class AcquisitionBuilder:
     """Builds the NWB acquisition module from raw dynamic foraging data."""
 
@@ -76,23 +98,27 @@ class AcquisitionBuilder:
         except (KeyError, FileNotFoundError):
             return pd.DataFrame({"data": []})
 
-    def get_lick_times(self, stream_name: str, port: str) -> np.ndarray:
-        """Get the lick times for one lick port from the behavior board DI ports.
+    def get_lick_times(self, device: str, stream_name: str, port: str) -> np.ndarray:
+        """Get the lick times for one lick port from a Harp digital-input stream.
 
-        Licks are read from a HarpBehavior digital-input stream. On the standard
-        behavior board this is ``DigitalInputState``; LicketySplit boards expose
-        an equivalent stream under a different name. Left licks are on
-        ``DIPort0`` and right licks on ``DIPort1``; a lick time is a timestamp at
-        which that port's digital input is high.
+        On the standard behavior board licks are read from
+        ``HarpBehavior``/``DigitalInputState``, with left licks on ``DIPort0``
+        and right licks on ``DIPort1``. The lickometer board exposes each side
+        as its own device (``HarpLickometerLeft`` / ``HarpLickometerRight``)
+        with a ``LickState`` stream and a ``Channel0`` column. A lick time is a
+        timestamp at which the selected column's digital input is high.
 
         Parameters
         ----------
+        device : str
+            The Harp device node under ``Behavior`` (e.g. ``"HarpBehavior"`` for
+            the standard behavior board).
         stream_name : str
-            The HarpBehavior digital-input stream to read licks from (e.g.
+            The digital-input stream to read licks from (e.g.
             ``"DigitalInputState"`` for the standard behavior board).
         port : str
-            The DI port column to read licks from (``"DIPort1"`` for the right
-            lick port, ``"DIPort0"`` for the left lick port).
+            The column to read licks from (``"DIPort1"`` for the right lick
+            port, ``"DIPort0"`` for the left lick port on the behavior board).
 
         Returns
         -------
@@ -101,31 +127,23 @@ class AcquisitionBuilder:
             when the stream is absent.
         """
         try:
-            data = (
-                self.loader.dataset.at("Behavior")
-                .at("HarpBehavior")
-                .at(stream_name)
-                .load()
-                .data
-            )
+            data = self.loader.dataset.at("Behavior").at(device).at(stream_name).load().data
         except (KeyError, FileNotFoundError):
             return np.array([])
         licks = data[data[port].fillna(False).astype(bool)]
         return licks.index.to_numpy()
 
     def _lick_time_series(
-        self, *, stream_name: str, port: str, name: str, side_label: str
+        self, *, source: LickSource, name: str, side_label: str
     ) -> AcquisitionSeries:
-        """Build one lick port's lick-time series from the behavior board DI ports.
+        """Build one lick port's lick-time series from a Harp digital-input stream.
 
         Parameters
         ----------
-        stream_name : str
-            The HarpBehavior digital-input stream to read licks from (e.g.
-            ``"DigitalInputState"`` for the standard behavior board).
-        port : str
-            The DI port column to read licks from (``"DIPort1"`` for the right
-            lick port, ``"DIPort0"`` for the left lick port).
+        source : LickSource
+            The device, stream, and column locating this lick port's signal
+            (e.g. ``LickSource("HarpBehavior", "DigitalInputState", "DIPort0")``
+            for the standard behavior board's left port).
         name : str
             Acquisition series name.
         side_label : str
@@ -137,15 +155,14 @@ class AcquisitionBuilder:
             The lick-time series for this lick port. The ``data`` array marks
             each timestamp as a detected lick (``True``).
         """
-        lick_times = self.get_lick_times(stream_name, port)
+        lick_times = self.get_lick_times(source.device, source.stream, source.port)
         return AcquisitionSeries(
             name=name,
             data=np.ones(lick_times.shape[0], dtype=bool),
             timestamps=lick_times,
             unit="second",
             description=(
-                f"The lick times of the {side_label} lick port ({port} on the "
-                "behavior board)."
+                f"The lick times of the {side_label} lick port ({source.port} on {source.device})."
             ),
         )
 
@@ -210,16 +227,20 @@ class AcquisitionBuilder:
         )
 
     def build_acquisition(
-        self, lick_stream_name: str = "DigitalInputState"
+        self,
+        left_lick: LickSource,
+        right_lick: LickSource,
     ) -> t.List[t.Union[AcquisitionSeries, AcquisitionTable]]:
         """Build the NWB acquisition entries.
 
         Parameters
         ----------
-        lick_stream_name : str, optional
-            The HarpBehavior digital-input stream to read lick times from.
-            Defaults to ``"DigitalInputState"`` for the Janelia boards;
-            pass the equivalent stream name for LicketySplit boards.
+        left_lick, right_lick : LickSource, optional
+            Where to read each side's lick times. Defaults to the standard
+            behavior board (``HarpBehavior``/``DigitalInputState`` on
+            ``DIPort0``/``DIPort1``). For the lickometer board pass, e.g.,
+            ``LickSource("HarpLickometerLeft", "LickState", "Channel0")`` and
+            ``LickSource("HarpLickometerRight", "LickState", "Channel0")``.
 
         Returns
         -------
@@ -269,16 +290,14 @@ class AcquisitionBuilder:
         )
         acquisiton_entries.append(
             self._lick_time_series(
-                stream_name=lick_stream_name,
-                port="DIPort0",
+                source=left_lick,
                 name="left_lick_time",
                 side_label="left",
             )
         )
         acquisiton_entries.append(
             self._lick_time_series(
-                stream_name=lick_stream_name,
-                port="DIPort1",
+                source=right_lick,
                 name="right_lick_time",
                 side_label="right",
             )
