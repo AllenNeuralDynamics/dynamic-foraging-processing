@@ -39,7 +39,7 @@ wheels = [
 [[package]]
 name = "aind-behavior-dynamic-foraging"
 version = "0.0.2"
-source = { git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=v0.0.2#87a3b9d22cbe49b14c98d894622ac92be4ff1707" }
+source = { git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=f517d14ff965763a8f713b8a1be5dfb26b9312e1#f517d14ff965763a8f713b8a1be5dfb26b9312e1" }
 dependencies = [
     { name = "aind-behavior-services" },
     { name = "pydantic-settings" },
@@ -400,7 +400,7 @@ wheels = [
 
 [[package]]
 name = "contraqctor"
-version = "0.5.8"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aind-behavior-services" },
@@ -417,9 +417,9 @@ dependencies = [
     { name = "scipy" },
     { name = "semver" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c1/26/c9459dc2036c902a05c9c66358bba9834d3c8d4ecee64c58b3d23d6800e6/contraqctor-0.5.8.tar.gz", hash = "sha256:a91797987f2ebc4ca1c6c4fdfc7867ef8ee7a566382e8ffe1c8c289cca61a9a8", size = 55929, upload-time = "2026-06-18T09:42:15.888Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/b3/60d189079b7f2f022d3eb5fc6ee2179b8c91e28a39e0d4b0e01dcb0effb6/contraqctor-0.6.0.tar.gz", hash = "sha256:a33b3337a687f18869bcfcafd5782d78e512d32ed2b0c42fd37df221f4d642a0", size = 58108, upload-time = "2026-06-30T21:23:56.72Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/9e/dc69736ba3f4c852e42299d4e2705202abcac44dc52b272019708628c93c/contraqctor-0.5.8-py3-none-any.whl", hash = "sha256:56d8e4ef87c3cbfe3c7dd6066c519fcb57341b6815ca4f7582290bd210ed4d65", size = 69225, upload-time = "2026-06-18T09:42:14.91Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/09/b733cd351469c8bd2fb2b5679d58132e68463f04193697986f7f731929f8/contraqctor-0.6.0-py3-none-any.whl", hash = "sha256:b62d21227487219a5745189b109002d548f3cb936df3698b278cdac4675d9cd4", size = 71990, upload-time = "2026-06-30T21:23:55.615Z" },
 ]
 
 [[package]]
@@ -570,7 +570,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=v0.0.2" },
+    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=f517d14ff965763a8f713b8a1be5dfb26b9312e1" },
     { name = "aind-data-schema", marker = "extra == 'qc'", specifier = ">=2.4.1" },
     { name = "dynamic-foraging-processing", extras = ["qc"], marker = "extra == 'full'" },
     { name = "ipykernel" },
@@ -1262,7 +1262,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
