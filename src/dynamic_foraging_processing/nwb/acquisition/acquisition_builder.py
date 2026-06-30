@@ -228,8 +228,8 @@ class AcquisitionBuilder:
 
     def build_acquisition(
         self,
-        left_lick: LickSource,
-        right_lick: LickSource,
+        left_lick: LickSource = LickSource("HarpBehavior", "DigitalInputState", "DIPort0"),
+        right_lick: LickSource = LickSource("HarpBehavior", "DigitalInputState", "DIPort1"),
     ) -> t.List[t.Union[AcquisitionSeries, AcquisitionTable]]:
         """Build the NWB acquisition entries.
 
