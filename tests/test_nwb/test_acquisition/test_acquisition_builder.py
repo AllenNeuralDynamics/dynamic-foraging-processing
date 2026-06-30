@@ -189,10 +189,10 @@ def test_get_lick_times_selects_di_port_by_side():
     builder = AcquisitionBuilder(loader=_make_loader())
 
     np.testing.assert_array_equal(
-        builder.get_lick_times("DigitalInputState", "DIPort0"), np.array([1.0])
+        builder.get_lick_times("HarpBehavior", "DigitalInputState", "DIPort0"), np.array([1.0])
     )
     np.testing.assert_array_equal(
-        builder.get_lick_times("DigitalInputState", "DIPort1"), np.array([2.0, 2.5])
+        builder.get_lick_times("HarpBehavior", "DigitalInputState", "DIPort1"), np.array([2.0, 2.5])
     )
 
 
@@ -215,7 +215,7 @@ def test_get_lick_times_returns_empty_when_absent():
     )
     builder = AcquisitionBuilder(loader=_make_loader(dataset))
 
-    result = builder.get_lick_times("DigitalInputState", "DIPort1")
+    result = builder.get_lick_times("HarpBehavior", "DigitalInputState", "DIPort1")
 
     assert isinstance(result, np.ndarray)
     assert result.size == 0
