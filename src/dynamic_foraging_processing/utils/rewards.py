@@ -93,9 +93,7 @@ def get_annotated_rewards(
     # positions index into reward_times, i.e. the deliveries that are manual.
     manual_water_times = np.asarray(manual_water_times)
     if manual_water_times.size:
-        manual_indices_in_reward_times = find_closest_timestamps(
-            manual_water_times, reward_times
-        )
+        manual_indices_in_reward_times = find_closest_timestamps(manual_water_times, reward_times)
         annotated_rewards[manual_indices_in_reward_times] = "manual"
 
     return annotated_rewards
