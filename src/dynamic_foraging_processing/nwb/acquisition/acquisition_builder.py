@@ -9,6 +9,7 @@ from dynamic_foraging_processing.nwb.acquisition.models import (
     AcquisitionSeries,
     AcquisitionTable,
 )
+from dynamic_foraging_processing.nwb.utils import clean_dataframe_for_nwb
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
 from dynamic_foraging_processing.utils.rewards import get_annotated_rewards
 
@@ -251,20 +252,20 @@ class AcquisitionBuilder:
         trial_outcomes = self.get_trial_outcomes()
         manual_water = self.get_manual_water_times()
 
-        # acquisition_streams = self.loader.get_all_raw_data()
-        # acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
+        acquisition_streams = self.loader.get_all_raw_data()
+        acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
 
         acquisiton_entries: t.List[t.Union[AcquisitionSeries, AcquisitionTable]] = []
 
-        # for stream_name, stream_data in acquisition_streams.items():
-        #     description = acqusition_streams_descriptions.get(stream_name, "")
-        #     acquisiton_entries.append(
-        #         AcquisitionTable(
-        #             name=stream_name,
-        #             data=stream_data,
-        #             description=description,
-        #         )
-        #     )
+        for stream_name, stream_data in acquisition_streams.items():
+            description = acqusition_streams_descriptions.get(stream_name, "")
+            acquisiton_entries.append(
+                AcquisitionTable(
+                    name=stream_name,
+                    data=clean_dataframe_for_nwb(stream_data),
+                    description=description,
+                )
+            )
 
         acquisiton_entries.append(
             self._reward_delivery_series(
