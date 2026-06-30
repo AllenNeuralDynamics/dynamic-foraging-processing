@@ -76,18 +76,23 @@ class AcquisitionBuilder:
         except (KeyError, FileNotFoundError):
             return pd.DataFrame({"data": []})
 
-    def get_lick_times(self, is_right: bool) -> np.ndarray:
+    def get_lick_times(self, stream_name: str, port: str) -> np.ndarray:
         """Get the lick times for one lick port from the behavior board DI ports.
 
-        Licks are read from the HarpBehavior ``DigitalInputState`` stream. Left
-        licks are on ``DIPort0`` and right licks on ``DIPort1``; a lick time is a
-        timestamp at which that port's digital input is high.
+        Licks are read from a HarpBehavior digital-input stream. On the standard
+        behavior board this is ``DigitalInputState``; LicketySplit boards expose
+        an equivalent stream under a different name. Left licks are on
+        ``DIPort0`` and right licks on ``DIPort1``; a lick time is a timestamp at
+        which that port's digital input is high.
 
         Parameters
         ----------
-        is_right : bool
-            ``True`` for the right lick port (``DIPort1``), ``False`` for the
-            left lick port (``DIPort0``).
+        stream_name : str
+            The HarpBehavior digital-input stream to read licks from (e.g.
+            ``"DigitalInputState"`` for the standard behavior board).
+        port : str
+            The DI port column to read licks from (``"DIPort1"`` for the right
+            lick port, ``"DIPort0"`` for the left lick port).
 
         Returns
         -------
@@ -95,28 +100,32 @@ class AcquisitionBuilder:
             Sorted lick timestamps for the requested port, or an empty array
             when the stream is absent.
         """
-        port_column = "DIPort1" if is_right else "DIPort0"
         try:
             data = (
                 self.loader.dataset.at("Behavior")
                 .at("HarpBehavior")
-                .at("DigitalInputState")
+                .at(stream_name)
                 .load()
                 .data
             )
         except (KeyError, FileNotFoundError):
             return np.array([])
-        licks = data[data[port_column].fillna(False).astype(bool)]
+        licks = data[data[port].fillna(False).astype(bool)]
         return licks.index.to_numpy()
 
-    def _lick_time_series(self, *, is_right: bool, name: str, side_label: str) -> AcquisitionSeries:
+    def _lick_time_series(
+        self, *, stream_name: str, port: str, name: str, side_label: str
+    ) -> AcquisitionSeries:
         """Build one lick port's lick-time series from the behavior board DI ports.
 
         Parameters
         ----------
-        is_right : bool
-            ``True`` for the right lick port (``DIPort1``), ``False`` for the
-            left lick port (``DIPort0``).
+        stream_name : str
+            The HarpBehavior digital-input stream to read licks from (e.g.
+            ``"DigitalInputState"`` for the standard behavior board).
+        port : str
+            The DI port column to read licks from (``"DIPort1"`` for the right
+            lick port, ``"DIPort0"`` for the left lick port).
         name : str
             Acquisition series name.
         side_label : str
@@ -128,15 +137,14 @@ class AcquisitionBuilder:
             The lick-time series for this lick port. The ``data`` array marks
             each timestamp as a detected lick (``True``).
         """
-        lick_times = self.get_lick_times(is_right)
-        port_column = "DIPort1" if is_right else "DIPort0"
+        lick_times = self.get_lick_times(stream_name, port)
         return AcquisitionSeries(
             name=name,
             data=np.ones(lick_times.shape[0], dtype=bool),
             timestamps=lick_times,
             unit="second",
             description=(
-                f"The lick times of the {side_label} lick port ({port_column} on the "
+                f"The lick times of the {side_label} lick port ({port} on the "
                 "behavior board)."
             ),
         )
@@ -201,8 +209,17 @@ class AcquisitionBuilder:
             ),
         )
 
-    def build_acquisition(self) -> t.List[t.Union[AcquisitionSeries, AcquisitionTable]]:
+    def build_acquisition(
+        self, lick_stream_name: str = "DigitalInputState"
+    ) -> t.List[t.Union[AcquisitionSeries, AcquisitionTable]]:
         """Build the NWB acquisition entries.
+
+        Parameters
+        ----------
+        lick_stream_name : str, optional
+            The HarpBehavior digital-input stream to read lick times from.
+            Defaults to ``"DigitalInputState"`` for the Janelia boards;
+            pass the equivalent stream name for LicketySplit boards.
 
         Returns
         -------
@@ -252,14 +269,16 @@ class AcquisitionBuilder:
         )
         acquisiton_entries.append(
             self._lick_time_series(
-                is_right=False,
+                stream_name=lick_stream_name,
+                port="DIPort0",
                 name="left_lick_time",
                 side_label="left",
             )
         )
         acquisiton_entries.append(
             self._lick_time_series(
-                is_right=True,
+                stream_name=lick_stream_name,
+                port="DIPort1",
                 name="right_lick_time",
                 side_label="right",
             )

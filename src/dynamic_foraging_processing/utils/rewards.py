@@ -45,11 +45,9 @@ def get_annotated_rewards(
       ``GiveManualWater`` software event for this port. The software-event
       timestamps are correlated to the reward-delivery timestamps with
       :func:`find_closest_timestamps`.
-    - ``automatic`` -- otherwise, when the matching trial auto-responded to this
-      same port (``is_auto_response_right is is_right``: ``True`` for the right
-      port, ``False`` for the left port).
-    - ``earned`` -- otherwise (no auto-response, or auto-response to the other
-      port).
+    - ``automatic`` -- otherwise, when the matching trial auto-responded
+      (``is_auto_response_right is not None``).
+    - ``earned`` -- otherwise (no matching trial, or no auto-response).
 
     Parameters
     ----------
@@ -72,30 +70,14 @@ def get_annotated_rewards(
     if reward_times.size == 0:
         return np.array([], dtype=object)
 
-    # Correlate each manual-water software event to its closest reward delivery;
-    # those deliveries are the manual ones. We query with manual_water_times so the
-    # returned positions index into reward_times -- i.e. the reward deliveries that
-    # are manual -- giving the set we test reward indices against below.
-    manual_water_times = np.asarray(manual_water_times)
-    if manual_water_times.size:
-        manual_indices_in_reward_times = set(
-            find_closest_timestamps(manual_water_times, reward_times).tolist()
-        )
-    else:
-        manual_indices_in_reward_times = set()
-
-    # The opposite direction: query with reward_times so we get one trial position
-    # per reward delivery (used to look up each delivery's originating trial below).
+    # Annotate each delivery from its originating trial: query with reward_times so we
+    # get one trial position per reward delivery.
     trial_indices_in_reward_times = find_closest_timestamps(
         reward_times, trial_outcome_df.index.to_numpy()
     )
 
     annotated_rewards = []
-    for i, trial_index in enumerate(trial_indices_in_reward_times):
-        if i in manual_indices_in_reward_times:
-            annotated_rewards.append("manual")
-            continue
-
+    for trial_index in trial_indices_in_reward_times:
         outcome = _parse_outcome(trial_outcome_df.iloc[trial_index]["data"])
         trial = outcome.trial if outcome is not None else None
         if trial is None or trial.is_auto_response_right is None:
@@ -103,4 +85,17 @@ def get_annotated_rewards(
         else:
             annotated_rewards.append("automatic")
 
-    return np.array(annotated_rewards)
+    annotated_rewards = np.array(annotated_rewards)
+
+    # Manual water is independent of trials (multiple can occur within a trial) and
+    # takes precedence, so annotate the manual deliveries directly. Correlate each
+    # manual-water software event to its closest reward delivery; the returned
+    # positions index into reward_times, i.e. the deliveries that are manual.
+    manual_water_times = np.asarray(manual_water_times)
+    if manual_water_times.size:
+        manual_indices_in_reward_times = find_closest_timestamps(
+            manual_water_times, reward_times
+        )
+        annotated_rewards[manual_indices_in_reward_times] = "manual"
+
+    return annotated_rewards
