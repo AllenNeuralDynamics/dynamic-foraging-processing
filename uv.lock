@@ -585,7 +585,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=v0.0.2rc27" },
+    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=v0.0.2" },
     { name = "aind-data-schema", marker = "extra == 'qc'", specifier = ">=2.4.1" },
     { name = "dynamic-foraging-processing", extras = ["qc"], marker = "extra == 'full'" },
     { name = "ipykernel" },
