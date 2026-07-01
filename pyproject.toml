@@ -26,8 +26,12 @@ qc = [
     "aind-data-schema>=2.4.1",
     "matplotlib",
 ]
+nwb = [
+    "aind-nwb-utils",
+    "hdmf-zarr",
+]
 full = [
-    "dynamic-foraging-processing[qc]",
+    "dynamic-foraging-processing[qc,nwb]",
 ]
 
 [dependency-groups]
