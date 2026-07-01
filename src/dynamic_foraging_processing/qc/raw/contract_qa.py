@@ -41,10 +41,11 @@ def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optiona
     Returns
     -------
     str or None
-        The saved figure's filename, or ``None`` when there is no figure asset
-        (or no ``results_folder``). The name combines the (sanitized) suite and
-        test names, e.g. a ``CameraTestSuite`` result for ``test_frame_rate``
-        becomes ``"CameraTestSuite_test_frame_rate.png"``.
+        The saved figure's reference (``"<results-folder-name>/<file>"``), or
+        ``None`` when there is no figure asset (or no ``results_folder``). The
+        file name combines the (sanitized) suite and test names, e.g. a
+        ``CameraTestSuite`` result for ``test_frame_rate`` in ``.../nwb`` becomes
+        ``"nwb/CameraTestSuite_test_frame_rate.png"``.
     """
     context = result.context
     if not isinstance(context, dict):
@@ -54,7 +55,9 @@ def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optiona
         return None
     filename = f"{_sanitize(result.suite_name)}_{_sanitize(result.test_name)}.png"
     asset.savefig(Path(results_folder) / filename, dpi=300, bbox_inches="tight")
-    return filename
+    # Reference is relative to the top-level results folder, where the QC JSON is
+    # written; the images live in the named subfolder alongside it.
+    return f"{Path(results_folder).name}/{filename}"
 
 
 def results_to_metrics(

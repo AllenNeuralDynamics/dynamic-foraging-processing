@@ -55,9 +55,9 @@ def test_save_asset_figure_is_saved(tmp_path):
     """A figure asset is written and its filename returned."""
     fig = plt.figure()
     result = _result(cqc.Status.PASSED, suite="S", test="t", context={"asset": fig})
-    name = _contract_qa._save_asset(result, str(tmp_path))
-    assert name == "S_t.png"
-    assert os.path.exists(tmp_path / name)
+    reference = _contract_qa._save_asset(result, str(tmp_path))
+    assert reference == f"{tmp_path.name}/S_t.png"
+    assert os.path.exists(tmp_path / "S_t.png")
     plt.close(fig)
 
 
@@ -77,7 +77,7 @@ def test_results_to_metrics_grouping_and_status(tmp_path):
     warn = by_name["HubSuite::t1"]
     assert warn.status_history[0].status == "Pending"
     assert warn.tags == {"test_suite": "HubSuite", "HubSuite": "Data contract"}
-    assert warn.reference == "HubSuite_t1.png"
+    assert warn.reference == f"{tmp_path.name}/HubSuite_t1.png"
 
     fail = by_name["CamSuite::t2"]
     assert fail.status_history[0].status == "Fail"
