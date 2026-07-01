@@ -80,6 +80,35 @@ def test_clean_dataframe_serializes_dicts_with_datetimes():
     assert cleaned["payload"].iloc[0] == json.dumps({"t": "2026-06-30T00:00:00", "n": 1})
 
 
+def test_convert_values_in_nested_structure_recurses_tuples():
+    """Conversion reaches values nested inside tuples, returning a list."""
+    result = convert_values_in_nested_structure(
+        (1, 2, [3, 4]),
+        check_fn=lambda x: isinstance(x, int) and x % 2 == 0,
+        convert_fn=lambda x: x * 10,
+    )
+
+    assert result == [1, 20, [3, 40]]
+
+
+def test_clean_dataframe_serializes_lists_with_enums():
+    """List cells are JSON-encoded with nested enums converted to their value."""
+    df = pd.DataFrame({"payload": [[_Side.LEFT, 1]]})
+
+    cleaned = clean_dataframe_for_nwb(df)
+
+    assert cleaned["payload"].iloc[0] == json.dumps(["left", 1])
+
+
+def test_clean_dataframe_serializes_tuples_with_datetimes():
+    """Tuple cells are JSON-encoded (as arrays) with nested datetimes as ISO."""
+    df = pd.DataFrame({"payload": [(datetime(2026, 6, 30), "x")]})
+
+    cleaned = clean_dataframe_for_nwb(df)
+
+    assert cleaned["payload"].iloc[0] == json.dumps(["2026-06-30T00:00:00", "x"])
+
+
 def test_clean_dataframe_accepts_dict_as_single_row():
     """A dict input becomes a one-row DataFrame with cleaned values."""
     data = {"n": 1, "side": _Side.LEFT, "payload": {"t": datetime(2026, 6, 30), "k": _Side.RIGHT}}
