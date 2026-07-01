@@ -106,4 +106,15 @@ def clean_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
             lambda x: _to_json(x) if isinstance(x, (dict, list, tuple)) else x
         )
 
+    # DynamicTable reserves these names for its own fields, so a data column
+    # sharing one clashes on write: ``description``/``colnames`` are serialized
+    # as group attributes and hard-fail ("cannot set in attributes"), while
+    # ``id``/``name``/``columns`` shadow table attributes and warn. Suffix any
+    # such column with a trailing underscore -- the idiomatic disambiguation for
+    # a name that shadows a reserved one.
+    reserved = {"id", "name", "description", "colnames", "columns"}
+    rename = {column: f"{column}_" for column in data.columns if column in reserved}
+    if rename:
+        data = data.rename(columns=rename)
+
     return data

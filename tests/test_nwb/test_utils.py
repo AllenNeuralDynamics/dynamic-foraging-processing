@@ -140,6 +140,31 @@ def test_clean_dataframe_accepts_pydantic_model():
     assert cleaned["side"].iloc[0] == "left"
 
 
+def test_clean_dataframe_suffixes_reserved_column_names():
+    """Columns clashing with DynamicTable's reserved field names are suffixed."""
+    df = pd.DataFrame(
+        {
+            "id": [1],
+            "name": ["a"],
+            "description": ["b"],
+            "colnames": ["c"],
+            "columns": ["d"],
+            "value": [1],
+        }
+    )
+
+    cleaned = clean_for_nwb(df)
+
+    assert list(cleaned.columns) == [
+        "id_",
+        "name_",
+        "description_",
+        "colnames_",
+        "columns_",
+        "value",
+    ]
+
+
 def test_clean_dataframe_leaves_plain_columns():
     """Scalar non-dict, non-enum columns are left as-is."""
     df = pd.DataFrame({"n": [1, 2, 3], "s": ["a", "b", "c"]})

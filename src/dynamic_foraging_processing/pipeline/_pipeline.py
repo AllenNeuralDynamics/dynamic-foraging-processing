@@ -259,7 +259,7 @@ class Pipeline:
                     process_type=ProcessName.PIPELINE,
                     stage=ProcessStage.PROCESSING,
                     code=Code(url=_CODE_URL, version=_PACKAGE_VERSION),
-                    experimenters=["Alex Piet", "Micah Woodard", "Arjun Sridhar"],
+                    experimenters=["Alex Piet", "Micah Woodard", "Bruno Cruz", "Arjun Sridhar"],
                     start_date_time=start_date_time,
                     end_date_time=end_date_time,
                 )
