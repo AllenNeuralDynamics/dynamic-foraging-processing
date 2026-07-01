@@ -98,6 +98,8 @@ def test_clean_dataframe_accepts_pydantic_model():
     """A pydantic model input is dumped to a one-row DataFrame."""
 
     class _Row(BaseModel):
+        """Sample model row used to check model-to-DataFrame cleaning."""
+
         n: int
         side: _Side
 
