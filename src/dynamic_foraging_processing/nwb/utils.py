@@ -94,7 +94,9 @@ def clean_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
         A cleaned DataFrame that adheres to NWB data types
     """
     if isinstance(data, BaseModel):
-        data = data.model_dump()
+        # mode="json" coerces non-JSON types (e.g. pathlib paths, datetimes) to
+        # JSON-safe values so they don't reach the NWB writer as raw objects.
+        data = data.model_dump(mode="json")
     if isinstance(data, dict):
         data = pd.DataFrame([data])
 
@@ -112,7 +114,7 @@ def clean_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
     # ``id``/``name``/``columns`` shadow table attributes and warn. Suffix any
     # such column with a trailing underscore -- the idiomatic disambiguation for
     # a name that shadows a reserved one.
-    reserved = {"id", "name", "description", "colnames", "columns"}
+    reserved = {"id", "name", "description", "colnames", "columns", "data_type"}
     rename = {column: f"{column}_" for column in data.columns if column in reserved}
     if rename:
         data = data.rename(columns=rename)

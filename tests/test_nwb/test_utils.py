@@ -3,6 +3,7 @@
 import json
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -140,6 +141,21 @@ def test_clean_dataframe_accepts_pydantic_model():
     assert cleaned["side"].iloc[0] == "left"
 
 
+def test_clean_dataframe_pydantic_model_json_serializes_paths():
+    """Model dumping uses JSON mode so pathlib fields become strings, not objects."""
+
+    class _Row(BaseModel):
+        """Sample model row carrying a pathlib field."""
+
+        path: Path
+
+    cleaned = clean_for_nwb(_Row(path=Path("a") / "b"))
+
+    value = cleaned["path"].iloc[0]
+    assert isinstance(value, str)
+    assert value == str(Path("a", "b"))
+
+
 def test_clean_dataframe_suffixes_reserved_column_names():
     """Columns clashing with DynamicTable's reserved field names are suffixed."""
     df = pd.DataFrame(
@@ -149,6 +165,7 @@ def test_clean_dataframe_suffixes_reserved_column_names():
             "description": ["b"],
             "colnames": ["c"],
             "columns": ["d"],
+            "data_type": ["e"],
             "value": [1],
         }
     )
@@ -161,6 +178,7 @@ def test_clean_dataframe_suffixes_reserved_column_names():
         "description_",
         "colnames_",
         "columns_",
+        "data_type_",
         "value",
     ]
 
