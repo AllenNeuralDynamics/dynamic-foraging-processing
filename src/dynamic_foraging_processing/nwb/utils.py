@@ -77,7 +77,7 @@ def _to_json(value: Union[dict, list, tuple]) -> str:
     return json.dumps(value, default=str)
 
 
-def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
+def clean_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
     """
     Clean input argument to ensure compatibility with NWB format.
 

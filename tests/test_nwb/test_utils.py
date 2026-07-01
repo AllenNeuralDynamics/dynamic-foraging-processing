@@ -9,7 +9,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from dynamic_foraging_processing.nwb.utils import (
-    clean_dataframe_for_nwb,
+    clean_for_nwb,
     convert_datetimes_to_iso_string,
     convert_values_in_nested_structure,
 )
@@ -56,7 +56,7 @@ def test_clean_dataframe_replaces_none_with_nan():
     """``None`` values become ``NaN`` for NWB compatibility."""
     df = pd.DataFrame({"x": [1.0, None, 3.0]})
 
-    cleaned = clean_dataframe_for_nwb(df)
+    cleaned = clean_for_nwb(df)
 
     assert cleaned["x"].isna().tolist() == [False, True, False]
     assert cleaned["x"].dropna().tolist() == [1.0, 3.0]
@@ -66,7 +66,7 @@ def test_clean_dataframe_unwraps_enums():
     """Enum cells are replaced by their ``.value``."""
     df = pd.DataFrame({"side": [_Side.LEFT, _Side.RIGHT]})
 
-    cleaned = clean_dataframe_for_nwb(df)
+    cleaned = clean_for_nwb(df)
 
     assert cleaned["side"].tolist() == ["left", "right"]
 
@@ -75,7 +75,7 @@ def test_clean_dataframe_serializes_dicts_with_datetimes():
     """Dict cells are JSON-encoded with nested datetimes converted to ISO."""
     df = pd.DataFrame({"payload": [{"t": datetime(2026, 6, 30), "n": 1}]})
 
-    cleaned = clean_dataframe_for_nwb(df)
+    cleaned = clean_for_nwb(df)
 
     assert cleaned["payload"].iloc[0] == json.dumps({"t": "2026-06-30T00:00:00", "n": 1})
 
@@ -95,7 +95,7 @@ def test_clean_dataframe_serializes_lists_with_enums():
     """List cells are JSON-encoded with nested enums converted to their value."""
     df = pd.DataFrame({"payload": [[_Side.LEFT, 1]]})
 
-    cleaned = clean_dataframe_for_nwb(df)
+    cleaned = clean_for_nwb(df)
 
     assert cleaned["payload"].iloc[0] == json.dumps(["left", 1])
 
@@ -104,7 +104,7 @@ def test_clean_dataframe_serializes_tuples_with_datetimes():
     """Tuple cells are JSON-encoded (as arrays) with nested datetimes as ISO."""
     df = pd.DataFrame({"payload": [(datetime(2026, 6, 30), "x")]})
 
-    cleaned = clean_dataframe_for_nwb(df)
+    cleaned = clean_for_nwb(df)
 
     assert cleaned["payload"].iloc[0] == json.dumps(["2026-06-30T00:00:00", "x"])
 
@@ -113,7 +113,7 @@ def test_clean_dataframe_accepts_dict_as_single_row():
     """A dict input becomes a one-row DataFrame with cleaned values."""
     data = {"n": 1, "side": _Side.LEFT, "payload": {"t": datetime(2026, 6, 30), "k": _Side.RIGHT}}
 
-    cleaned = clean_dataframe_for_nwb(data)
+    cleaned = clean_for_nwb(data)
 
     assert isinstance(cleaned, pd.DataFrame)
     assert len(cleaned) == 1
@@ -132,7 +132,7 @@ def test_clean_dataframe_accepts_pydantic_model():
         n: int
         side: _Side
 
-    cleaned = clean_dataframe_for_nwb(_Row(n=1, side=_Side.LEFT))
+    cleaned = clean_for_nwb(_Row(n=1, side=_Side.LEFT))
 
     assert isinstance(cleaned, pd.DataFrame)
     assert len(cleaned) == 1
@@ -144,7 +144,7 @@ def test_clean_dataframe_leaves_plain_columns():
     """Scalar non-dict, non-enum columns are left as-is."""
     df = pd.DataFrame({"n": [1, 2, 3], "s": ["a", "b", "c"]})
 
-    cleaned = clean_dataframe_for_nwb(df)
+    cleaned = clean_for_nwb(df)
 
     assert cleaned["n"].tolist() == [1, 2, 3]
     assert cleaned["s"].tolist() == ["a", "b", "c"]
