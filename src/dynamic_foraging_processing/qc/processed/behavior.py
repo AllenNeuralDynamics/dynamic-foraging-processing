@@ -8,6 +8,7 @@ adapted to take arrays directly instead of a ``behavior.json`` dict.
 """
 
 import typing as t
+from pathlib import Path
 
 import numpy as np
 
@@ -16,6 +17,28 @@ from dynamic_foraging_processing.qc._core.result import QCResult
 #: Reference plot assets shared by the behavior metrics.
 SIDE_BIAS_PLOT = "side_bias.png"
 LICK_INTERVALS_PLOT = "lick_intervals.png"
+
+
+def _plot_reference(plot_name: str, results_folder: t.Optional[str]) -> str:
+    """Build a result's plot reference: ``"<results-folder-name>/<plot>"``.
+
+    Parameters
+    ----------
+    plot_name : str
+        The plot's file name (e.g. ``"side_bias.png"``).
+    results_folder : str or None
+        Directory the plot is written to. When ``None`` (no plot written), the
+        bare plot name is returned.
+
+    Returns
+    -------
+    str
+        ``"<results-folder-name>/<plot_name>"`` when ``results_folder`` is
+        given, otherwise ``plot_name``.
+    """
+    if results_folder is None:
+        return plot_name
+    return f"{Path(results_folder).name}/{plot_name}"
 
 
 def calculate_lick_intervals(
@@ -102,7 +125,7 @@ def calculate_lick_intervals(
     }
 
 
-def side_bias_result(side_bias: np.ndarray) -> QCResult:
+def side_bias_result(side_bias: np.ndarray, results_folder: t.Optional[str] = None) -> QCResult:
     """Build the average-side-bias ``QCResult`` from the trial-table column.
 
     The per-trial side bias is read directly from the trial table rather than
@@ -115,13 +138,16 @@ def side_bias_result(side_bias: np.ndarray) -> QCResult:
         means a rightward bias. Computed over a sliding window, so a single
         no-response trial still has a value; entries are ``nan`` only when the
         mouse has not responded for many consecutive trials.
+    results_folder : str, optional
+        Directory the side-bias plot is written to; used to build the result's
+        reference. When ``None``, the reference is the bare plot name.
 
     Returns
     -------
     QCResult
         Passes when ``abs(mean_bias) < 0.5``. Fails when the column is empty or
         all ``nan`` (``mean_bias`` is ``nan``). Tagged ``{"behavior": ...}`` and
-        referencing ``side_bias.png``.
+        referencing the side-bias plot.
     """
     values = np.asarray(side_bias, dtype=float)
     if values.size == 0 or np.all(np.isnan(values)):
@@ -134,13 +160,15 @@ def side_bias_result(side_bias: np.ndarray) -> QCResult:
         value=mean_bias,
         passed=bool(abs(mean_bias) < 0.5),  # nan comparisons are False -> fails
         description="Average side bias across the session (right is positive).",
-        reference=SIDE_BIAS_PLOT,
+        reference=_plot_reference(SIDE_BIAS_PLOT, results_folder),
         tags={"behavior": name},
     )
 
 
 def lick_interval_results(
-    left_lick_times: np.ndarray, right_lick_times: np.ndarray
+    left_lick_times: np.ndarray,
+    right_lick_times: np.ndarray,
+    results_folder: t.Optional[str] = None,
 ) -> t.List[QCResult]:
     """Build the four inter-lick-interval ``QCResult`` objects.
 
@@ -150,13 +178,16 @@ def lick_interval_results(
         Timestamps (s) of left-port licks.
     right_lick_times : numpy.ndarray
         Timestamps (s) of right-port licks.
+    results_folder : str, optional
+        Directory the lick-intervals plot is written to; used to build each
+        result's reference. When ``None``, the reference is the bare plot name.
 
     Returns
     -------
     list of QCResult
         ``Left``/``Right``/``Cross Side`` lick-interval results (pass ``< 10``)
-        and ``Artifact Percent`` (pass ``< 1``), all referencing
-        ``lick_intervals.png``.
+        and ``Artifact Percent`` (pass ``< 1``), all referencing the
+        lick-intervals plot.
     """
     results = calculate_lick_intervals(left_lick_times, right_lick_times)
     specs = [
@@ -171,7 +202,7 @@ def lick_interval_results(
             value=value,
             passed=value < limit,
             description=f"{name} of inter-lick intervals; passes when < {limit}.",
-            reference=LICK_INTERVALS_PLOT,
+            reference=_plot_reference(LICK_INTERVALS_PLOT, results_folder),
             tags={"behavior": name},
         )
         for name, value, limit in specs

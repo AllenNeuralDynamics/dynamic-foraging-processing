@@ -93,8 +93,8 @@ def behavior_qc_results(
     """
     side_bias = _column(trials, "side_bias")
     results = [
-        side_bias_result(side_bias),
-        *lick_interval_results(left_lick_times, right_lick_times),
+        side_bias_result(side_bias, results_folder),
+        *lick_interval_results(left_lick_times, right_lick_times, results_folder),
     ]
     if results_folder is not None:
         plot_side_bias(
