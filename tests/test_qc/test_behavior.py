@@ -76,3 +76,14 @@ def test_lick_interval_results_names_and_count():
     ]
     assert all(r.reference == _behavior.LICK_INTERVALS_PLOT for r in results)
     assert all(r.tags == {"behavior": r.name} for r in results)
+
+
+def test_reference_includes_results_folder_name():
+    """With a results_folder, references are '<folder-name>/<plot>'."""
+    side_bias = _behavior.side_bias_result(np.array([0.1]), "/data/my_results")
+    assert side_bias.reference == f"my_results/{_behavior.SIDE_BIAS_PLOT}"
+
+    licks = _behavior.lick_interval_results(
+        np.array([1.0, 1.01]), np.array([2.0, 2.01]), "/data/my_results"
+    )
+    assert all(r.reference == f"my_results/{_behavior.LICK_INTERVALS_PLOT}" for r in licks)
