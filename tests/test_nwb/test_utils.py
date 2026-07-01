@@ -79,6 +79,20 @@ def test_clean_dataframe_serializes_dicts_with_datetimes():
     assert cleaned["payload"].iloc[0] == json.dumps({"t": "2026-06-30T00:00:00", "n": 1})
 
 
+def test_clean_dataframe_accepts_dict_as_single_row():
+    """A dict input becomes a one-row DataFrame with cleaned values."""
+    data = {"n": 1, "side": _Side.LEFT, "payload": {"t": datetime(2026, 6, 30), "k": _Side.RIGHT}}
+
+    cleaned = clean_dataframe_for_nwb(data)
+
+    assert isinstance(cleaned, pd.DataFrame)
+    assert len(cleaned) == 1
+    assert cleaned["n"].iloc[0] == 1
+    assert cleaned["side"].iloc[0] == "left"
+    # Nested enum and datetime inside the dict are converted before JSON-encoding.
+    assert cleaned["payload"].iloc[0] == json.dumps({"t": "2026-06-30T00:00:00", "k": "right"})
+
+
 def test_clean_dataframe_leaves_plain_columns():
     """Scalar non-dict, non-enum columns are left as-is."""
     df = pd.DataFrame({"n": [1, 2, 3], "s": ["a", "b", "c"]})

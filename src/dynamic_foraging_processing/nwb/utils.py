@@ -65,26 +65,39 @@ def convert_datetimes_to_iso_string(
     )
 
 
-def clean_dataframe_for_nwb(data: pd.DataFrame) -> pd.DataFrame:
+def _dict_to_json(value: dict) -> str:
+    """JSON-encode a dict, converting nested enums/datetimes first."""
+    value = convert_values_in_nested_structure(
+        value,
+        check_fn=lambda x: isinstance(x, Enum),
+        convert_fn=lambda x: x.value,
+    )
+    value = convert_datetimes_to_iso_string(value)
+    return json.dumps(value, default=str)
+
+
+def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict]) -> pd.DataFrame:
     """
     Clean a pandas DataFrame to ensure compatibility with NWB format.
 
     Parameters
     ----------
-    data : pd.DataFrame
-        The cleaned input DataFrame for NWB compatibility
+    data : pd.DataFrame or dict
+        The input to clean for NWB compatibility. A dict is treated as a single
+        table row and wrapped into a one-row DataFrame.
 
     Returns
     -------
     pd.DataFrame
         A cleaned DataFrame that adheres to NWB data types
     """
+    if isinstance(data, dict):
+        data = pd.DataFrame([data])
+
     for column in data.columns:
         # convert to nwb allowable types
         data[column] = data[column].replace({None: np.nan})
         data[column] = data[column].apply(lambda x: x.value if isinstance(x, Enum) else x)
-        data[column] = data[column].apply(
-            lambda x: json.dumps(convert_datetimes_to_iso_string(x)) if isinstance(x, dict) else x
-        )
+        data[column] = data[column].apply(lambda x: _dict_to_json(x) if isinstance(x, dict) else x)
 
     return data
