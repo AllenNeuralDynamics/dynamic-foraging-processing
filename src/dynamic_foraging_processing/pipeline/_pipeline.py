@@ -1,9 +1,13 @@
-"""End-to-end dynamic foraging pipeline.
+"""Dynamic foraging pipeline entry points.
 
-Ties the existing building blocks into a single flow: load a raw acquisition,
-assemble the NWB file (base metadata + acquisition entries + trials table),
-write it to disk, run the raw and processed QC stages, and write the combined
-``QualityControl`` to disk.
+Two Code Ocean capsules drive this module, so it exposes two independent entry
+points over the shared building blocks rather than one combined flow:
+
+- :meth:`Pipeline.run_nwb` -- assemble the NWB file (base metadata + acquisition
+  entries + trials table), write it to disk, and write the ``processing.json``
+  ``aind-data-schema`` metadata alongside it.
+- :meth:`Pipeline.run_qc` -- run the raw and processed QC stages and write the
+  combined ``quality_control.json`` to disk.
 
 The individual builders produce NWB-ready pydantic models
 (``AcquisitionSeries`` / ``AcquisitionTable``) and a trials ``DataFrame``; this
@@ -14,11 +18,20 @@ with the Zarr backend.
 
 import os
 import typing as t
+from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pynwb
+from aind_data_schema.core.processing import (
+    Code,
+    DataProcess,
+    Processing,
+    ProcessName,
+    ProcessStage,
+)
 from aind_data_schema.core.quality_control import QualityControl
 from aind_nwb_utils.utils import create_base_nwb_file
 from hdmf.common import DynamicTable
@@ -41,6 +54,12 @@ _DEFAULT_RIGHT_LICK = LickSource("HarpBehavior", "DigitalInputState", "DIPort1")
 #: Trials-table columns NWB models natively; every other column is added as an
 #: extra trial column.
 _TRIAL_TIME_COLUMNS = ("start_time", "stop_time")
+
+#: Source repository recorded in the ``processing.json`` data process.
+_CODE_URL = "https://github.com/AllenNeuralDynamics/dynamic-foraging-processing"
+
+#: Installed version of this package, recorded on the processing ``Code``.
+_PACKAGE_VERSION = version("dynamic-foraging-processing")
 
 
 class Pipeline:
@@ -88,6 +107,9 @@ class Pipeline:
             loader.dataset, raise_on_error=raise_on_error
         )
 
+    # ------------------------------------------------------------------ #
+    # Builders
+    # ------------------------------------------------------------------ #
     def build_acquisition(self) -> t.List[t.Union[AcquisitionSeries, AcquisitionTable]]:
         """Build the NWB acquisition entries.
 
@@ -149,55 +171,6 @@ class Pipeline:
         self._add_trials(nwb_file, trials)
         return nwb_file
 
-    def write(self, nwb_file: pynwb.NWBFile, output_path: t.Union[str, os.PathLike]) -> None:
-        """Write an NWB file to disk using the Zarr backend.
-
-        Parameters
-        ----------
-        nwb_file : pynwb.NWBFile
-            The NWB file to write (e.g. from :meth:`build_nwb`).
-        output_path : os.PathLike
-            Destination path for the ``.nwb.zarr`` store.
-        """
-        with NWBZarrIO(output_path, mode="w") as io:
-            io.write(nwb_file)
-
-    def run_qc(
-        self,
-        trials: pd.DataFrame,
-        results_folder: t.Optional[str] = None,
-    ) -> QualityControl:
-        """Run the raw and processed QC stages and assemble one ``QualityControl``.
-
-        Parameters
-        ----------
-        trials : pandas.DataFrame
-            The trials table (e.g. from :meth:`build_trials`), consumed by the
-            processed (behavior) QC stage.
-        results_folder : str, optional
-            Directory to write figure assets into so the metric references
-            resolve. If ``None``, assets are skipped.
-
-        Returns
-        -------
-        QualityControl
-            The combined raw (contract QA) + processed (behavior) metrics as a
-            single flat metric list.
-        """
-        left_lick_times, right_lick_times = self._lick_times()
-        manual_left_times, manual_right_times = self._manual_water_times()
-
-        raw_metrics = RawQC().run(self.loader.dataset, results_folder)
-        processed_metrics = ProcessedQC().run(
-            trials,
-            left_lick_times,
-            right_lick_times,
-            results_folder,
-            manual_left_times=manual_left_times,
-            manual_right_times=manual_right_times,
-        )
-        return build_quality_control([*raw_metrics, *processed_metrics])
-
     # ------------------------------------------------------------------ #
     # NWB assembly helpers
     # ------------------------------------------------------------------ #
@@ -244,7 +217,53 @@ class Pipeline:
             nwb_file.add_trial(**{column: row[column] for column in trials.columns})
 
     # ------------------------------------------------------------------ #
-    # QC input helpers
+    # Writers
+    # ------------------------------------------------------------------ #
+    def write(self, nwb_file: pynwb.NWBFile, output_path: t.Union[str, os.PathLike]) -> None:
+        """Write an NWB file to disk using the Zarr backend.
+
+        Parameters
+        ----------
+        nwb_file : pynwb.NWBFile
+            The NWB file to write (e.g. from :meth:`build_nwb`).
+        output_path : os.PathLike
+            Destination path for the ``.nwb.zarr`` store.
+        """
+        with NWBZarrIO(output_path, mode="w") as io:
+            io.write(nwb_file)
+
+    def _write_processing(
+        self,
+        output_path: t.Union[str, os.PathLike],
+        start_date_time: datetime,
+        end_date_time: datetime,
+    ) -> None:
+        """Write the ``processing.json`` metadata for the NWB packaging step.
+
+        Parameters
+        ----------
+        output_path : os.PathLike
+            Directory the ``processing.json`` is written into.
+        start_date_time, end_date_time : datetime
+            When the NWB packaging started and finished.
+        """
+        processing = Processing(
+            data_processes=[
+                DataProcess(
+                    name="Dynamic foraging NWB packaging",
+                    process_type=ProcessName.PIPELINE,
+                    stage=ProcessStage.PROCESSING,
+                    code=Code(url=_CODE_URL, version=_PACKAGE_VERSION),
+                    experimenters=["Alex Piet", "Micah Woodard", "Arjun Sridhar"],
+                    start_date_time=start_date_time,
+                    end_date_time=end_date_time,
+                )
+            ]
+        )
+        processing.write_standard_file(output_directory=Path(output_path))
+
+    # ------------------------------------------------------------------ #
+    # QC helpers
     # ------------------------------------------------------------------ #
     def _lick_times(self) -> t.Tuple[np.ndarray, np.ndarray]:
         """Return the ``(left, right)`` lick-time arrays for the processed QC stage."""
@@ -268,33 +287,93 @@ class Pipeline:
         right = manual_water.index[manual_water["data"].astype(bool)].to_numpy()
         return left, right
 
-    # ------------------------------------------------------------------ #
-    # Entry point
-    # ------------------------------------------------------------------ #
-    def run(self, output_path: t.Union[str, os.PathLike]) -> QualityControl:
-        """Run the full pipeline: write the NWB file and the QC to disk.
-
-        Assembles and writes the NWB file to ``output_path``, runs the combined
-        QC, and writes the QC figure assets and ``quality_control.json`` to the
-        same location. (The NWB store and QC outputs share ``output_path`` for
-        now; split them into separate destinations if that stops holding.)
+    def _assemble_quality_control(
+        self,
+        trials: pd.DataFrame,
+        results_folder: t.Optional[str] = None,
+    ) -> QualityControl:
+        """Run the raw and processed QC stages and assemble one ``QualityControl``.
 
         Parameters
         ----------
-        output_path : os.PathLike
-            Destination for the NWB (Zarr) file and the QC outputs.
+        trials : pandas.DataFrame
+            The trials table, consumed by the processed (behavior) QC stage.
+        results_folder : str, optional
+            Directory to write figure assets into so the metric references
+            resolve. If ``None``, assets are skipped.
 
         Returns
         -------
         QualityControl
-            The combined raw + processed quality-control object. The NWB file
-            and the QC JSON are written to disk as a side effect.
+            The combined raw (contract QA) + processed (behavior) metrics as a
+            single flat metric list.
         """
+        left_lick_times, right_lick_times = self._lick_times()
+        manual_left_times, manual_right_times = self._manual_water_times()
+
+        raw_metrics = RawQC().run(self.loader.dataset, results_folder)
+        processed_metrics = ProcessedQC().run(
+            trials,
+            left_lick_times,
+            right_lick_times,
+            results_folder,
+            manual_left_times=manual_left_times,
+            manual_right_times=manual_right_times,
+        )
+        return build_quality_control([*raw_metrics, *processed_metrics])
+
+    # ------------------------------------------------------------------ #
+    # Entry points (one per Code Ocean capsule)
+    # ------------------------------------------------------------------ #
+    def run_nwb(
+        self, output_path: t.Optional[t.Union[str, os.PathLike]] = None
+    ) -> pynwb.NWBFile:
+        """Assemble the NWB file, optionally writing it plus its ``processing.json``.
+
+        Parameters
+        ----------
+        output_path : os.PathLike, optional
+            Destination for the NWB (Zarr) store and the ``processing.json``. When
+            ``None`` (the default), the NWB file is built and returned without
+            touching disk.
+
+        Returns
+        -------
+        pynwb.NWBFile
+            The assembled NWB file. When ``output_path`` is given, the NWB store
+            and ``processing.json`` are written to disk as a side effect.
+        """
+        start_date_time = datetime.now(timezone.utc)
         acquisition = self.build_acquisition()
         trials = self.build_trials()
         nwb_file = self.build_nwb(acquisition, trials)
-        self.write(nwb_file, output_path)
+        if output_path is not None:
+            self.write(nwb_file, output_path)
+            self._write_processing(output_path, start_date_time, datetime.now(timezone.utc))
+        return nwb_file
 
-        quality_control = self.run_qc(trials, os.fspath(output_path))
-        quality_control.write_standard_file(output_directory=Path(output_path))
+    def run_qc(
+        self, output_path: t.Optional[t.Union[str, os.PathLike]] = None
+    ) -> QualityControl:
+        """Run the QC stages, optionally writing ``quality_control.json`` to disk.
+
+        Parameters
+        ----------
+        output_path : os.PathLike, optional
+            Destination for the QC figure assets and ``quality_control.json``. When
+            ``None`` (the default), the QC is assembled and returned without
+            touching disk (figure assets are skipped too).
+
+        Returns
+        -------
+        QualityControl
+            The combined raw + processed quality-control object. When
+            ``output_path`` is given, the QC JSON and figure assets are written to
+            disk as a side effect.
+        """
+        results_folder = os.fspath(output_path) if output_path is not None else None
+        trials = self.build_trials()
+        quality_control = self._assemble_quality_control(trials, results_folder)
+        if output_path is not None:
+            quality_control.write_standard_file(output_directory=Path(output_path))
         return quality_control
