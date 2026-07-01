@@ -258,7 +258,9 @@ class AcquisitionBuilder:
         acquisiton_entries: t.List[t.Union[AcquisitionSeries, AcquisitionTable]] = []
 
         for stream_name, stream_data in acquisition_streams.items():
-            description = acqusition_streams_descriptions.get(stream_name, "")
+            description = acqusition_streams_descriptions.get(stream_name)
+            if description is None:
+                description = ""
             acquisiton_entries.append(
                 AcquisitionTable(
                     name=stream_name,

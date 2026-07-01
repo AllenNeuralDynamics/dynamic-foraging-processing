@@ -263,3 +263,14 @@ def test_build_acquisition_returns_populated_list():
     np.testing.assert_array_equal(right_lick.timestamps, np.array([2.0, 2.5]))
     np.testing.assert_array_equal(right_lick.data, np.array([True, True]))
     assert "DIPort1" in right_lick.description
+
+
+def test_build_acquisition_defaults_none_description_to_empty_string():
+    """A None stream description falls back to "" so the table validates."""
+    loader = _make_loader()
+    loader.raw_data_stream_descriptions = {"Behavior.RawStream": None}
+    builder = AcquisitionBuilder(loader=loader)
+
+    table = builder.build_acquisition()[0]
+
+    assert table.description == ""
