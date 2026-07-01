@@ -238,11 +238,11 @@ def test_add_acquisition_series_builds_time_series():
 
 
 def test_add_acquisition_table_builds_dynamic_table():
-    """``_add_acquisition_table`` adds a ``DynamicTable`` from the dataframe."""
+    """``_add_acquisition_table`` resets the timestamp index into a column."""
     nwb_file = MagicMock()
     table = AcquisitionTable(
         name="Behavior.RawStream",
-        data=pd.DataFrame({"x": [1, 2], "y": [3, 4]}),
+        data=pd.DataFrame({"x": [1, 2], "y": [3, 4]}, index=pd.Index([0.1, 0.2], name="Time")),
         description="raw stream",
     )
 
@@ -252,6 +252,9 @@ def test_add_acquisition_table_builds_dynamic_table():
     assert added.name == "Behavior.RawStream"
     assert added.description == "raw stream"
     assert len(added) == 2
+    # The former index is preserved as a ``timestamp`` column, not the row id.
+    assert "timestamp" in added.colnames
+    assert list(added["timestamp"].data) == [0.1, 0.2]
 
 
 def test_add_trials_populates_columns_and_rows():
@@ -271,6 +274,8 @@ def test_add_trials_populates_columns_and_rows():
     # A column absent from TrialConfig falls back to its own name as description.
     assert added_columns["not_in_model"] == "not_in_model"
     assert nwb_file.add_trial.call_count == 2
+    # The DataFrame index is replicated as each trial's NWB id.
+    assert [call.kwargs["id"] for call in nwb_file.add_trial.call_args_list] == [0, 1]
 
 
 def test_add_trials_skips_empty_frame():
