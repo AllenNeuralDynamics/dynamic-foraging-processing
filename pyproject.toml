@@ -29,6 +29,7 @@ qc = [
 nwb = [
     "aind-nwb-utils",
     "hdmf-zarr",
+    "pynwb<4.0",
 ]
 full = [
     "dynamic-foraging-processing[qc,nwb]",
