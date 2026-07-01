@@ -341,7 +341,7 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
 
     assert result is nwb_file
     pipeline.build_nwb.assert_called_once_with(acquisition, trials)
-    pipeline.write.assert_called_once_with(nwb_file, str(tmp_path))
+    pipeline.write.assert_called_once_with(nwb_file, tmp_path / "behavior.nwb.zarr")
     # processing.json is written and round-trips through the schema.
     processing_json = tmp_path / "processing.json"
     assert processing_json.exists()

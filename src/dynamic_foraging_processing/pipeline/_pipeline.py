@@ -61,6 +61,9 @@ _CODE_URL = "https://github.com/AllenNeuralDynamics/dynamic-foraging-processing"
 #: Installed version of this package, recorded on the processing ``Code``.
 _PACKAGE_VERSION = version("dynamic-foraging-processing")
 
+#: Filename of the NWB (Zarr) store written under the output directory.
+_NWB_FILENAME = "behavior.nwb.zarr"
+
 
 class Pipeline:
     """Package a raw dynamic foraging acquisition to NWB and run QC.
@@ -336,9 +339,10 @@ class Pipeline:
         Parameters
         ----------
         output_path : os.PathLike, optional
-            Destination for the NWB (Zarr) store and the ``processing.json``. When
-            ``None`` (the default), the NWB file is built and returned without
-            touching disk.
+            Output directory. The NWB store is written to
+            ``output_path / "behavior.nwb.zarr"`` and the ``processing.json`` to
+            ``output_path``. When ``None`` (the default), the NWB file is built
+            and returned without touching disk.
 
         Returns
         -------
@@ -351,7 +355,7 @@ class Pipeline:
         trials = self.build_trials()
         nwb_file = self.build_nwb(acquisition, trials)
         if output_path is not None:
-            self.write(nwb_file, output_path)
+            self.write(nwb_file, Path(output_path) / _NWB_FILENAME)
             self._write_processing(output_path, start_date_time, datetime.now(timezone.utc))
         return nwb_file
 
