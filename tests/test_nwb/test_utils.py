@@ -6,6 +6,7 @@ from enum import Enum
 
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel
 
 from dynamic_foraging_processing.nwb.utils import (
     clean_dataframe_for_nwb,
@@ -91,6 +92,21 @@ def test_clean_dataframe_accepts_dict_as_single_row():
     assert cleaned["side"].iloc[0] == "left"
     # Nested enum and datetime inside the dict are converted before JSON-encoding.
     assert cleaned["payload"].iloc[0] == json.dumps({"t": "2026-06-30T00:00:00", "k": "right"})
+
+
+def test_clean_dataframe_accepts_pydantic_model():
+    """A pydantic model input is dumped to a one-row DataFrame."""
+
+    class _Row(BaseModel):
+        n: int
+        side: _Side
+
+    cleaned = clean_dataframe_for_nwb(_Row(n=1, side=_Side.LEFT))
+
+    assert isinstance(cleaned, pd.DataFrame)
+    assert len(cleaned) == 1
+    assert cleaned["n"].iloc[0] == 1
+    assert cleaned["side"].iloc[0] == "left"
 
 
 def test_clean_dataframe_leaves_plain_columns():

@@ -7,6 +7,7 @@ from typing import Any, Callable, Union
 
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel
 
 _NestedStructureType = Union[dict, list, Any]
 
@@ -76,21 +77,24 @@ def _dict_to_json(value: dict) -> str:
     return json.dumps(value, default=str)
 
 
-def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict]) -> pd.DataFrame:
+def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
     """
     Clean a pandas DataFrame to ensure compatibility with NWB format.
 
     Parameters
     ----------
-    data : pd.DataFrame or dict
-        The input to clean for NWB compatibility. A dict is treated as a single
-        table row and wrapped into a one-row DataFrame.
+    data : pd.DataFrame, dict, or pydantic BaseModel
+        The input to clean for NWB compatibility. A pydantic model is dumped to
+        a dict, and a dict is treated as a single table row and wrapped into a
+        one-row DataFrame.
 
     Returns
     -------
     pd.DataFrame
         A cleaned DataFrame that adheres to NWB data types
     """
+    if isinstance(data, BaseModel):
+        data = data.model_dump()
     if isinstance(data, dict):
         data = pd.DataFrame([data])
 
