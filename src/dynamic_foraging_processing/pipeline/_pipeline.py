@@ -103,9 +103,7 @@ class Pipeline:
         self.right_lick = right_lick
         self.raise_on_error = raise_on_error
         self._acquisition_builder = AcquisitionBuilder(loader)
-        self._trial_table_builder = TrialTableBuilder(
-            loader.dataset, raise_on_error=raise_on_error
-        )
+        self._trial_table_builder = TrialTableBuilder(loader.dataset, raise_on_error=raise_on_error)
 
     # ------------------------------------------------------------------ #
     # Builders
@@ -325,9 +323,7 @@ class Pipeline:
     # ------------------------------------------------------------------ #
     # Entry points (one per Code Ocean capsule)
     # ------------------------------------------------------------------ #
-    def run_nwb(
-        self, output_path: t.Optional[t.Union[str, os.PathLike]] = None
-    ) -> pynwb.NWBFile:
+    def run_nwb(self, output_path: t.Optional[t.Union[str, os.PathLike]] = None) -> pynwb.NWBFile:
         """Assemble the NWB file, optionally writing it plus its ``processing.json``.
 
         Parameters
@@ -352,9 +348,7 @@ class Pipeline:
             self._write_processing(output_path, start_date_time, datetime.now(timezone.utc))
         return nwb_file
 
-    def run_qc(
-        self, output_path: t.Optional[t.Union[str, os.PathLike]] = None
-    ) -> QualityControl:
+    def run_qc(self, output_path: t.Optional[t.Union[str, os.PathLike]] = None) -> QualityControl:
         """Run the QC stages, optionally writing ``quality_control.json`` to disk.
 
         Parameters

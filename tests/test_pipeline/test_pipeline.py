@@ -181,7 +181,9 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
     class _FakeProcessedQC:
         """Processed QC stub returning one sentinel metric."""
 
-        def run(self, trials, left, right, results_folder, *, manual_left_times, manual_right_times):
+        def run(
+            self, trials, left, right, results_folder, *, manual_left_times, manual_right_times
+        ):
             """Record args and return processed metrics."""
             captured["processed"] = {
                 "left": left,
