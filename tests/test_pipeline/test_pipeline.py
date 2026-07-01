@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
+from aind_data_schema.core.processing import Processing, ProcessName
 
 from dynamic_foraging_processing.nwb.acquisition.acquisition_builder import LickSource
 from dynamic_foraging_processing.nwb.acquisition.models import (
@@ -165,8 +166,8 @@ def test_write_uses_zarr_io(monkeypatch):
     assert captured == {"path": "out.nwb.zarr", "mode": "w", "written": nwb_file}
 
 
-def test_run_qc_combines_metrics_into_single_list(monkeypatch):
-    """``run_qc`` flattens the raw and processed metrics into one list."""
+def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch):
+    """``_assemble_quality_control`` flattens raw and processed metrics into one list."""
     captured = {}
 
     class _FakeRawQC:
@@ -205,7 +206,7 @@ def test_run_qc_combines_metrics_into_single_list(monkeypatch):
     )
     trials = _trials_frame()
 
-    result = pipeline.run_qc(trials, "out")
+    result = pipeline._assemble_quality_control(trials, "out")
 
     assert result == ["raw1", "raw2", "proc1"]
     assert captured["raw"] == (pipeline.loader.dataset, "out")
@@ -317,24 +318,76 @@ def test_manual_water_times_empty_frame_yields_empty_arrays():
     assert right.size == 0
 
 
-def test_run_orchestrates_and_writes_outputs():
-    """``run`` builds+writes the NWB and QC, sharing ``output_path`` for both."""
+def test_run_nwb_writes_nwb_and_processing(tmp_path):
+    """``run_nwb`` writes the NWB store and a valid ``processing.json``."""
     pipeline = _make_pipeline()
     acquisition = ["entry"]
     trials = _trials_frame()
     nwb_file = object()
-    quality_control = MagicMock()
 
     pipeline.build_acquisition = MagicMock(return_value=acquisition)
     pipeline.build_trials = MagicMock(return_value=trials)
     pipeline.build_nwb = MagicMock(return_value=nwb_file)
     pipeline.write = MagicMock()
-    pipeline.run_qc = MagicMock(return_value=quality_control)
 
-    result = pipeline.run("out")
+    result = pipeline.run_nwb(str(tmp_path))
+
+    assert result is nwb_file
+    pipeline.build_nwb.assert_called_once_with(acquisition, trials)
+    pipeline.write.assert_called_once_with(nwb_file, str(tmp_path))
+    # processing.json is written and round-trips through the schema.
+    processing_json = tmp_path / "processing.json"
+    assert processing_json.exists()
+    loaded = Processing.model_validate_json(processing_json.read_text())
+    assert loaded.data_processes[0].process_type == ProcessName.PIPELINE
+
+
+def test_run_qc_writes_quality_control():
+    """``run_qc`` builds trials, assembles the QC, and writes ``quality_control.json``."""
+    pipeline = _make_pipeline()
+    trials = _trials_frame()
+    quality_control = MagicMock()
+
+    pipeline.build_trials = MagicMock(return_value=trials)
+    pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
+
+    result = pipeline.run_qc("out")
 
     assert result is quality_control
-    pipeline.build_nwb.assert_called_once_with(acquisition, trials)
-    pipeline.write.assert_called_once_with(nwb_file, "out")
-    pipeline.run_qc.assert_called_once_with(trials, "out")
+    pipeline.build_trials.assert_called_once_with()
+    pipeline._assemble_quality_control.assert_called_once_with(trials, "out")
     quality_control.write_standard_file.assert_called_once_with(output_directory=Path("out"))
+
+
+def test_run_nwb_without_output_skips_writes():
+    """``run_nwb`` returns the NWB file and touches no disk when no path is given."""
+    pipeline = _make_pipeline()
+    nwb_file = object()
+
+    pipeline.build_acquisition = MagicMock(return_value=["entry"])
+    pipeline.build_trials = MagicMock(return_value=_trials_frame())
+    pipeline.build_nwb = MagicMock(return_value=nwb_file)
+    pipeline.write = MagicMock()
+    pipeline._write_processing = MagicMock()
+
+    result = pipeline.run_nwb()
+
+    assert result is nwb_file
+    pipeline.write.assert_not_called()
+    pipeline._write_processing.assert_not_called()
+
+
+def test_run_qc_without_output_skips_write():
+    """``run_qc`` assembles the QC with no results folder and skips the JSON write."""
+    pipeline = _make_pipeline()
+    trials = _trials_frame()
+    quality_control = MagicMock()
+
+    pipeline.build_trials = MagicMock(return_value=trials)
+    pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
+
+    result = pipeline.run_qc()
+
+    assert result is quality_control
+    pipeline._assemble_quality_control.assert_called_once_with(trials, None)
+    quality_control.write_standard_file.assert_not_called()
