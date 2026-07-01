@@ -187,10 +187,16 @@ class Pipeline:
 
     @staticmethod
     def _add_acquisition_table(nwb_file: pynwb.NWBFile, table: AcquisitionTable) -> None:
-        """Add one ``AcquisitionTable`` to the NWB acquisition module."""
+        """Add one ``AcquisitionTable`` to the NWB acquisition module.
+
+        The stream's timestamp index is reset into an explicit ``timestamp``
+        column so it is preserved as data rather than consumed as the table's
+        auto-generated ``id``.
+        """
+        frame = table.data.reset_index(names="timestamp")
         nwb_file.add_acquisition(
             DynamicTable.from_dataframe(
-                df=table.data,
+                df=frame,
                 name=table.name,
                 table_description=table.description,
             )
@@ -202,8 +208,9 @@ class Pipeline:
 
         ``start_time`` / ``stop_time`` are modeled natively by NWB; every other
         column is registered as an extra trial column (described by the matching
-        :class:`TrialConfig` field) and populated per row. An empty table (or one
-        missing the required time columns) is skipped.
+        :class:`TrialConfig` field) and populated per row. The DataFrame index
+        (named ``id``) is replicated as each trial's NWB ``id``. An empty table
+        (or one missing the required time columns) is skipped.
         """
         if trials.empty or any(col not in trials.columns for col in _TRIAL_TIME_COLUMNS):
             return
@@ -211,8 +218,8 @@ class Pipeline:
         extra_columns = [col for col in trials.columns if col not in _TRIAL_TIME_COLUMNS]
         for column in extra_columns:
             nwb_file.add_trial_column(name=column, description=descriptions.get(column, column))
-        for _, row in trials.iterrows():
-            nwb_file.add_trial(**{column: row[column] for column in trials.columns})
+        for row_id, row in trials.iterrows():
+            nwb_file.add_trial(id=int(row_id), **{column: row[column] for column in trials.columns})
 
     # ------------------------------------------------------------------ #
     # Writers
