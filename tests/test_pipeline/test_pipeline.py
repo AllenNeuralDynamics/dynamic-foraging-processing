@@ -349,8 +349,8 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert loaded.data_processes[0].process_type == ProcessName.PIPELINE
 
 
-def test_run_qc_writes_quality_control():
-    """``run_qc`` builds trials, assembles the QC, and writes ``quality_control.json``."""
+def test_run_qc_writes_quality_control(tmp_path):
+    """``run_qc`` writes the QC JSON and assembles into an ``output_path`` subfolder."""
     pipeline = _make_pipeline()
     trials = _trials_frame()
     quality_control = MagicMock()
@@ -358,12 +358,15 @@ def test_run_qc_writes_quality_control():
     pipeline.build_trials = MagicMock(return_value=trials)
     pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
 
-    result = pipeline.run_qc("out")
+    result = pipeline.run_qc(str(tmp_path), folder_directory="plots")
 
     assert result is quality_control
     pipeline.build_trials.assert_called_once_with()
-    pipeline._assemble_quality_control.assert_called_once_with(trials, "out")
-    quality_control.write_standard_file.assert_called_once_with(output_directory=Path("out"))
+    # Figure assets go to output_path / folder_directory, which is created.
+    artifacts_dir = tmp_path / "plots"
+    assert artifacts_dir.is_dir()
+    pipeline._assemble_quality_control.assert_called_once_with(trials, str(artifacts_dir))
+    quality_control.write_standard_file.assert_called_once_with(output_directory=Path(tmp_path))
 
 
 def test_run_nwb_without_output_skips_writes():

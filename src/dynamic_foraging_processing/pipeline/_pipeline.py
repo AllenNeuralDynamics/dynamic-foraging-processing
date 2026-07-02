@@ -359,15 +359,23 @@ class Pipeline:
             self._write_processing(output_path, start_date_time, datetime.now(timezone.utc))
         return nwb_file
 
-    def run_qc(self, output_path: t.Optional[t.Union[str, os.PathLike]] = None) -> QualityControl:
+    def run_qc(
+        self,
+        output_path: t.Optional[t.Union[str, os.PathLike]] = None,
+        folder_directory: str = "qc",
+    ) -> QualityControl:
         """Run the QC stages, optionally writing ``quality_control.json`` to disk.
 
         Parameters
         ----------
         output_path : os.PathLike, optional
-            Destination for the QC figure assets and ``quality_control.json``. When
-            ``None`` (the default), the QC is assembled and returned without
-            touching disk (figure assets are skipped too).
+            Destination directory for ``quality_control.json``. When ``None`` (the
+            default), the QC is assembled and returned without touching disk
+            (figure assets are skipped too).
+        folder_directory : str, optional
+            Subdirectory of ``output_path`` that the QC figure assets (plots, ...)
+            are written into, i.e. ``output_path / folder_directory``. Defaults to
+            ``"qc"``. Ignored when ``output_path`` is ``None``.
 
         Returns
         -------
@@ -376,7 +384,12 @@ class Pipeline:
             ``output_path`` is given, the QC JSON and figure assets are written to
             disk as a side effect.
         """
-        results_folder = os.fspath(output_path) if output_path is not None else None
+        results_folder: t.Optional[str] = None
+        if output_path is not None:
+            artifacts_dir = Path(output_path) / folder_directory
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            results_folder = os.fspath(artifacts_dir)
+
         trials = self.build_trials()
         quality_control = self._assemble_quality_control(trials, results_folder)
         if output_path is not None:
