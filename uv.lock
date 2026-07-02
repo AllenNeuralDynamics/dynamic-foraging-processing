@@ -98,20 +98,19 @@ wheels = [
 
 [[package]]
 name = "aind-nwb-utils"
-version = "0.2.5"
+version = "0.2.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fsspec" },
     { name = "hdmf-zarr" },
-    { name = "ndx-events" },
     { name = "pynwb" },
     { name = "pytz" },
     { name = "s3fs" },
     { name = "xarray" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9d/2b/7433d8bf09391c73bc2c415addae033ab8412bf49ae28107be51b8e9ed82/aind_nwb_utils-0.2.5.tar.gz", hash = "sha256:eaa3bf8309b60b18e8996a947d7aca764be85c2b2f933398777976a84a72380e", size = 39200600, upload-time = "2026-06-30T05:44:45.121Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/f2/cf69578d86fe85a533a12f558be893408ea3531774ad4312fcd1c2460923/aind_nwb_utils-0.2.6.tar.gz", hash = "sha256:7ead270c3ece6ff3ceaeeac4e156ac9fce39659414653a9581b3c7bc589a42af", size = 39200465, upload-time = "2026-07-02T17:45:54.678Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/9c/a47c423842b12d465d5271d287944f552f4ed3da98a761ac81342b2205bb/aind_nwb_utils-0.2.5-py3-none-any.whl", hash = "sha256:66cc9f22d1c584d6909011c14f489b13dc4a970dead272b11f8bef34e12ea5f2", size = 14346, upload-time = "2026-06-30T05:44:43.1Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/4a/89f26ca1cfaccd050cd3030326f680c88007349627bf7b8face171516f81/aind_nwb_utils-0.2.6-py3-none-any.whl", hash = "sha256:5ad41e9f2b892433fc20976b722cf358041d0ef1964641def6a7336d8ba33ae5", size = 14327, upload-time = "2026-07-02T17:45:52.982Z" },
 ]
 
 [[package]]
@@ -784,7 +783,7 @@ requires-dist = [
     { name = "hdmf-zarr", marker = "extra == 'nwb'" },
     { name = "ipykernel" },
     { name = "matplotlib", marker = "extra == 'qc'" },
-    { name = "pynwb", marker = "extra == 'nwb'", specifier = "<4.0" },
+    { name = "pynwb", marker = "extra == 'nwb'" },
 ]
 provides-extras = ["qc", "nwb", "full"]
 
@@ -1053,7 +1052,7 @@ wheels = [
 
 [[package]]
 name = "hdmf"
-version = "4.3.1"
+version = "6.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -1062,9 +1061,9 @@ dependencies = [
     { name = "pandas" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b8/e9/8ccaa1c8b3c9aca25c0216ec09a0051f247283dad9be928424686f5cbaaa/hdmf-4.3.1.tar.gz", hash = "sha256:dd16335c1a2fd38c3b9f01ed2b9be8a80536cc42d7b72f49a16bad9999668b99", size = 16622252, upload-time = "2026-01-28T17:32:05.93Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/87/7b/0dfcd236b2b3fe084cde853a06c34d0b20dc0d16f2a33b78c5352a4d9dd8/hdmf-6.1.0.tar.gz", hash = "sha256:545b583ee667de2b930520555e28e5cf3bfea2706bb92880277d21f05f7ad5f7", size = 16691354, upload-time = "2026-06-25T21:52:25.142Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/dd/5f86c7ac3f31cd9d959be6dec9e54d2ede02aa932fc599a7ff0e03c67758/hdmf-4.3.1-py3-none-any.whl", hash = "sha256:030e52c38adacaca62bcf39bf6bc7c7d23fe481a9ae94d2ad480f7e0e49296bd", size = 341916, upload-time = "2026-01-28T17:32:04.11Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/cd/84ef0cfad5be45ffe8da0658fc4a12b33c654383040469d2a79a8e870ee5/hdmf-6.1.0-py3-none-any.whl", hash = "sha256:3354913c85c1b242e8a6f2677804dcaf0b86c44b5187fa6fb27c29ef00f4224d", size = 362345, upload-time = "2026-06-25T21:52:23.49Z" },
 ]
 
 [[package]]
@@ -1638,19 +1637,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ndx-events"
-version = "0.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "hdmf" },
-    { name = "pynwb" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/87/33/13acc6bb14c0e4dfb29981764f0ca8d70b97363897612cd4756470164954/ndx_events-0.4.0.tar.gz", hash = "sha256:5af00eb7b11ae347c67a43d26c4299a4a45bdb0f5becf23eb5a5314e7f8da9e4", size = 23058, upload-time = "2025-07-23T18:03:03.927Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/ba/5632203a75780e1e6ec7bf3b8fb1575678c00a3cc024bd4659ca8a3fba46/ndx_events-0.4.0-py3-none-any.whl", hash = "sha256:87b2aae187066fe9ad036b334ccca81aac60f9b71a68bb646afc2bd0630dfb36", size = 9999, upload-time = "2025-07-23T18:03:03.185Z" },
-]
-
-[[package]]
 name = "nest-asyncio2"
 version = "1.7.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2191,7 +2177,7 @@ wheels = [
 
 [[package]]
 name = "pynwb"
-version = "3.1.3"
+version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "h5py" },
@@ -2201,9 +2187,9 @@ dependencies = [
     { name = "platformdirs" },
     { name = "python-dateutil" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6d/83/0c37d99d2a262ca69be2df5bf9153b7bf2d79391d668e7ec232e89129ab4/pynwb-3.1.3.tar.gz", hash = "sha256:ee75219aa241b72b10d1c6830ae6bafa7e3e44f0429715c2ef0920a19654e185", size = 35784649, upload-time = "2025-12-09T23:40:50.358Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/db/45200542871844b617e77a6483cf607e95e1c62f2ecce3704efd1ead059b/pynwb-4.0.0.tar.gz", hash = "sha256:8233d7ee565fcff1d4c59689c69d8b3dab1c41ed6b1e45967a57144f099ababf", size = 36403443, upload-time = "2026-06-30T00:02:25.596Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/47/b5b7d5285e823a16fe7b007bce3cf79ddcd3b6d7c8b3ca15cbe8c17c0a17/pynwb-3.1.3-py3-none-any.whl", hash = "sha256:43b5d753c6c2c8f6b4fa6c784ac85675556b64b42c727d9eab27670ef529929a", size = 1396673, upload-time = "2025-12-09T23:40:48.454Z" },
+    { url = "https://files.pythonhosted.org/packages/20/52/e8a3ee1cd6510eeeaddaaf7e51eea14b705d15c1261ed612d8bce424725c/pynwb-4.0.0-py3-none-any.whl", hash = "sha256:3b138f9d64151146ae8a7dd5ce5f82680a93447e478cfc829a0e7b4966892a93", size = 1411767, upload-time = "2026-06-30T00:02:23.806Z" },
 ]
 
 [[package]]
