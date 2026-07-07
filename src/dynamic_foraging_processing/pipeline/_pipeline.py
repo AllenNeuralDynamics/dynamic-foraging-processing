@@ -6,7 +6,8 @@ points over the shared building blocks rather than one combined flow:
 - :meth:`Pipeline.run_nwb` -- assemble the NWB file (base metadata + acquisition
   entries + trials table), write it to disk, and write the ``processing.json``
   ``aind-data-schema`` metadata alongside it.
-- :meth:`Pipeline.run_qc` -- run the raw and processed QC stages and write the
+- :meth:`Pipeline.run_qc_from_nwb` -- run the raw and processed QC stages over an
+  NWB file (reading the trials table and lick times from it) and write the
   combined ``quality_control.json`` to disk.
 
 The individual builders produce NWB-ready pydantic models
@@ -63,6 +64,15 @@ _PACKAGE_VERSION = version("dynamic-foraging-processing")
 
 #: Filename of the NWB (Zarr) store written under the output directory.
 _NWB_FILENAME = "behavior.nwb.zarr"
+
+#: Acquisition-series names read back for the processed QC stage.
+_LEFT_LICK_SERIES = "left_lick_time"
+_RIGHT_LICK_SERIES = "right_lick_time"
+_LEFT_REWARD_SERIES = "left_reward_delivery_time"
+_RIGHT_REWARD_SERIES = "right_reward_delivery_time"
+
+#: Reward-delivery annotation marking a manual-water event.
+_MANUAL_ANNOTATION = "manual"
 
 
 class Pipeline:
@@ -273,31 +283,54 @@ class Pipeline:
     # ------------------------------------------------------------------ #
     # QC helpers
     # ------------------------------------------------------------------ #
-    def _lick_times(self) -> t.Tuple[np.ndarray, np.ndarray]:
-        """Return the ``(left, right)`` lick-time arrays for the processed QC stage."""
-        left = self._acquisition_builder.get_lick_times(
-            self.left_lick.device, self.left_lick.stream, self.left_lick.port
-        )
-        right = self._acquisition_builder.get_lick_times(
-            self.right_lick.device, self.right_lick.stream, self.right_lick.port
-        )
-        return left, right
+    def _read_processed_inputs(
+        self, nwb_file: pynwb.NWBFile
+    ) -> t.Tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Read the processed-QC inputs from an NWB file.
 
-    def _manual_water_times(self) -> t.Tuple[np.ndarray, np.ndarray]:
-        """Return the ``(left, right)`` manual-water delivery times.
+        Parameters
+        ----------
+        nwb_file : pynwb.NWBFile
+            The NWB file to read the trials table and acquisition series from.
 
-        The ``GiveManualWaterRight`` stream's ``data`` column is ``True`` for a
-        right-port delivery and ``False`` for left; split it by side. An empty
-        frame yields two empty arrays.
+        Returns
+        -------
+        tuple
+            ``(trials, left_lick_times, right_lick_times, manual_left_times,
+            manual_right_times)``.
         """
-        manual_water = self._acquisition_builder.get_manual_water_times()
-        left = manual_water.index[~manual_water["data"].astype(bool)].to_numpy()
-        right = manual_water.index[manual_water["data"].astype(bool)].to_numpy()
+        trials = nwb_file.trials.to_dataframe()
+        left_lick_times = np.asarray(nwb_file.acquisition[_LEFT_LICK_SERIES].timestamps)
+        right_lick_times = np.asarray(nwb_file.acquisition[_RIGHT_LICK_SERIES].timestamps)
+        manual_left_times, manual_right_times = self._manual_water_times(nwb_file)
+        return trials, left_lick_times, right_lick_times, manual_left_times, manual_right_times
+
+    @staticmethod
+    def _manual_water_times(nwb_file: pynwb.NWBFile) -> t.Tuple[np.ndarray, np.ndarray]:
+        """Return the ``(left, right)`` manual-water delivery times from the NWB.
+
+        Manual-water deliveries are the reward-delivery events annotated
+        ``"manual"`` on each side's ``*_reward_delivery_time`` acquisition series.
+        """
+        left = Pipeline._annotated_times(nwb_file, _LEFT_REWARD_SERIES, _MANUAL_ANNOTATION)
+        right = Pipeline._annotated_times(nwb_file, _RIGHT_REWARD_SERIES, _MANUAL_ANNOTATION)
         return left, right
+
+    @staticmethod
+    def _annotated_times(nwb_file: pynwb.NWBFile, series_name: str, annotation: str) -> np.ndarray:
+        """Return timestamps of ``series_name`` whose annotation ``data`` equals ``annotation``."""
+        series = nwb_file.acquisition[series_name]
+        data = np.asarray(series.data)
+        timestamps = np.asarray(series.timestamps)
+        return timestamps[data == annotation]
 
     def _assemble_quality_control(
         self,
         trials: pd.DataFrame,
+        left_lick_times: np.ndarray,
+        right_lick_times: np.ndarray,
+        manual_left_times: np.ndarray,
+        manual_right_times: np.ndarray,
         results_folder: t.Optional[str] = None,
     ) -> QualityControl:
         """Run the raw and processed QC stages and assemble one ``QualityControl``.
@@ -306,6 +339,11 @@ class Pipeline:
         ----------
         trials : pandas.DataFrame
             The trials table, consumed by the processed (behavior) QC stage.
+        left_lick_times, right_lick_times : numpy.ndarray
+            Left/right-port lick times for the processed QC stage.
+        manual_left_times, manual_right_times : numpy.ndarray
+            Left/right manual-water delivery times passed through to the side-bias
+            figure.
         results_folder : str, optional
             Directory to write figure assets into so the metric references
             resolve. If ``None``, assets are skipped.
@@ -316,9 +354,6 @@ class Pipeline:
             The combined raw (contract QA) + processed (behavior) metrics as a
             single flat metric list.
         """
-        left_lick_times, right_lick_times = self._lick_times()
-        manual_left_times, manual_right_times = self._manual_water_times()
-
         raw_metrics = RawQC().run(self.loader.dataset, results_folder)
         processed_metrics = ProcessedQC().run(
             trials,
@@ -359,15 +394,22 @@ class Pipeline:
             self._write_processing(output_path, start_date_time, datetime.now(timezone.utc))
         return nwb_file
 
-    def run_qc(
+    def run_qc_from_nwb(
         self,
+        nwb_file: pynwb.NWBFile,
         output_path: t.Optional[t.Union[str, os.PathLike]] = None,
         folder_directory: str = "qc",
     ) -> QualityControl:
-        """Run the QC stages, optionally writing ``quality_control.json`` to disk.
+        """Run the QC stages over an NWB file, optionally writing to disk.
+
+        The processed-QC inputs (trials table, lick times, manual-water times) are
+        read from ``nwb_file`` (e.g. the output of :meth:`run_nwb`); the raw
+        (contract QA) stage runs over the loader's raw dataset.
 
         Parameters
         ----------
+        nwb_file : pynwb.NWBFile
+            The NWB file to run QC against.
         output_path : os.PathLike, optional
             Destination directory for ``quality_control.json``. When ``None`` (the
             default), the QC is assembled and returned without touching disk
@@ -384,14 +426,24 @@ class Pipeline:
             ``output_path`` is given, the QC JSON and figure assets are written to
             disk as a side effect.
         """
+        trials, left_lick_times, right_lick_times, manual_left_times, manual_right_times = (
+            self._read_processed_inputs(nwb_file)
+        )
+
         results_folder: t.Optional[str] = None
         if output_path is not None:
             artifacts_dir = Path(output_path) / folder_directory
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             results_folder = os.fspath(artifacts_dir)
 
-        trials = self.build_trials()
-        quality_control = self._assemble_quality_control(trials, results_folder)
+        quality_control = self._assemble_quality_control(
+            trials,
+            left_lick_times,
+            right_lick_times,
+            manual_left_times,
+            manual_right_times,
+            results_folder,
+        )
         if output_path is not None:
             quality_control.write_standard_file(output_directory=Path(output_path))
         return quality_control
