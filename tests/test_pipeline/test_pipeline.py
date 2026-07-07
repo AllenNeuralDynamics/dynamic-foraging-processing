@@ -45,6 +45,15 @@ def _trials_frame() -> pd.DataFrame:
     )
 
 
+class _FakeSeries:
+    """Stand-in for an NWB acquisition series exposing ``data``/``timestamps``."""
+
+    def __init__(self, data, timestamps):
+        """Store the series arrays."""
+        self.data = data
+        self.timestamps = timestamps
+
+
 def test_init_stores_config_and_builds_helpers():
     """``__init__`` stores the loader/lick sources and constructs the builders."""
     loader = _make_loader()
@@ -199,16 +208,16 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
     monkeypatch.setattr(_pipeline, "build_quality_control", lambda metrics: metrics)
 
     pipeline = _make_pipeline()
-    pipeline._acquisition_builder.get_lick_times.side_effect = [
-        np.array([1.0]),
-        np.array([2.0]),
-    ]
-    pipeline._acquisition_builder.get_manual_water_times.return_value = pd.DataFrame(
-        {"data": [False, True]}, index=pd.Index([0.1, 0.2], name="time")
-    )
     trials = _trials_frame()
 
-    result = pipeline._assemble_quality_control(trials, "out")
+    result = pipeline._assemble_quality_control(
+        trials,
+        np.array([1.0]),
+        np.array([2.0]),
+        np.array([0.1]),
+        np.array([0.2]),
+        "out",
+    )
 
     assert result == ["raw1", "raw2", "proc1"]
     assert captured["raw"] == (pipeline.loader.dataset, "out")
@@ -299,30 +308,45 @@ def test_add_trials_skips_when_time_columns_missing():
     nwb_file.add_trial.assert_not_called()
 
 
-def test_manual_water_times_splits_by_side():
-    """Left deliveries are ``data == False`` and right are ``data == True``."""
-    pipeline = _make_pipeline()
-    pipeline._acquisition_builder.get_manual_water_times.return_value = pd.DataFrame(
-        {"data": [False, True, True]}, index=pd.Index([0.1, 0.2, 0.3], name="time")
-    )
+def test_manual_water_times_reads_manual_annotations():
+    """Manual-water times are the reward events annotated ``"manual"`` per side."""
+    nwb_file = MagicMock()
+    nwb_file.acquisition = {
+        "left_reward_delivery_time": _FakeSeries(
+            np.array(["manual", "earned", "manual"]), np.array([0.1, 0.2, 0.3])
+        ),
+        "right_reward_delivery_time": _FakeSeries(np.array(["automatic"]), np.array([0.5])),
+    }
 
-    left, right = pipeline._manual_water_times()
+    left, right = Pipeline._manual_water_times(nwb_file)
 
-    np.testing.assert_array_equal(left, np.array([0.1]))
-    np.testing.assert_array_equal(right, np.array([0.2, 0.3]))
-
-
-def test_manual_water_times_empty_frame_yields_empty_arrays():
-    """An empty manual-water stream yields two empty arrays."""
-    pipeline = _make_pipeline()
-    pipeline._acquisition_builder.get_manual_water_times.return_value = pd.DataFrame(
-        {"data": []}, index=pd.Index([], name="time")
-    )
-
-    left, right = pipeline._manual_water_times()
-
-    assert left.size == 0
+    np.testing.assert_array_equal(left, np.array([0.1, 0.3]))
     assert right.size == 0
+
+
+def test_read_processed_inputs_reads_from_nwb():
+    """The trials table, lick times, and manual-water times are read from the NWB."""
+    trials = _trials_frame()
+    fake_nwb = MagicMock()
+    fake_nwb.trials.to_dataframe.return_value = trials
+    fake_nwb.acquisition = {
+        "left_lick_time": _FakeSeries(np.array([True]), np.array([1.0])),
+        "right_lick_time": _FakeSeries(np.array([True, True]), np.array([2.0, 2.5])),
+        "left_reward_delivery_time": _FakeSeries(
+            np.array(["manual", "earned"]), np.array([0.1, 0.2])
+        ),
+        "right_reward_delivery_time": _FakeSeries(np.array(["manual"]), np.array([0.3])),
+    }
+
+    pipeline = _make_pipeline()
+
+    got_trials, left, right, manual_left, manual_right = pipeline._read_processed_inputs(fake_nwb)
+
+    assert got_trials is trials
+    np.testing.assert_array_equal(left, np.array([1.0]))
+    np.testing.assert_array_equal(right, np.array([2.0, 2.5]))
+    np.testing.assert_array_equal(manual_left, np.array([0.1]))
+    np.testing.assert_array_equal(manual_right, np.array([0.3]))
 
 
 def test_run_nwb_writes_nwb_and_processing(tmp_path):
@@ -349,23 +373,33 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert loaded.data_processes[0].process_type == ProcessName.PIPELINE
 
 
-def test_run_qc_writes_quality_control(tmp_path):
-    """``run_qc`` writes the QC JSON and assembles into an ``output_path`` subfolder."""
+def test_run_qc_from_nwb_writes_quality_control(tmp_path):
+    """``run_qc_from_nwb`` reads the NWB, assembles into a subfolder, and writes the JSON."""
     pipeline = _make_pipeline()
-    trials = _trials_frame()
+    nwb_file = object()
+    inputs = (
+        _trials_frame(),
+        np.array([1.0]),
+        np.array([2.0]),
+        np.array([0.1]),
+        np.array([0.2]),
+    )
     quality_control = MagicMock()
 
-    pipeline.build_trials = MagicMock(return_value=trials)
+    pipeline._read_processed_inputs = MagicMock(return_value=inputs)
     pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
 
-    result = pipeline.run_qc(str(tmp_path), folder_directory="plots")
+    result = pipeline.run_qc_from_nwb(nwb_file, str(tmp_path), folder_directory="plots")
 
     assert result is quality_control
-    pipeline.build_trials.assert_called_once_with()
+    pipeline._read_processed_inputs.assert_called_once_with(nwb_file)
     # Figure assets go to output_path / folder_directory, which is created.
     artifacts_dir = tmp_path / "plots"
     assert artifacts_dir.is_dir()
-    pipeline._assemble_quality_control.assert_called_once_with(trials, str(artifacts_dir))
+    args = pipeline._assemble_quality_control.call_args.args
+    # The read inputs are forwarded unchanged (same objects), then the folder.
+    assert [args[i] is inputs[i] for i in range(5)] == [True] * 5
+    assert args[5] == str(artifacts_dir)
     quality_control.write_standard_file.assert_called_once_with(output_directory=Path(tmp_path))
 
 
@@ -387,17 +421,26 @@ def test_run_nwb_without_output_skips_writes():
     pipeline._write_processing.assert_not_called()
 
 
-def test_run_qc_without_output_skips_write():
-    """``run_qc`` assembles the QC with no results folder and skips the JSON write."""
+def test_run_qc_from_nwb_without_output_skips_write():
+    """``run_qc_from_nwb`` assembles with no results folder and skips the JSON write."""
     pipeline = _make_pipeline()
-    trials = _trials_frame()
+    nwb_file = object()
+    inputs = (
+        _trials_frame(),
+        np.array([1.0]),
+        np.array([2.0]),
+        np.array([]),
+        np.array([]),
+    )
     quality_control = MagicMock()
 
-    pipeline.build_trials = MagicMock(return_value=trials)
+    pipeline._read_processed_inputs = MagicMock(return_value=inputs)
     pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
 
-    result = pipeline.run_qc()
+    result = pipeline.run_qc_from_nwb(nwb_file)
 
     assert result is quality_control
-    pipeline._assemble_quality_control.assert_called_once_with(trials, None)
+    pipeline._read_processed_inputs.assert_called_once_with(nwb_file)
+    # No output_path -> results_folder is None and nothing is written.
+    assert pipeline._assemble_quality_control.call_args.args[5] is None
     quality_control.write_standard_file.assert_not_called()
