@@ -6,9 +6,9 @@ points over the shared building blocks rather than one combined flow:
 - :meth:`Pipeline.run_nwb` -- assemble the NWB file (base metadata + acquisition
   entries + trials table), write it to disk, and write the ``processing.json``
   ``aind-data-schema`` metadata alongside it.
-- :meth:`Pipeline.run_qc_from_nwb` -- run the raw and processed QC stages over an
-  NWB file (reading the trials table and lick times from it) and write the
-  combined ``quality_control.json`` to disk.
+- :meth:`Pipeline.run_qc` -- run the raw QC stage (over the loader's raw dataset)
+  and the processed QC stage (over a given NWB file) and write the combined
+  ``quality_control.json`` to disk.
 
 The individual builders produce NWB-ready pydantic models
 (``AcquisitionSeries`` / ``AcquisitionTable``) and a trials ``DataFrame``; this
@@ -77,6 +77,10 @@ _MANUAL_ANNOTATION = "manual"
 
 class Pipeline:
     """Package a raw dynamic foraging acquisition to NWB and run QC.
+
+    :meth:`run_nwb` and :meth:`run_qc` are the two entry points (one per Code
+    Ocean capsule); the ``build_*`` / :meth:`write` methods are the lower-level
+    building blocks they compose from, exposed for notebooks and debugging.
 
     The pipeline reuses the existing builders: :class:`AcquisitionBuilder` for
     the acquisition entries and lick / manual-water event times,
@@ -394,17 +398,17 @@ class Pipeline:
             self._write_processing(output_path, start_date_time, datetime.now(timezone.utc))
         return nwb_file
 
-    def run_qc_from_nwb(
+    def run_qc(
         self,
         nwb_file: pynwb.NWBFile,
         output_path: t.Optional[t.Union[str, os.PathLike]] = None,
         folder_directory: str = "qc",
     ) -> QualityControl:
-        """Run the QC stages over an NWB file, optionally writing to disk.
+        """Run the raw and processed QC stages, optionally writing to disk.
 
-        The processed-QC inputs (trials table, lick times, manual-water times) are
-        read from ``nwb_file`` (e.g. the output of :meth:`run_nwb`); the raw
-        (contract QA) stage runs over the loader's raw dataset.
+        The raw (contract QA) stage runs over the loader's raw dataset; the
+        processed-QC inputs (trials table, lick times, manual-water times) are read
+        from ``nwb_file`` (e.g. the output of :meth:`run_nwb`).
 
         Parameters
         ----------
