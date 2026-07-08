@@ -9,7 +9,7 @@ from dynamic_foraging_processing.nwb.acquisition.models import (
     AcquisitionSeries,
     AcquisitionTable,
 )
-from dynamic_foraging_processing.nwb.utils import clean_dataframe_for_nwb
+from dynamic_foraging_processing.nwb.utils import clean_for_nwb
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
 from dynamic_foraging_processing.utils.rewards import get_annotated_rewards
 
@@ -264,7 +264,7 @@ class AcquisitionBuilder:
             acquisiton_entries.append(
                 AcquisitionTable(
                     name=stream_name,
-                    data=clean_dataframe_for_nwb(stream_data),
+                    data=clean_for_nwb(stream_data),
                     description=description,
                 )
             )

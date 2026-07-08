@@ -17,13 +17,34 @@ from those streams.
 > **Note:** Data must be acquired in the `aind-behavior-dynamic-foraging` data
 > contract format to be compatible with these tools.
 
+## Inputs and outputs
+**Input** — a raw acquisition directory in the `aind-behavior-dynamic-foraging`
+data contract format (Harp device registers, software events, and the task-logic /
+rig / session input schemas), loaded via `RawDataLoader`.
+
+**Outputs** — the NWB-ready containers assembled from those streams:
+
+- **Acquisition.** Built by `AcquisitionBuilder` and written to the NWB acquisition
+  module:
+  - 4 derived event series:
+    - `left_reward_delivery_time` / `right_reward_delivery_time` — reward delivery
+      times per lick port, with each event annotated as `earned`, `manual`, or
+      `automatic`.
+    - `left_lick_time` / `right_lick_time` — detected lick times per lick port.
+  - All raw contract streams — every stream returned by the loader
+    (`get_all_raw_data()`) is additionally packaged verbatim as a `DynamicTable`,
+    so the full raw dataset travels alongside the derived series.
+- **Trials table.** Built by `TrialTableBuilder`, one row per trial written to the
+  NWB `trials` table (see [`docs/trials_table_mapping.md`](docs/trials_table_mapping.md)).
+
 ## Level of Support
  - [x] Supported: We are releasing this code to the public as a tool we expect others to use. Issues are welcomed, and we expect to address them promptly; pull requests will be vetted by our staff before inclusion.
  - [ ] Occasional updates: We are planning on occasional updating this tool with no fixed schedule. Community involvement is encouraged through both issues and pull requests.
  - [ ] Unsupported: We are not currently supporting this code, but simply releasing it to the community AS IS but are not able to provide any guarantees of support. The community is welcome to submit issues, but you should not expect an active response.
 
 ## Modules
-The package (`src/dynamic_foraging_processing`) is organized into two modules:
+The package (`src/dynamic_foraging_processing`) is organized into the following
+modules:
 
 ### `raw_data_loader`
 Loads raw acquisition data via the data contract.
@@ -35,6 +56,14 @@ Loads raw acquisition data via the data contract.
      (`pandas.DataFrame` or `dict`).
    - `raw_data_stream_descriptions` → `dict` mapping each stream to its description
      (used when building NWB).
+
+### `nwb`
+Builds the NWB acquisition entries (requires the `nwb` extra).
+ - **`AcquisitionBuilder`** — assembles the acquisition module from the raw
+   streams: the four derived event series (`left`/`right_reward_delivery_time`,
+   `left`/`right_lick_time`) plus every raw contract stream packaged as a
+   `DynamicTable`. Returns `AcquisitionSeries` / `AcquisitionTable` models that a
+   writer translates into `pynwb` objects.
 
 ### `processing`
 Builds derived NWB containers from the raw streams.
@@ -49,15 +78,38 @@ Builds derived NWB containers from the raw streams.
    `TrialConfig.column_descriptions()` to retrieve them. The column-by-column source
    mapping is documented in [`docs/trials_table_mapping.md`](docs/trials_table_mapping.md).
 
+### `qc`
+Assembles an `aind-data-schema` `QualityControl` object (requires the `qc` extra).
+ - **`RawQC`** / **`ProcessedQC`** — the raw (contract QA) and processed (behavior
+   metrics) QC stages. `build_quality_control(metrics)` collects their metrics into
+   a single `QualityControl`.
+
+### `pipeline`
+Ties the building blocks into two Code Ocean capsule entry points (requires the
+`full` extra).
+ - **`Pipeline`** — over a `RawDataLoader`:
+   - `run_nwb(output_path)` — assembles the NWB file (base metadata + acquisition
+     entries + trials table), writes it to `output_path / "behavior.nwb.zarr"`, and
+     writes a `processing.json` alongside it.
+   - `run_qc(output_path)` — runs the QC stages and writes `quality_control.json`.
+
+   Both entry points build and return their objects in memory; `output_path` is
+   optional and only written to when provided.
+
 ## Repository structure
 ```
 src/dynamic_foraging_processing/
 ├── raw_data_loader/        # RawDataLoader: load raw streams via the data contract
 │   └── loader.py
-└── processing/             # Derived NWB containers
-    ├── _trial_table.py     # TrialTableBuilder
-    └── models/
-        └── trial_config.py # TrialConfig (one trials-table row + NWB descriptions)
+├── nwb/                    # NWB acquisition builder + models
+│   ├── acquisition/        # AcquisitionBuilder, AcquisitionSeries/Table
+│   └── utils.py            # clean_for_nwb: make frames safe to write to NWB
+├── processing/             # Derived NWB containers
+│   ├── _trial_table.py     # TrialTableBuilder
+│   └── models/
+│       └── trial_config.py # TrialConfig (one trials-table row + NWB descriptions)
+├── qc/                     # QualityControl assembly (raw + processed stages)
+└── pipeline/               # Pipeline: run_nwb / run_qc capsule entry points
 
 docs/                       # Source mapping and NWB notes (trials_table_mapping.md, ...)
 examples/                   # Runnable notebooks (raw_data_loader_example, trial_table_example)
@@ -69,16 +121,19 @@ tests/                      # Unit tests
 from pathlib import Path
 
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
-from dynamic_foraging_processing.processing import TrialTableBuilder
+from dynamic_foraging_processing.pipeline import Pipeline
 
 # Point at the root of an acquisition directory.
 loader = RawDataLoader(path=Path("/path/to/acquisition"))
+pipeline = Pipeline(loader)
 
-# Build the NWB trials table (one row per trial).
-trials = TrialTableBuilder(loader.dataset).build()
+# Write the NWB file (+ processing.json) and the QC (+ quality_control.json).
+pipeline.run_nwb("/path/to/output")
+pipeline.run_qc("/path/to/output")
 
-# Or inspect raw streams directly.
-raw = loader.get_all_raw_data()
+# Or use the building blocks directly.
+trials = pipeline.build_trials()   # NWB trials table, one row per trial
+raw = loader.get_all_raw_data()    # inspect raw streams
 ```
 See [`examples/`](examples) for end-to-end notebooks.
 
@@ -89,14 +144,16 @@ uv sync
 ```
 
 > [!IMPORTANT]
-> The base install includes **only** the raw data loader and does **not** pull in
-> `aind-data-schema` or `matplotlib`. The quality-control (`qc`) module requires
-> both, so importing `dynamic_foraging_processing.qc` will fail on a base install.
-> To use the QC module, install the `qc` (or equivalent `full`) extra:
+> The base install includes **only** the raw data loader. The optional modules
+> pull in their own dependencies, so importing them will fail on a base install:
+> - **`qc`** — `aind-data-schema`, `matplotlib` (for `dynamic_foraging_processing.qc`).
+> - **`nwb`** — `aind-nwb-utils`, `hdmf-zarr`, `pynwb` (for the `nwb` builder).
+> - **`full`** — everything above (`qc` + `nwb`); required by the `pipeline` module.
+>
+> Install the extra you need, e.g.:
 > ```bash
-> pip install -e ".[qc]"
+> pip install -e ".[full]"
 > ```
-> The `full` extra is currently an alias for `qc`.
 
 To develop the code, run
 to create the environment and install the package. To include the development
@@ -113,9 +170,9 @@ uv run ruff check . && uv run ruff format --check .   # lint + format
 uv run interrogate -v .                               # docstring coverage
 uv run coverage run -m pytest && uv run coverage report
 ```
-To include the QC dependencies with uv, run
+To include the optional-module dependencies (qc + nwb) with uv, run
 ```bash
-uv sync --extra qc
+uv sync --extra full
 ```
 
 ## Release Status

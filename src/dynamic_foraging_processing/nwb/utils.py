@@ -38,7 +38,7 @@ def convert_values_in_nested_structure(
         return {
             k: convert_values_in_nested_structure(v, check_fn, convert_fn) for k, v in data.items()
         }
-    if isinstance(data, list):
+    if isinstance(data, (list, tuple)):
         return [convert_values_in_nested_structure(item, check_fn, convert_fn) for item in data]
     return convert_fn(data) if check_fn(data) else data
 
@@ -66,8 +66,8 @@ def convert_datetimes_to_iso_string(
     )
 
 
-def _dict_to_json(value: dict) -> str:
-    """JSON-encode a dict, converting nested enums/datetimes first."""
+def _to_json(value: Union[dict, list, tuple]) -> str:
+    """JSON-encode a dict/list/tuple, converting nested enums/datetimes first."""
     value = convert_values_in_nested_structure(
         value,
         check_fn=lambda x: isinstance(x, Enum),
@@ -77,9 +77,9 @@ def _dict_to_json(value: dict) -> str:
     return json.dumps(value, default=str)
 
 
-def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
+def clean_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.DataFrame:
     """
-    Clean a pandas DataFrame to ensure compatibility with NWB format.
+    Clean input argument to ensure compatibility with NWB format.
 
     Parameters
     ----------
@@ -94,7 +94,9 @@ def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.Da
         A cleaned DataFrame that adheres to NWB data types
     """
     if isinstance(data, BaseModel):
-        data = data.model_dump()
+        # mode="json" coerces non-JSON types (e.g. pathlib paths, datetimes) to
+        # JSON-safe values so they don't reach the NWB writer as raw objects.
+        data = data.model_dump(mode="json")
     if isinstance(data, dict):
         data = pd.DataFrame([data])
 
@@ -102,6 +104,19 @@ def clean_dataframe_for_nwb(data: Union[pd.DataFrame, dict, BaseModel]) -> pd.Da
         # convert to nwb allowable types
         data[column] = data[column].replace({None: np.nan})
         data[column] = data[column].apply(lambda x: x.value if isinstance(x, Enum) else x)
-        data[column] = data[column].apply(lambda x: _dict_to_json(x) if isinstance(x, dict) else x)
+        data[column] = data[column].apply(
+            lambda x: _to_json(x) if isinstance(x, (dict, list, tuple)) else x
+        )
+
+    # DynamicTable reserves these names for its own fields, so a data column
+    # sharing one clashes on write: ``description``/``colnames`` are serialized
+    # as group attributes and hard-fail ("cannot set in attributes"), while
+    # ``id``/``name``/``columns`` shadow table attributes and warn. Suffix any
+    # such column with a trailing underscore -- the idiomatic disambiguation for
+    # a name that shadows a reserved one.
+    reserved = {"id", "name", "description", "colnames", "columns", "data_type"}
+    rename = {column: f"{column}_" for column in data.columns if column in reserved}
+    if rename:
+        data = data.rename(columns=rename)
 
     return data
