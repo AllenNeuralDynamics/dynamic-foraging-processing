@@ -373,8 +373,8 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert loaded.data_processes[0].process_type == ProcessName.PIPELINE
 
 
-def test_run_qc_from_nwb_writes_quality_control(tmp_path):
-    """``run_qc_from_nwb`` reads the NWB, assembles into a subfolder, and writes the JSON."""
+def test_run_qc_writes_quality_control(tmp_path):
+    """``run_qc`` reads the NWB, assembles into a subfolder, and writes the JSON."""
     pipeline = _make_pipeline()
     nwb_file = object()
     inputs = (
@@ -389,7 +389,7 @@ def test_run_qc_from_nwb_writes_quality_control(tmp_path):
     pipeline._read_processed_inputs = MagicMock(return_value=inputs)
     pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
 
-    result = pipeline.run_qc_from_nwb(nwb_file, str(tmp_path), folder_directory="plots")
+    result = pipeline.run_qc(nwb_file, str(tmp_path), folder_directory="plots")
 
     assert result is quality_control
     pipeline._read_processed_inputs.assert_called_once_with(nwb_file)
@@ -421,8 +421,8 @@ def test_run_nwb_without_output_skips_writes():
     pipeline._write_processing.assert_not_called()
 
 
-def test_run_qc_from_nwb_without_output_skips_write():
-    """``run_qc_from_nwb`` assembles with no results folder and skips the JSON write."""
+def test_run_qc_without_output_skips_write():
+    """``run_qc`` assembles with no results folder and skips the JSON write."""
     pipeline = _make_pipeline()
     nwb_file = object()
     inputs = (
@@ -437,7 +437,7 @@ def test_run_qc_from_nwb_without_output_skips_write():
     pipeline._read_processed_inputs = MagicMock(return_value=inputs)
     pipeline._assemble_quality_control = MagicMock(return_value=quality_control)
 
-    result = pipeline.run_qc_from_nwb(nwb_file)
+    result = pipeline.run_qc(nwb_file)
 
     assert result is quality_control
     pipeline._read_processed_inputs.assert_called_once_with(nwb_file)
