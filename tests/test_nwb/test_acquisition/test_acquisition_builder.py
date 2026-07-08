@@ -67,7 +67,7 @@ def _outcome_payload(auto) -> dict:
             "reward_consumption_duration": 1.0,
             "quiescence_period_duration": 0.5,
             "inter_trial_interval_duration": 4.0,
-            "is_auto_response_right": auto,
+            "is_auto_reward_right": auto,
         },
         "is_right_choice": True,
         "is_rewarded": True,
