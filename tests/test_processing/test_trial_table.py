@@ -1,0 +1,611 @@
+"""Tests for ``dynamic_foraging_processing.processing._trial_table``."""
+
+import numpy as np
+import pandas as pd
+import pytest
+from aind_behavior_dynamic_foraging.task_logic import (
+    AindDynamicForagingTaskLogic,
+    AindDynamicForagingTaskParameters,
+    RewardSize,
+)
+from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
+    CoupledTrialGeneratorSpec,
+    CoupledWarmupTrialGeneratorSpec,
+    TrialGeneratorCompositeSpec,
+    UncoupledTrialGeneratorSpec,
+)
+from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
+from aind_behavior_services.task.distributions import (
+    ExponentialDistribution,
+    ExponentialDistributionParameters,
+    Scalar,
+    ScalarDistributionParameter,
+    TruncationParameters,
+)
+
+from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
+
+
+# --------------------------------------------------------------------------- #
+# Fake dataset (tree-like contract stand-in)
+# --------------------------------------------------------------------------- #
+class _Stream:
+    """Leaf node exposing ``load().data`` like a contraqctor stream."""
+
+    def __init__(self, data):
+        """Store the stream's payload."""
+        self._data = data
+
+    def load(self):
+        """Return self, mirroring the contraqctor stream ``load()`` call."""
+        return self
+
+    @property
+    def has_data(self):
+        """Report data as available, mirroring a successfully loaded stream."""
+        return True
+
+    @property
+    def data(self):
+        """Return the stored payload."""
+        return self._data
+
+
+class _FailedStream:
+    """Leaf node that loads but reports no data, like a stream that failed to read."""
+
+    def load(self):
+        """Return self, mirroring the contraqctor stream ``load()`` call."""
+        return self
+
+    @property
+    def has_data(self):
+        """Report no data, mirroring a stream whose read failed."""
+        return False
+
+
+class _Node:
+    """Branch node exposing ``at(name)`` navigation."""
+
+    def __init__(self, children):
+        """Store the node's child streams/nodes by name."""
+        self.children = children
+
+    def at(self, name):
+        """Return the child registered under ``name``."""
+        return self.children[name]
+
+
+def _events(timestamps, payloads):
+    """Build a SoftwareEvents-style frame indexed by timestamp with a ``data`` column."""
+    return pd.DataFrame({"data": payloads}, index=pd.Index(timestamps, name="timestamp"))
+
+
+def _outcome(
+    p_left,
+    p_right,
+    is_right_choice,
+    is_rewarded,
+    auto=None,
+    block_p_left=None,
+    block_p_right=None,
+):
+    """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader).
+
+    ``p_left`` / ``p_right`` are the per-trial probabilities (top-level ``trial``
+    fields); ``block_p_left`` / ``block_p_right``, when given, are the block
+    probabilities stored under ``trial.metadata`` (the source of the
+    ``reward_probability`` columns).
+    """
+    trial = {
+        "p_reward_left": p_left,
+        "p_reward_right": p_right,
+        "response_deadline_duration": 3.0,
+        "reward_consumption_duration": 1.0,
+        "quiescence_period_duration": 0.5,
+        "inter_trial_interval_duration": 4.0,
+        "is_auto_reward_right": auto,
+    }
+    if block_p_left is not None or block_p_right is not None:
+        trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
+    return {
+        "trial": trial,
+        "is_right_choice": is_right_choice,
+        "is_rewarded": is_rewarded,
+    }
+
+
+def _task_logic(quiescent_scalar=True):
+    """Build a coupled-generator task logic with known distribution parameters."""
+    quiescent = (
+        Scalar(distribution_parameters=ScalarDistributionParameter(value=0.0))
+        if quiescent_scalar
+        else ExponentialDistribution(
+            distribution_parameters=ExponentialDistributionParameters(rate=1.0),
+            truncation_parameters=TruncationParameters(min=0.0, max=1.0),
+        )
+    )
+    spec = CoupledTrialGeneratorSpec(
+        quiescent_duration=quiescent,
+        inter_trial_interval_duration=ExponentialDistribution(
+            distribution_parameters=ExponentialDistributionParameters(rate=0.2),
+            truncation_parameters=TruncationParameters(min=1.0, max=10.0),
+        ),
+        block_length=ExponentialDistribution(
+            distribution_parameters=ExponentialDistributionParameters(rate=0.05),
+            truncation_parameters=TruncationParameters(min=20.0, max=60.0),
+        ),
+        min_block_reward=2,
+    )
+    return AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=spec,
+            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
+        )
+    )
+
+
+def _pulse_supply(column, value_ms):
+    """Build a HarpBehavior PulseSupplyPort register frame with one config value.
+
+    The register reports its pulse width (ms) as a single ``READ`` row, mirroring
+    a real session where the valve open time is configured once.
+    """
+    return pd.DataFrame(
+        {column: [value_ms], "MessageType": ["READ"]},
+        index=pd.Index([12.0], name="Time"),
+    )
+
+
+def _full_dataset():
+    """Assemble a two-trial fake dataset covering the common path."""
+    software_events = _Node(
+        {
+            "TrialOutcome": _Stream(
+                _events(
+                    [10.1, 20.1],
+                    [
+                        _outcome(
+                            1.0,
+                            0.2,
+                            is_right_choice=True,
+                            is_rewarded=True,
+                            block_p_left=0.7,
+                            block_p_right=0.1,
+                        ),
+                        _outcome(0.5, 0.5, is_right_choice=None, is_rewarded=False),
+                    ],
+                )
+            ),
+            "QuiescentPeriod": _Stream(_events([10.0, 20.0], [None, None])),
+            "ItiPeriod": _Stream(_events([20.0, 30.0], [None, None])),
+            "Response": _Stream(
+                _events(
+                    [10.5, 20.5], [{"Item1": 10.5, "Item2": True}, {"Item1": 20.5, "Item2": None}]
+                )
+            ),
+            "InitialManipulatorPosition": _Stream(
+                _events([5.0], [{"x": 1.0, "y1": 2.0, "y2": 3.0, "z": 4.0}])
+            ),
+            "TrialMetrics": _Stream(_events([10.2, 20.2], [{"bias": 0.3}, {"bias": None}])),
+        }
+    )
+    behavior = _Node(
+        {
+            "SoftwareEvents": software_events,
+            "HarpBehavior": _Node(
+                {
+                    "PulseSupplyPort0": _Stream(_pulse_supply("PulseSupplyPort0", 20)),
+                    "PulseSupplyPort1": _Stream(_pulse_supply("PulseSupplyPort1", 30)),
+                }
+            ),
+            "HarpSoundCard": _Node(
+                {
+                    "PlaySoundOrFrequency": _Stream(
+                        pd.DataFrame(
+                            {"MessageType": ["WRITE", "WRITE"]},
+                            index=pd.Index([11.0, 21.0], name="Time"),
+                        )
+                    )
+                }
+            ),
+            "InputSchemas": _Node({"TaskLogic": _Stream(_task_logic())}),
+        }
+    )
+    return _Node({"Behavior": behavior})
+
+
+def _misaligned_dataset():
+    """A two-trial dataset whose QuiescentPeriod (start) stream is one event short."""
+    dataset = _full_dataset()
+    software_events = dataset.children["Behavior"].children["SoftwareEvents"]
+    # One start time for two TrialOutcome events -> positional misalignment.
+    software_events.children["QuiescentPeriod"] = _Stream(_events([10.0], [None]))
+    return dataset
+
+
+# --------------------------------------------------------------------------- #
+# build() — full happy path
+# --------------------------------------------------------------------------- #
+def test_build_full_dataset():
+    """Two trials are assembled with the expected per-trial and session values."""
+    table = TrialTableBuilder(_full_dataset()).build()
+
+    assert list(table.columns) == list(TrialConfig.model_fields)
+    assert len(table) == 2
+
+    first, second = table.iloc[0], table.iloc[1]
+
+    # Trial windows.
+    assert first["start_time"] == 10.0 and first["stop_time"] == 20.0
+    assert first["delay_start_time"] == 10.0
+
+    # Response encoding: True -> right (1), None -> no response (2).
+    assert first["animal_response"] == 1
+    assert second["animal_response"] == 2
+
+    # Go cue resolved within each trial window.
+    assert first["goCue_start_time"] == 11.0
+    assert second["goCue_start_time"] == 21.0
+    # Valve columns hold the configured pulse width (ms -> s), constant per trial.
+    assert first["left_valve_open_time"] == 0.02 and second["left_valve_open_time"] == 0.02
+    assert first["right_valve_open_time"] == 0.03 and second["right_valve_open_time"] == 0.03
+
+    # Reward history split by side.
+    assert bool(first["rewarded_historyR"]) is True
+    assert bool(first["rewarded_historyL"]) is False
+    # Second trial was ignored (no choice) -> not rewarded on either side.
+    assert bool(second["rewarded_historyL"]) is False
+    assert bool(second["rewarded_historyR"]) is False
+
+    # Bait derived from the per-trial p_reward and auto-response.
+    assert bool(first["bait_left"]) is True
+    assert bool(first["bait_right"]) is False
+
+    # reward_probability columns are the block probability from trial.metadata,
+    # not the top-level per-trial p_reward (1.0 / 0.2 here).
+    assert first["reward_probabilityL"] == pytest.approx(0.7)
+    assert first["reward_probabilityR"] == pytest.approx(0.1)
+    # The second trial has no metadata -> null block probabilities.
+    assert pd.isna(second["reward_probabilityL"])
+    assert pd.isna(second["reward_probabilityR"])
+
+    # Session-level distribution summaries.
+    assert first["ITI_beta"] == pytest.approx(5.0)
+    assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
+    assert first["block_beta"] == pytest.approx(20.0)
+    assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
+    assert first["min_reward_each_block"] == 2
+    assert first["base_reward_probability_sum"] == pytest.approx(0.8)
+
+    # Lickspout positions from InitialManipulatorPosition.
+    assert first["lickspout_position_x"] == 1.0
+    assert first["lickspout_position_z"] == 4.0
+
+    # Session-level reward volumes (uL) from task_parameters.reward_size.
+    assert first["reward_size_left"] == 2.0
+    assert first["reward_size_right"] == 4.0
+    assert second["reward_size_left"] == 2.0
+
+    # Per-trial side bias from the TrialMetrics event; null when not recorded.
+    assert first["side_bias"] == pytest.approx(0.3)
+    assert pd.isna(second["side_bias"])
+
+
+def test_build_raises_when_task_logic_missing_with_trials():
+    """A missing TaskLogic stream is an error when there are trials (reward size is required)."""
+    dataset = _full_dataset()
+    input_schemas = dataset.children["Behavior"].children["InputSchemas"]
+    input_schemas.children["TaskLogic"] = _FailedStream()
+    with pytest.raises(ValueError, match="TaskLogic stream is required"):
+        TrialTableBuilder(dataset).build()
+
+
+def test_build_empty_dataset_returns_empty_frame():
+    """Missing streams yield an empty table with the full column set."""
+    table = TrialTableBuilder(_Node({}), raise_on_error=False).build()
+    assert len(table) == 0
+    assert list(table.columns) == list(TrialConfig.model_fields)
+
+
+def test_build_exponential_quiescent_sets_delay_beta():
+    """A non-scalar quiescent distribution populates delay beta/min/max."""
+    behavior = _full_dataset().children["Behavior"]
+    behavior.children["InputSchemas"].children["TaskLogic"] = _Stream(
+        _task_logic(quiescent_scalar=False)
+    )
+    table = TrialTableBuilder(_Node({"Behavior": behavior})).build()
+    assert table.iloc[0]["delay_beta"] == pytest.approx(1.0)
+    assert table.iloc[0]["delay_min"] == 0.0
+    assert table.iloc[0]["delay_max"] == 1.0
+
+
+def test_build_warns_on_misaligned_streams(caplog):
+    """A per-trial stream shorter than TrialOutcome warns but still builds."""
+    table = TrialTableBuilder(_misaligned_dataset()).build()
+    assert len(table) == 2
+    assert "misaligned" in caplog.text.lower()
+
+
+def test_build_raises_on_misaligned_streams_when_configured():
+    """Misaligned per-trial streams raise ``ValueError`` when ``raise_on_error`` is True."""
+    with pytest.raises(ValueError, match="misaligned"):
+        TrialTableBuilder(_misaligned_dataset(), raise_on_error=True).build()
+
+
+# --------------------------------------------------------------------------- #
+# _summary_generator — composite trial generators
+# --------------------------------------------------------------------------- #
+def test_summary_generator_returns_single_generator_unchanged():
+    """A non-composite generator (no ``.generators``) is returned as-is."""
+    spec = _task_logic().task_parameters.trial_generator
+    assert TrialTableBuilder._summary_generator(spec) is spec
+
+
+def test_summary_generator_prefers_coupled_over_uncoupled():
+    """A coupled sub-generator is preferred even when an uncoupled one precedes it."""
+    coupled = _task_logic().task_parameters.trial_generator
+    composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec(), coupled])
+    resolved = TrialTableBuilder._summary_generator(composite)
+    assert resolved.type == "CoupledTrialGenerator"
+    assert resolved.min_block_reward == coupled.min_block_reward
+
+
+def test_summary_generator_falls_back_to_uncoupled():
+    """An uncoupled sub-generator is used when no coupled generator is present."""
+    composite = TrialGeneratorCompositeSpec(
+        generators=[CoupledWarmupTrialGeneratorSpec(), UncoupledTrialGeneratorSpec()]
+    )
+    resolved = TrialTableBuilder._summary_generator(composite)
+    assert resolved.type == "UncoupledTrialGenerator"
+
+
+def test_summary_generator_none_when_no_coupled_or_uncoupled(caplog):
+    """A composite with neither coupled nor uncoupled generators yields ``None`` and warns."""
+    composite = TrialGeneratorCompositeSpec(generators=[CoupledWarmupTrialGeneratorSpec()])
+    assert TrialTableBuilder._summary_generator(composite) is None
+    assert "No coupled or uncoupled generator" in caplog.text
+
+
+def test_session_columns_only_reward_size_when_no_summary_generator():
+    """With no coupled/uncoupled generator, only the generator-independent reward size remains."""
+    task_logic = AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=TrialGeneratorCompositeSpec(
+                generators=[CoupledWarmupTrialGeneratorSpec()]
+            ),
+            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
+        )
+    )
+    # Reward size lives on the task parameters, not the generator, so it is the
+    # only column populated when no summarising generator is found.
+    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {
+        "reward_size_left": 2.0,
+        "reward_size_right": 4.0,
+    }
+
+
+def test_session_columns_include_reward_size():
+    """Reward volumes are read from ``task_parameters.reward_size``."""
+    columns = TrialTableBuilder(_Node({}))._session_columns(_task_logic())
+    assert columns["reward_size_left"] == 2.0
+    assert columns["reward_size_right"] == 4.0
+
+
+def test_side_bias_parses_dict_model_json_and_none():
+    """``_side_bias`` extracts ``bias`` from a dict, model, JSON, or ``None``."""
+    from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialMetrics
+
+    assert TrialTableBuilder._side_bias(None) is None
+    assert TrialTableBuilder._side_bias({"bias": -0.4}) == pytest.approx(-0.4)
+    assert TrialTableBuilder._side_bias({"bias": None}) is None
+    assert TrialTableBuilder._side_bias(TrialMetrics(bias=0.5)) == pytest.approx(0.5)
+    assert TrialTableBuilder._side_bias(TrialMetrics(bias=0.5).model_dump_json()) == pytest.approx(
+        0.5
+    )
+
+
+def test_build_missing_trial_metrics_leaves_side_bias_null():
+    """A missing ``TrialMetrics`` stream leaves ``side_bias`` null on every trial."""
+    dataset = _full_dataset()
+    software_events = dataset.children["Behavior"].children["SoftwareEvents"]
+    del software_events.children["TrialMetrics"]
+    table = TrialTableBuilder(dataset).build()
+    assert table["side_bias"].isna().all()
+
+
+def test_session_columns_uncoupled_has_null_reward_sum():
+    """An uncoupled generator populates distribution columns but no coupled-only fields."""
+    task_logic = AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=UncoupledTrialGeneratorSpec()
+        )
+    )
+    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic)
+    # Distribution summaries are common to all block-based generators.
+    assert "ITI_beta" in columns
+    # Coupled-only fields are absent / null for an uncoupled generator.
+    assert columns["base_reward_probability_sum"] is None
+    assert "min_reward_each_block" not in columns
+
+
+# --------------------------------------------------------------------------- #
+# _load — error handling
+# --------------------------------------------------------------------------- #
+def test_load_missing_stream_returns_none_when_not_raising():
+    """A missing stream returns ``None`` when ``raise_on_error`` is False."""
+    builder = TrialTableBuilder(_Node({}), raise_on_error=False)
+    assert builder._load("Behavior", "Missing") is None
+
+
+def test_load_missing_stream_raises_when_configured():
+    """A missing stream raises ``ValueError`` when ``raise_on_error`` is True."""
+    builder = TrialTableBuilder(_Node({}), raise_on_error=True)
+    with pytest.raises(ValueError, match="Failed to load stream"):
+        builder._load("Behavior", "Missing")
+
+
+def test_load_stream_failed_to_load_returns_none():
+    """A stream that loads without data returns ``None`` when not raising."""
+    builder = TrialTableBuilder(_Node({"Broken": _FailedStream()}), raise_on_error=False)
+    assert builder._load("Broken") is None
+
+
+def test_load_stream_failed_to_load_raises_when_configured():
+    """A stream that loads without data raises ``ValueError`` when configured."""
+    builder = TrialTableBuilder(_Node({"Broken": _FailedStream()}), raise_on_error=True)
+    with pytest.raises(ValueError, match="stream failed to load"):
+        builder._load("Broken")
+
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+def test_closest_time_in_window_picks_nearest_to_start():
+    """Among events in the window, the one nearest the start is returned."""
+    times = np.array([5.0, 11.0, 12.0, 25.0])
+    assert TrialTableBuilder._closest_time_in_window(times, 10.0, 20.0) == 11.0
+
+
+def test_closest_time_in_window_none_when_empty_or_outside():
+    """Returns ``None`` for empty input or when no event falls in the window."""
+    assert TrialTableBuilder._closest_time_in_window(np.empty(0), 0.0, 1.0) is None
+    assert TrialTableBuilder._closest_time_in_window(np.array([5.0, 25.0]), 10.0, 20.0) is None
+
+
+def test_pulse_duration_converts_ms_to_seconds():
+    """The pulse-width register value (ms) is returned in seconds."""
+    df = pd.DataFrame(
+        {"PulseSupplyPort0": [20], "MessageType": ["READ"]},
+        index=pd.Index([12.0], name="Time"),
+    )
+    assert TrialTableBuilder._pulse_duration(df, "PulseSupplyPort0") == 0.02
+
+
+def test_pulse_duration_uses_most_recent_value():
+    """When the pulse width is reconfigured, the latest value wins."""
+    df = pd.DataFrame(
+        {"PulseSupplyPort0": [20, 50], "MessageType": ["READ", "WRITE"]},
+        index=pd.Index([12.0, 30.0], name="Time"),
+    )
+    assert TrialTableBuilder._pulse_duration(df, "PulseSupplyPort0") == 0.05
+
+
+def test_pulse_duration_missing_or_empty_returns_none():
+    """An absent register/column or an all-null value column yields ``None``."""
+    assert TrialTableBuilder._pulse_duration(None, "PulseSupplyPort0") is None
+    no_col = pd.DataFrame({"MessageType": ["READ"]}, index=[1.0])
+    assert TrialTableBuilder._pulse_duration(no_col, "PulseSupplyPort0") is None
+    all_null = pd.DataFrame({"PulseSupplyPort0": [np.nan], "MessageType": ["READ"]}, index=[1.0])
+    assert TrialTableBuilder._pulse_duration(all_null, "PulseSupplyPort0") is None
+
+
+def test_write_times_without_message_type_uses_all_rows():
+    """A register without a ``MessageType`` column returns every timestamp."""
+    df = pd.DataFrame({"value": [1, 2]}, index=[3.0, 1.0])
+    np.testing.assert_array_equal(TrialTableBuilder._write_times(df), np.array([1.0, 3.0]))
+
+
+def test_animal_response_encoding():
+    """``Response`` ``{"Item1", "Item2"}`` payloads map to the 0/1/2 codes."""
+    assert TrialTableBuilder._animal_response(None) == 2
+    assert TrialTableBuilder._animal_response({"Item1": 1.0, "Item2": True}) == 1
+    assert TrialTableBuilder._animal_response({"Item1": 1.0, "Item2": False}) == 0
+    assert TrialTableBuilder._animal_response({"Item1": 1.0, "Item2": None}) == 2
+    # A payload missing Item2 entirely is treated as no choice.
+    assert TrialTableBuilder._animal_response({"Item1": 1.0}) == 2
+
+
+def test_is_baited_none_trial_returns_false():
+    """A missing trial yields ``False`` bait for both sides."""
+    assert TrialTableBuilder._is_baited(None, is_right=True) is False
+    assert TrialTableBuilder._is_baited(None, is_right=False) is False
+
+
+def test_is_baited_forfeited_by_auto_response_on_same_side():
+    """A side with guaranteed reward stays baited unless auto-responded to that side."""
+    trial = TrialOutcome.model_validate(
+        _outcome(0.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
+    ).trial
+    # Right is guaranteed (p=1) but auto-responded right -> bait collected.
+    assert TrialTableBuilder._is_baited(trial, is_right=True) is False
+
+
+def test_auto_water_encodes_side_from_auto_response():
+    """A non-null auto response encodes ``1`` on its side and ``0`` on the other."""
+    trial = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
+    ).trial
+    assert TrialTableBuilder._auto_water(trial, is_right=True) == 1
+    assert TrialTableBuilder._auto_water(trial, is_right=False) == 0
+    # A missing trial or no auto-response counts as no autowater (0).
+    assert TrialTableBuilder._auto_water(None, is_right=True) == 0
+    no_auto = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
+    ).trial
+    assert TrialTableBuilder._auto_water(no_auto, is_right=True) == 0
+
+
+def test_block_reward_probability_reads_metadata_not_trial():
+    """The block probability comes from ``trial.metadata``, not the top-level p_reward."""
+    trial = TrialOutcome.model_validate(
+        _outcome(
+            1.0, 0.2, is_right_choice=True, is_rewarded=True, block_p_left=0.7, block_p_right=0.1
+        )
+    ).trial
+    assert TrialTableBuilder._block_reward_probability(trial, is_right=False) == pytest.approx(0.7)
+    assert TrialTableBuilder._block_reward_probability(trial, is_right=True) == pytest.approx(0.1)
+
+
+def test_block_reward_probability_none_without_metadata_or_trial():
+    """A missing trial or absent metadata yields ``None``."""
+    assert TrialTableBuilder._block_reward_probability(None, is_right=True) is None
+    no_meta = TrialOutcome.model_validate(
+        _outcome(1.0, 0.2, is_right_choice=True, is_rewarded=True)
+    ).trial
+    assert no_meta.metadata is None
+    assert TrialTableBuilder._block_reward_probability(no_meta, is_right=False) is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True),
+        TrialOutcome.model_validate(_outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False)),
+    ],
+)
+def test_parse_outcome_accepts_dict_model_and_none(payload):
+    """``_parse_outcome`` accepts dicts, model instances, and ``None``."""
+    result = TrialTableBuilder._parse_outcome(payload)
+    assert result is None or isinstance(result, TrialOutcome)
+
+
+def test_parse_outcome_accepts_json_string():
+    """``_parse_outcome`` parses a JSON-string payload."""
+    payload = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True)
+    ).model_dump_json()
+    assert isinstance(TrialTableBuilder._parse_outcome(payload), TrialOutcome)
+
+
+def test_lickspout_columns_from_list_payload():
+    """A list payload is mapped positionally to x/y1/y2/z."""
+    builder = TrialTableBuilder(_Node({}))
+    columns = builder._lickspout_columns(_events([1.0], [[10.0, 20.0, 30.0, 40.0]]))
+    assert columns["lickspout_position_x"] == 10.0
+    assert columns["lickspout_position_y2"] == 30.0
+
+
+def test_lickspout_columns_unrecognized_payload_is_null():
+    """An unrecognized payload leaves all lickspout positions ``None``."""
+    builder = TrialTableBuilder(_Node({}))
+    columns = builder._lickspout_columns(_events([1.0], ["unexpected"]))
+    assert all(value is None for value in columns.values())
+
+
+def test_lickspout_columns_missing_stream_is_null():
+    """A missing manipulator stream leaves all lickspout positions ``None``."""
+    builder = TrialTableBuilder(_Node({}))
+    columns = builder._lickspout_columns(None)
+    assert all(value is None for value in columns.values())

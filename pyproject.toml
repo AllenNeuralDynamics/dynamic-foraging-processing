@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "dynamic-foraging-processing"
 description = "Generated from aind-library-template"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     {name = "Allen Institute for Neural Dynamics"}
 ]
@@ -17,15 +17,30 @@ readme = "README.md"
 version = "0.0.0"
 
 dependencies = [
+    "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@baab12133b22f599c1ba0583260eca9eca216cc0",
+    "ipykernel",
+]
+
+[project.optional-dependencies]
+qc = [
+    "aind-data-schema>=2.4.1",
+    "matplotlib",
+]
+nwb = [
+    "aind-nwb-utils",
+    "hdmf-zarr",
+    "pynwb",
+]
+full = [
+    "dynamic-foraging-processing[qc,nwb]",
 ]
 
 [dependency-groups]
 dev = [
-    'black',
+    'ruff',
     'coverage',
-    'flake8',
     'interrogate',
-    'isort',
+    'pytest',
     'Sphinx',
     'furo'
 ]
@@ -33,27 +48,22 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.black]
-line-length = 79
-target_version = ['py310']
-exclude = '''
+[tool.ruff]
+line-length = 100
+target-version = 'py312'
+extend-exclude = [
+    '.conda',
+    '.venv',
+    'build',
+    'dist',
+]
 
-(
-  /(
-      \.eggs         # exclude a few common directories in the
-    | \.git          # root of the project
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | build
-    | dist
-    | .conda
-  )/
-  | .gitignore
-)
-'''
+[tool.ruff.lint]
+extend-select = ['Q', 'RUF100', 'C90', 'I']
+extend-ignore = []
+
+[tool.ruff.lint.pydocstyle]
+convention = 'google'
 
 [tool.coverage.run]
 omit = ["*__init__*"]
@@ -64,14 +74,11 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "^from .* import .*",
     "^import .*",
+    "if t\\.TYPE_CHECKING:",
+    "if TYPE_CHECKING:",
     "pragma: no cover"
 ]
 fail_under = 100
-
-[tool.isort]
-line_length = 79
-profile = "black"
-skip = [".conda", ".venv"]
 
 [tool.interrogate]
 exclude = ["setup.py", "docs", "build", ".conda"]
