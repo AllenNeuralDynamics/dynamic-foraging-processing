@@ -3,10 +3,10 @@ on:
   push:
     branches:
       - main
-# Remove line 67 to enable automated semantic version bumps.
+# Automated semantic version bumps are enabled (the `tag` job runs on push to main).
 # Requires that svc-aindscicomp be added to the repo with "write" role.
 
-# Change line 73 from "if: false" to "if: true" to enable PyPI publishing.
+# Change the publish job's "if: false" to "if: true" to enable PyPI publishing.
 # Requires that the repo has been added as a Trusted Publisher in the PyPI.
 # Please submit a request to Scientific Computing to add the Trusted Publisher.
 jobs:
@@ -64,7 +64,6 @@ jobs:
         add: '["README.md"]'
   tag:
     needs: update_badges
-    if: ${{github.event.repository.name == 'aind-library-template'}}
     uses: AllenNeuralDynamics/.github/.github/workflows/release-bump-version-uv.yml@main
     secrets:
       repo-token: ${{ secrets.SERVICE_TOKEN }}
