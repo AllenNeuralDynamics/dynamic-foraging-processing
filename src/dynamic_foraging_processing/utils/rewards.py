@@ -46,7 +46,7 @@ def get_annotated_rewards(
       timestamps are correlated to the reward-delivery timestamps with
       :func:`find_closest_timestamps`.
     - ``automatic`` -- otherwise, when the matching trial auto-responded
-      (``is_auto_response_right is not None``).
+      (``is_auto_reward_right is not None``).
     - ``earned`` -- otherwise (no matching trial, or no auto-response).
 
     Parameters
@@ -80,7 +80,7 @@ def get_annotated_rewards(
     for trial_index in trial_indices_in_reward_times:
         outcome = _parse_outcome(trial_outcome_df.iloc[trial_index]["data"])
         trial = outcome.trial if outcome is not None else None
-        if trial is None or trial.is_auto_response_right is None:
+        if trial is None or trial.is_auto_reward_right is None:
             annotated_rewards.append("earned")
         else:
             annotated_rewards.append("automatic")

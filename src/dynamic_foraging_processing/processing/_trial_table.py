@@ -327,7 +327,7 @@ class TrialTableBuilder:
         probability is ``1``) *and* the trial was not auto-responded to *that
         same* port.
 
-        ``is_auto_response_right`` encodes the auto-response: ``True`` means the
+        ``is_auto_reward_right`` encodes the auto-response: ``True`` means the
         trial was auto-responded to the right, ``False`` to the left, and
         ``None`` means there was no auto-response.
 
@@ -335,10 +335,10 @@ class TrialTableBuilder:
 
         * ``p_reward_right == 1`` — reward is certain on the right, and
         * the trial was *not* auto-responded to the right
-          (``is_auto_response_right`` is ``None`` or ``False``).
+          (``is_auto_reward_right`` is ``None`` or ``False``).
 
         The left port is the mirror image (``p_reward_left == 1`` and not
-        auto-responded to the left, i.e. ``is_auto_response_right`` is ``None``
+        auto-responded to the left, i.e. ``is_auto_reward_right`` is ``None``
         or ``True``).
 
         Parameters
@@ -358,25 +358,25 @@ class TrialTableBuilder:
         --------
         Right port guaranteed reward, no auto-response → baited:
 
-        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_response_right=None)
+        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_reward_right=None)
         >>> TrialTableBuilder._is_baited(trial, is_right=True)
         True
 
         Same trial, but auto-responded to the right collects (forfeits) the bait:
 
-        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_response_right=True)
+        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_reward_right=True)
         >>> TrialTableBuilder._is_baited(trial, is_right=True)
         False
 
         Left port without guaranteed reward → not baited:
 
-        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_response_right=None)
+        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_reward_right=None)
         >>> TrialTableBuilder._is_baited(trial, is_right=False)
         False
         """
         if trial is None:
             return False
-        auto = trial.is_auto_response_right
+        auto = trial.is_auto_reward_right
         if is_right:
             # Right stays baited unless the animal was auto-responded right.
             return trial.p_reward_right == 1 and auto in (None, False)
@@ -385,16 +385,16 @@ class TrialTableBuilder:
 
     @staticmethod
     def _auto_water(trial: t.Optional[Trial], *, is_right: bool) -> int:
-        """Encode autowater for a side from ``is_auto_response_right``.
+        """Encode autowater for a side from ``is_auto_reward_right``.
 
         Returns ``1`` if the auto response was to the requested side, else ``0``.
-        A missing trial or no auto-response (``is_auto_response_right`` is
+        A missing trial or no auto-response (``is_auto_reward_right`` is
         ``None``) counts as no autowater (``0``). ``is_right`` is ``True`` for
         right.
         """
-        if trial is None or trial.is_auto_response_right is None:
+        if trial is None or trial.is_auto_reward_right is None:
             return 0
-        return int(trial.is_auto_response_right is is_right)
+        return int(trial.is_auto_reward_right is is_right)
 
     @staticmethod
     def _block_reward_probability(trial: t.Optional[Trial], *, is_right: bool) -> t.Optional[float]:

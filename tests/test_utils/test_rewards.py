@@ -19,7 +19,7 @@ def _outcome_payload(auto=None) -> dict:
             "reward_consumption_duration": 1.0,
             "quiescence_period_duration": 0.5,
             "inter_trial_interval_duration": 4.0,
-            "is_auto_response_right": auto,
+            "is_auto_reward_right": auto,
         },
         "is_right_choice": True,
         "is_rewarded": True,
@@ -46,7 +46,7 @@ def test_get_annotated_rewards_marks_default_trials_as_earned():
 
 
 def test_get_annotated_rewards_marks_auto_response_trials_as_automatic():
-    """Trials with ``is_auto_response_right`` set (either side) are ``automatic``."""
+    """Trials with ``is_auto_reward_right`` set (either side) are ``automatic``."""
     reward_times = np.array([0.15, 0.42])
     trial_outcome_df = _trial_outcome_df(np.array([0.1, 0.4]), autos=[True, False])
 

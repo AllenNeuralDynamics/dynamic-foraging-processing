@@ -71,13 +71,13 @@ Columns are grouped by the raw source they map from.
 
 ### From `TrialOutcome.json` (`SoftwareEvents` stream)
 
-> **Note:** For `is_auto_response_right`, `True` means right and `False`
+> **Note:** For `is_auto_reward_right`, `True` means right and `False`
 > means left.
 
 | Trials column | Mapping |
 | --- | --- |
-| `auto_waterL` / `auto_waterR` | From `is_auto_response_right`. `1` on the auto-responded side; `0` on the other side, when there was no auto-response (`None`), or when the trial is missing. |
-| `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_response_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_response_right` is `None` or `True`. |
+| `auto_waterL` / `auto_waterR` | From `is_auto_reward_right`. `1` on the auto-responded side; `0` on the other side, when there was no auto-response (`None`), or when the trial is missing. |
+| `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_reward_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_reward_right` is `None` or `True`. |
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
 | `reward_probabilityL` / `reward_probabilityR` | The **block** probability from `Trial -> metadata -> p_reward_left` / `p_reward_right`. The top-level `trial.p_reward_left` / `p_reward_right` is the per-trial probability, not the block probability, so it is not used here. `None` when the trial or its metadata is missing. |
@@ -152,6 +152,6 @@ These were mapped during exploration but are no longer in scope:
 | Date | Change |
 | --- | --- |
 | 2026-06-17 | `animal_response` now decodes the `Response` event's `{ "Item1": <time>, "Item2": <choice> }` payload via `Item2` (`True` → right `1`, `False` → left `0`, missing/`None` → no response `2`), rather than treating the whole payload as the choice. |
-| 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_response_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
+| 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_reward_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
 | 2026-06-20 | Added `reward_size_left` / `reward_size_right` (reward volume in uL) from `task_parameters.reward_size`, and `side_bias` from the per-trial `TrialMetrics` event (`bias` field). |
 | 2026-06-20 | `reward_probabilityL` / `reward_probabilityR` now read the block probability from `trial.metadata.p_reward_left` / `p_reward_right` instead of the top-level per-trial `trial.p_reward_left` / `p_reward_right`. |

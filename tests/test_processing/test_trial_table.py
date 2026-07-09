@@ -104,7 +104,7 @@ def _outcome(
         "reward_consumption_duration": 1.0,
         "quiescence_period_duration": 0.5,
         "inter_trial_interval_duration": 4.0,
-        "is_auto_response_right": auto,
+        "is_auto_reward_right": auto,
     }
     if block_p_left is not None or block_p_right is not None:
         trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
