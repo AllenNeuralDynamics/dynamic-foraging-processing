@@ -7,6 +7,9 @@
 ![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
 ![Python](https://img.shields.io/badge/python->=3.12-blue?logo=python)
 
+THIS LIBRARY IS CURRENTLY UNDER DEVLOPMENT AND IS SUBJECT TO CHANGE.
+Tries to follow this [diagram](https://github.com/AllenNeuralDynamics/aind-software-docs/blob/main/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg). There are some slight differences so the diagram will be updated to reflect this as this repository further develops.
+
 Tools for processing raw [dynamic foraging](https://github.com/AllenNeuralDynamics/dynamic-foraging-task)
 acquisition data into derived containers for NWB. The package loads raw acquisition
 streams through the
