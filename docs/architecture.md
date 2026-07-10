@@ -362,18 +362,6 @@ lives with the code (not only in PR descriptions):
   reasons: **backward compatibility with the existing pipeline** and the deferred
   `EventsBuilder` stage — not merely a stopgap (see §4).
 
-## Recommendation
-The repo follows the reference design's overall structure (loader → build →
-package → QC-from-NWB, on `aind-nwb-utils` + `aind-data-schema`). Two deviations are
-driven by constraints rather than preference: `RawQC` takes the `contraqctor`
-`Dataset` because contract QC requires it, and the explicit, tested
-`AcquisitionBuilder` satisfies the scientist's raw-data-in-acquisition requirement.
-The one item to keep on the roadmap is the **`EventsBuilder`
-→ `EventsTable`** stage: landing it is what closes the last real gap with the
-diagram and lets `ProcessedQC` take a proper `(events, trials)` pair instead of
-raw lick arrays. The class-vs-function entry-point difference is a stylistic choice
-that can be bridged with thin function wrappers if/when the capsules want them.
-
 ## Process takeaway
 Most of the divergences above trace to information that surfaced *during*
 implementation rather than before the diagram was drawn — e.g. what the
