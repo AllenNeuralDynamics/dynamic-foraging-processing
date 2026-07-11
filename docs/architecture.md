@@ -67,8 +67,8 @@ several distinct areas:
 | `TrialsBuilder` (`dfp.process.trials`) → `TrialsTable` | `processing.TrialTableBuilder` → trials `DataFrame` | ✅ Aligned |
 | `EventsBuilder` (`dfp.process.events`) → `EventsTable` | *(none — deferred/blocked)* | ⛔ Not yet built |
 | `BaseQC` interface | `qc._core.BaseQC` | ✅ Aligned |
-| `RawQC` (`dfp.qc.raw`) | `qc.raw.RawQC` | ✅ Aligned (different input — see below) |
-| `ProcessedQC` (`dfp.qc.processed`) | `qc.processed.ProcessedQC` | ✅ Aligned (different input — see below) |
+| `RawQC` (`dfp.qc.raw`) | `qc.raw.RawQC` | ✅ Aligned (input differs — see [§3](#3-rawqc-input-dataset-vs-rawdatadict)) |
+| `ProcessedQC` (`dfp.qc.processed`) | `qc.processed.ProcessedQC` | ✅ Aligned (input differs — see [§4](#4-processed-events-representation-the-deferred-eventsbuilder)) |
 | `build_df_nwb` function (`dfp.package`) | `pipeline.Pipeline.run_nwb` | ◐ Same role, method vs function |
 | `qc_from_nwb_file` function (`dfp.qc`) | `pipeline.Pipeline.run_qc` | ◐ Same role, method vs function |
 | `NWBFile` (Zarr: acquisition / events / intervals) | NWB (Zarr): acquisition + `trials` (no separate events table) | ◐ Partial (events folded into acquisition) |
@@ -320,10 +320,11 @@ lower the barrier further.
 - **Assessment — required.** Packaging the raw streams into the NWB acquisition was
   an explicit **requirement from the scientist** (the raw data must travel in the
   NWB), so this stage is deliberate, not incidental. It is implemented as an explicit,
-  unit-tested `AcquisitionBuilder` rather than inlined in the packaging function. Part
-  of what it does (the derived event series) is the deferred `EventsBuilder`'s job;
-  once that exists, `AcquisitionBuilder` narrows to "package raw streams," and still
-  satisfies the requirement.
+  unit-tested `AcquisitionBuilder` rather than inlined in the packaging function. Its
+  derived lick/reward series overlap with the deferred `EventsBuilder`, but even once
+  that lands, `AcquisitionBuilder` will **keep producing those series in acquisition
+  for backward compatibility** — the `EventsTable` is additive, not a replacement (see
+  §4). So this stage stays, packaging both the raw streams and the derived series.
 
 ### 6. Module naming
 - **Diagram:** `dfp.raw_data`, `dfp.process.events`, `dfp.process.trials`,
