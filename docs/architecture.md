@@ -1,7 +1,7 @@
 # Architecture
 
 An overview of the `dynamic-foraging-processing` design: how it maps to the
-low-level processing **reference diagram**, how the pieces compose, how to extend it,
+low-level processing **[reference diagram](https://raw.githubusercontent.com/AllenNeuralDynamics/aind-software-docs/325e3284423c24ec8f4f3d5ca960e7410e3bd162/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg)**, how the pieces compose, how to extend it,
 and the rationale behind the design choices.
 
 The alignment sections compare the reference diagram (the target design) with what
@@ -31,6 +31,9 @@ several distinct areas:
 - **Release engineering** — semantic-release workflow, rulesets, bypass lists,
   `SERVICE_TOKEN`, branch protection, and the `dev` → `main` flow — a substantial
   area on its own.
+- **Deployment / orchestration** — built the NWB, QC, and metadata capsules and the pipeline
+  that chains them in Code Ocean, including logging, job-type configuration, and
+  end-to-end debugging many issues that came up.
 - **Testing rigor** — 100% coverage and docstring gates on every change.
 - **Documentation + stakeholder communication** — READMEs, capsule docs, and this
   divergence-rationale doc for review.
@@ -333,7 +336,9 @@ lower the barrier further.
 
 ## Design decisions
 Divergences from the diagram were deliberate; the reasoning is recorded here so it
-lives with the code (not only in PR descriptions):
+lives with the code (not only in PR descriptions). These are current decisions, not
+final — they are expected to evolve as requirements, tools, and the reference diagram
+converge, and this doc is updated alongside the code:
 
 - **The `RawDataDict` exists — builders use the `Dataset` by choice.**
   `RawDataLoader.get_all_raw_data()` returns the `RawDataDict` the diagram shows, so
