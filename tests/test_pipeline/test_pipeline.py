@@ -371,6 +371,11 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert processing_json.exists()
     loaded = Processing.model_validate_json(processing_json.read_text())
     assert loaded.data_processes[0].process_type == ProcessName.PIPELINE
+    # The data process and the top-level pipeline are linked by name.
+    assert loaded.data_processes[0].pipeline_name == "dynamic-foraging-processing-pipeline"
+    assert [p.name for p in loaded.pipelines] == ["dynamic-foraging-processing-pipeline"]
+    assert loaded.pipelines[0].version == _pipeline._PACKAGE_VERSION
+    assert loaded.pipelines[0].url == _pipeline._CODE_URL
 
 
 def test_run_qc_writes_quality_control(tmp_path):
