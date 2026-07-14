@@ -146,8 +146,8 @@ def side_bias_result(side_bias: np.ndarray, results_folder: t.Optional[str] = No
     -------
     QCResult
         Passes when ``abs(mean_bias) < 0.5``. Fails when the column is empty or
-        all ``nan`` (``mean_bias`` is ``nan``). Tagged ``{"behavior": ...}`` and
-        referencing the side-bias plot.
+        all ``nan`` (``mean_bias`` is ``nan``). Tagged
+        ``{"type": "Average_Side_Bias"}`` and referencing the side-bias plot.
     """
     values = np.asarray(side_bias, dtype=float)
     if values.size == 0 or np.all(np.isnan(values)):
@@ -159,9 +159,9 @@ def side_bias_result(side_bias: np.ndarray, results_folder: t.Optional[str] = No
         name=name,
         value=mean_bias,
         passed=bool(abs(mean_bias) < 0.5),  # nan comparisons are False -> fails
-        description="Average side bias across the session (right is positive).",
+        description="Average side bias should be less than 0.5",
         reference=_plot_reference(SIDE_BIAS_PLOT, results_folder),
-        tags={"behavior": name},
+        tags={"type": "Average_Side_Bias"},
     )
 
 
@@ -203,7 +203,7 @@ def lick_interval_results(
             passed=value < limit,
             description=f"{name} of inter-lick intervals; passes when < {limit}.",
             reference=_plot_reference(LICK_INTERVALS_PLOT, results_folder),
-            tags={"behavior": name},
+            tags={"metric": name, "type": "Lick_Interval"},
         )
         for name, value, limit in specs
     ]
