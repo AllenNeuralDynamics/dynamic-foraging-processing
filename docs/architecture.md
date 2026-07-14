@@ -9,11 +9,6 @@ the repo currently implements, call out where they differ, and document the rati
 — doubling as a checklist for **updating the reference diagram to match the source
 code** (each row/section flags what the diagram should be revised to reflect).
 
-> The diagram is the intended low-level design (raw loader → process → package to
-> NWB → QC from NWB). The repo tracks it closely; the differences below are mostly
-> either deliberate simplifications, correctness-driven, or components still to be
-> built.
-
 ## Contents
 
 This document is split across several files:
@@ -26,7 +21,7 @@ This document is split across several files:
   trials columns, QC checks, and prototyping in notebooks.
 - **[Design decisions](architecture/design-decisions.md)** — the rationale behind
   the divergences, and the process takeaway.
-- **[Changelog](architecture/changelog.md)** — release history.
+- **[Changelog](changelog.md)** — release history.
 
 ## Scope
 Delivered across 40+ tracked issues over roughly a four-week period. The work spans

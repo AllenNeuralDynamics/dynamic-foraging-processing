@@ -35,21 +35,3 @@ converge, and this doc is updated alongside the code:
   reasons: **backward compatibility with the existing pipeline** and the deferred
   `EventsBuilder` stage — not merely a stopgap (refer to section 4 of the
   [Alignment](alignment.md) doc).
-
-## Process takeaway
-Most of the divergences above trace to information that surfaced *during*
-implementation rather than before the diagram was drawn — e.g. what the
-`contraqctor` `Dataset` supports vs. a plain dict. Pinning down
-**requirements (scientific + engineering) and the capabilities of the tools/libraries
-up front — before finalizing the design diagram — would catch these earlier**,
-reducing mid-build rework and review friction.
-
-It's also genuinely hard to surface and explain each of these decisions *in the
-moment*, while working across many interdependent components at once — so individual
-divergences can look unexplained in the moment. This was delivered on a compressed
-(~4-week) timeline, which compounds both effects: less room for requirements and tool
-discovery up front, and less bandwidth to document rationale as the work happens.
-Consolidating the rationale in one place after the fact (this doc), and running the
-design phase of the software life cycle with fuller requirements and tool knowledge
-up front, are the two improvements to carry forward. Treating the diagram as a living
-artifact reconciled against the code (as this doc does) is part of the same fix.

@@ -113,4 +113,4 @@ checklist for updating the reference diagram to match the source code.
   `qc.processed`, `pipeline`.
 - **Assessment — naming only.** The QC layout matches; the rest is renamed. The repo
   has no `process.events` (deferred) and adds `nwb` + `pipeline` packages. No
-  functional difference; renaming isn't necessary.
+  functional difference.
