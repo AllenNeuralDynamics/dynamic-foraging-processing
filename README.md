@@ -8,7 +8,7 @@
 ![Python](https://img.shields.io/badge/python->=3.12-blue?logo=python)
 
 THIS LIBRARY IS CURRENTLY UNDER DEVLOPMENT AND IS SUBJECT TO CHANGE.
-Tries to follow this [diagram](https://github.com/AllenNeuralDynamics/aind-software-docs/blob/main/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg). There are some slight differences so the diagram will be updated to reflect this as this repository further develops.
+Tries to follow this [diagram](https://github.com/AllenNeuralDynamics/aind-software-docs/blob/main/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg). The relationship is a two-way street: the diagram guides the design here, and where the code deliberately diverges (or discovers something the diagram didn't anticipate), the diagram will get updated to match. Equally, now that the foundation has been built, the code could be refactored to match the diagram where that's the better fit. Both are treated as living artifacts kept in sync as this repository develops — see [`docs/architecture.md`](docs/architecture.md) for where they currently differ and why.
 
 Tools for processing raw [dynamic foraging](https://github.com/AllenNeuralDynamics/dynamic-foraging-task)
 acquisition data into derived containers for NWB. The package loads raw acquisition
@@ -19,6 +19,11 @@ from those streams.
 
 > **Note:** Data must be acquired in the `aind-behavior-dynamic-foraging` data
 > contract format to be compatible with these tools.
+
+## Architecture
+For the design overview — how the pieces map to the reference diagram, how the stages
+compose, how to extend them, and the rationale behind the design choices — see
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Inputs and outputs
 **Input** — a raw acquisition directory in the `aind-behavior-dynamic-foraging`
