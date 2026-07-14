@@ -22,4 +22,4 @@ quality control. Delivered:
 
 Reasoning for the choices above — including the deferred `EventsBuilder`, the
 `Dataset`-over-dict decision, and the backward-compatibility constraint — is in
-[Design decisions](design-decisions.md) and [Alignment](alignment.md).
+[Alignment](architecture/alignment.md).

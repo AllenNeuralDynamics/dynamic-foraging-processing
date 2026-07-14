@@ -6,6 +6,11 @@ This compares the reference diagram (the target design) with what the repo curre
 implements, calls out where they differ, and documents the rationale — doubling as a
 checklist for updating the reference diagram to match the source code.
 
+The divergences below were deliberate; the reasoning is recorded here so it lives with
+the code, not only in PR descriptions. These are current decisions, not final — they
+are expected to evolve as requirements, tools, and the reference diagram converge, and
+this doc is updated alongside the code.
+
 ## TL;DR
 - **Overall shape matches.** Loader → builders → package-to-NWB → QC-from-NWB, with
   `BaseQC` / `RawQC` / `ProcessedQC`, and `aind-nwb-utils` + `aind-data-schema` as
@@ -61,7 +66,12 @@ checklist for updating the reference diagram to match the source code.
 - **Assessment — aligned.** This matches the diagram's key idea (QC is driven by the
   packaged NWB, not by rebuilding from raw). The one nuance is that raw contract-QC
   still needs the raw dataset, so `run_qc` also relies on the loader — inherent, not
-  a divergence.
+  a divergence. `run_qc` deliberately combines the raw and processed stages so a single
+  `quality_control.json` carries both (the diagram's intent), accepting that the QC
+  capsule needs both the raw asset and the NWB. The raw-vs-processed split still exists
+  at the stage level — `RawQC`, `ProcessedQC`, and `build_quality_control` are callable
+  and composable on their own (see [Composability & usage](composability.md)); `run_qc`
+  is just the convenience combiner.
 
 ### 3. `RawQC` input: `Dataset` vs `RawDataDict`
 - **Diagram:** `RawQC.run(acquisition: RawDataDict)`.
@@ -70,8 +80,13 @@ checklist for updating the reference diagram to match the source code.
   exists).** The `RawDataDict` is available via `get_all_raw_data()`; it simply isn't
   what `RawQC` consumes. Contract QC (Harp/camera/CSV/data-contract checks) is defined
   over the `contraqctor` `Dataset`, not a plain stream-name→DataFrame dict — a
-  `RawDataDict` cannot support those checks — so `RawQC` takes the `Dataset`. See the
-  [Design decisions](design-decisions.md) note on why the builders use the `Dataset` too.
+  `RawDataDict` cannot support those checks — so `RawQC` takes the `Dataset`. The
+  trials-table builder consumes the `Dataset` too, but there it's a choice of
+  convenience rather than necessity: its lazy tree navigation
+  (`dataset.at("Behavior").at("SoftwareEvents").at("TrialOutcome").load()`) and typed
+  models make targeted stream access far easier than digging through a fully
+  materialized dict. The dict stays available for any consumer that prefers it — so
+  the `RawDataDict` the diagram shows *is* present, not a missing piece.
 
 ### 4. Processed-events representation (the deferred `EventsBuilder`)
 - **Diagram:** a first-class `EventsBuilder` → `EventsTable`, written into the NWB as

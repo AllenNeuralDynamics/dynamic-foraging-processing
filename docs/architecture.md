@@ -14,13 +14,12 @@ code** (each row/section flags what the diagram should be revised to reflect).
 This document is split across several files:
 
 - **[Alignment](architecture/alignment.md)** — component-by-component comparison
-  against the reference diagram, and where/why the repo differs.
+  against the reference diagram, and where/why the repo differs (the rationale behind
+  each divergence lives here too).
 - **[Composability & usage](architecture/composability.md)** — how the stages
   compose, with worked examples at three tiers.
 - **[Extending it](architecture/extending.md)** — contribution points: adding
   trials columns, QC checks, and prototyping in notebooks.
-- **[Design decisions](architecture/design-decisions.md)** — the rationale behind
-  the divergences, and the process takeaway.
 - **[Changelog](changelog.md)** — release history.
 
 ## Scope
