@@ -1,6 +1,6 @@
 # Changelog
 
-Back to the [architecture overview](../architecture.md).
+Back to the [architecture overview](architecture.md).
 
 ## 0.1.0 — initial release
 End-to-end pipeline that packages a raw dynamic foraging acquisition into NWB and runs
