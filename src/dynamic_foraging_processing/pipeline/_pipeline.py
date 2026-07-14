@@ -279,8 +279,16 @@ class Pipeline:
                     experimenters=["Alex Piet", "Micah Woodard", "Bruno Cruz", "Arjun Sridhar"],
                     start_date_time=start_date_time,
                     end_date_time=end_date_time,
+                    pipeline_name="dynamic-foraging-processing-pipeline",
                 )
-            ]
+            ],
+            pipelines=[
+                Code(
+                    url=_CODE_URL,
+                    version=_PACKAGE_VERSION,
+                    name="dynamic-foraging-processing-pipeline",
+                )
+            ],
         )
         processing.write_standard_file(output_directory=Path(output_path))
 
