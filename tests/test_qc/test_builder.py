@@ -48,6 +48,27 @@ def test_behavior_qc_results_writes_plots(tmp_path):
     assert os.path.exists(tmp_path / "lick_intervals.png")
 
 
+def test_column_resolves_lickspout_position_names():
+    """``lickspout_*`` inputs map to the trial table's ``lickspout_position_*``.
+
+    Regression guard: the trial-table builder emits ``lickspout_position_x`` etc.
+    (see ``_TrialTableBuilder._lickspout_columns``), so the mapping must resolve
+    those names or the lickspout-position plot panel silently comes up empty.
+    """
+    trials = pd.DataFrame(
+        {
+            "lickspout_position_x": [1.0, 1.1],
+            "lickspout_position_y1": [2.0, 2.0],
+            "lickspout_position_y2": [3.0, 3.1],
+            "lickspout_position_z": [4.0, 4.0],
+        }
+    )
+    for key in ("lickspout_x", "lickspout_y1", "lickspout_y2", "lickspout_z"):
+        column = _results._column(trials, key)
+        assert column is not None, key
+    np.testing.assert_array_equal(_results._column(trials, "lickspout_x"), [1.0, 1.1])
+
+
 def test_build_quality_control_defaults():
     """Defaults fill in the standard grouping and an empty failure allowlist."""
     metrics = to_metrics(
