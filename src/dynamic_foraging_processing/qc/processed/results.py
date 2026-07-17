@@ -22,15 +22,15 @@ from dynamic_foraging_processing.qc.processed.behavior import (
 from dynamic_foraging_processing.qc.processed.plots import plot_lick_intervals, plot_side_bias
 
 # Logical input -> trials-table column name. Centralized so the mapping is easy
-# to correct against the trial-table builder; ``side_bias`` and the
-# ``lickspout_*`` arrays are not yet pinned down in trials_table_mapping.md.
+# to correct against the trial-table builder. The lickspout positions are
+# emitted by ``_TrialTableBuilder._lickspout_columns`` as ``lickspout_position_*``.
 _COLUMNS = {
     "animal_response": "animal_response",
     "side_bias": "side_bias",
-    "lickspout_x": "lickspout_x",
-    "lickspout_y1": "lickspout_y1",
-    "lickspout_y2": "lickspout_y2",
-    "lickspout_z": "lickspout_z",
+    "lickspout_x": "lickspout_position_x",
+    "lickspout_y1": "lickspout_position_y1",
+    "lickspout_y2": "lickspout_position_y2",
+    "lickspout_z": "lickspout_position_z",
     "rewarded_left": "rewarded_historyL",
     "rewarded_right": "rewarded_historyR",
     "reward_probability_left": "reward_probabilityL",

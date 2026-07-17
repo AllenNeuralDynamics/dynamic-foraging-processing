@@ -122,7 +122,7 @@ def _add_lickspout_position_plot(
         if position is None or len(position) == 0:
             continue
         values = np.asarray(position, dtype=float)
-        ax.plot(values - values[0], color, label=label)
+        ax.plot(values, color, label=label)
         plotted = True
     if plotted:
         ax.legend()
