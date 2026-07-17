@@ -88,13 +88,18 @@ def _empty_manual_water_frame() -> pd.DataFrame:
 
 
 def _make_digital_input_frame() -> pd.DataFrame:
-    """Build a DigitalInputState frame: left licks high at 1.0, right at 2.0/2.5."""
+    """Build a DigitalInputState frame: left licks high at 1.0, right at 2.0/2.5.
+
+    Includes a non-EVENT ``READ`` row at 0.5 with ``DIPort0`` latched high; it
+    reports register state rather than a lick and must be filtered out.
+    """
     return pd.DataFrame(
         {
-            "DIPort0": [True, False, False],
-            "DIPort1": [False, True, True],
+            "MessageType": ["READ", "EVENT", "EVENT", "EVENT"],
+            "DIPort0": [True, True, False, False],
+            "DIPort1": [False, False, True, True],
         },
-        index=pd.Index([1.0, 2.0, 2.5], name="time"),
+        index=pd.Index([0.5, 1.0, 2.0, 2.5], name="time"),
     )
 
 
@@ -193,6 +198,17 @@ def test_get_lick_times_selects_di_port_by_side():
     )
     np.testing.assert_array_equal(
         builder.get_lick_times("HarpBehavior", "DigitalInputState", "DIPort1"), np.array([2.0, 2.5])
+    )
+
+
+def test_get_lick_times_ignores_non_event_rows():
+    """Only EVENT rows are licks; latched-high READ/WRITE rows are ignored."""
+    builder = AcquisitionBuilder(loader=_make_loader())
+
+    # DIPort0 is high in the READ row at 0.5 and the EVENT row at 1.0; only the
+    # EVENT-row timestamp is returned.
+    np.testing.assert_array_equal(
+        builder.get_lick_times("HarpBehavior", "DigitalInputState", "DIPort0"), np.array([1.0])
     )
 
 
