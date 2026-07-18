@@ -108,9 +108,7 @@ print(finish_rate_result(trials))       # try your new check inline
 ```
 
 ## Guardrails
-Contributions must clear the repo's **100% test coverage and 100% docstring** gates
-(`uv run coverage run -m pytest && uv run coverage report`; `uv run interrogate .`),
-and inputs must be in the `aind-behavior-dynamic-foraging` data-contract format. These
-keep quality high but are a learning curve for occasional contributors — worked
-examples and small templates (e.g. "add a QC check", "add a trials column") would
-lower the barrier further.
+Contributions must clear the repo's **100% test coverage and 100% docstring** gates,
+and inputs must be in the `aind-behavior-dynamic-foraging` data-contract format. For the
+full setup, test, and PR workflow — including the exact commands and commit conventions —
+see [`CONTRIBUTING.md`](../../CONTRIBUTING.md).

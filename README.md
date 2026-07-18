@@ -25,6 +25,15 @@ For the design overview — how the pieces map to the reference diagram, how the
 compose, how to extend them, and the rationale behind the design choices — see
 [`docs/architecture.md`](docs/architecture.md).
 
+## Contributing
+Two entry points, depending on what you're doing:
+
+- **How to set up and submit** — environment, linting, tests, commit/PR conventions,
+  and releasing: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- **Where to add code** — the small, self-contained plug-in points (add a trials-table
+  column, add a QC check, prototype in a notebook), each with a worked example:
+  [`docs/architecture/extending.md`](docs/architecture/extending.md).
+
 ## Inputs and outputs
 **Input** — a raw acquisition directory in the `aind-behavior-dynamic-foraging`
 data contract format (Harp device registers, software events, and the task-logic /
