@@ -14,8 +14,7 @@ This library contains tools for processing raw [dynamic foraging](https://github
 acquisition data into derived containers for NWB. The package loads raw acquisition
 streams through the
 [aind-behavior-dynamic-foraging](https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging)
-data contract and assembles higher-level tables (currently the NWB `trials` table)
-from those streams.
+data contract and assembles higher-level tables (currently the NWB `trials` table), arrays, and does QC from those streams.
 
 > **Note:** Data must be acquired in the `aind-behavior-dynamic-foraging` data
 > contract format to be compatible with these tools.
@@ -53,6 +52,12 @@ rig / session input schemas), loaded via `RawDataLoader`.
     so the full raw dataset travels alongside the derived series.
 - **Trials table.** Built by `TrialTableBuilder`, one row per trial written to the
   NWB `trials` table (see [`docs/trials_table_mapping.md`](docs/trials_table_mapping.md)).
+- **Quality control.** A single `aind-data-schema` `QualityControl` object assembled by
+  `build_quality_control` from the raw (contract QC) and processed (behavior metrics)
+  QC stages, written to `quality_control.json`. Each check contributes a metric (a value
+  and pass/fail), and some attach a reference media (e.g. side bias, lick intervals)
+  saved as a PNG alongside the report for the QC portal to render. Unlike the two above,
+  this is a sidecar report rather than an NWB container.
 
 ## Level of Support
  - [x] Supported: We are releasing this code to the public as a tool we expect others to use. Issues are welcomed, and we expect to address them promptly; pull requests will be vetted by our staff before inclusion.
