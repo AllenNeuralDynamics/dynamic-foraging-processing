@@ -10,7 +10,7 @@
 THIS LIBRARY IS CURRENTLY UNDER DEVLOPMENT AND IS SUBJECT TO CHANGE.
 Tries to follow this [diagram](https://github.com/AllenNeuralDynamics/aind-software-docs/blob/main/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg). The relationship is a two-way street: the diagram guides the design here, and where the code deliberately diverges (or discovers something the diagram didn't anticipate), the diagram will get updated to match. Equally, now that the foundation has been built, the code could be refactored to match the diagram where that's the better fit. Both are treated as living artifacts kept in sync as this repository develops — see [`docs/architecture.md`](docs/architecture.md) for where they currently differ and why.
 
-Tools for processing raw [dynamic foraging](https://github.com/AllenNeuralDynamics/dynamic-foraging-task)
+This library contains tools for processing raw [dynamic foraging](https://github.com/AllenNeuralDynamics/dynamic-foraging-task)
 acquisition data into derived containers for NWB. The package loads raw acquisition
 streams through the
 [aind-behavior-dynamic-foraging](https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging)
