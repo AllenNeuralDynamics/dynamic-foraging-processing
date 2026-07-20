@@ -106,8 +106,7 @@ class AcquisitionBuilder:
         ``HarpBehavior``/``DigitalInputState``, with left licks on ``DIPort0``
         and right licks on ``DIPort1``. The lickometer board exposes each side
         as its own device (``HarpLickometerLeft`` / ``HarpLickometerRight``)
-        with a ``LickState`` stream and a ``Channel0`` column. A lick time is a
-        timestamp at which the selected column's digital input is high.
+        with a ``LickState`` stream and a ``Channel0`` column.
 
         Parameters
         ----------
@@ -131,6 +130,7 @@ class AcquisitionBuilder:
             data = self.loader.dataset.at("Behavior").at(device).at(stream_name).load().data
         except (KeyError, FileNotFoundError):
             return np.array([])
+        data = data[data["MessageType"] == "EVENT"]
         licks = data[data[port].fillna(False).astype(bool)]
         return licks.index.to_numpy()
 
