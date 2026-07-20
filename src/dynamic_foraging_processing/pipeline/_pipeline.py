@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pynwb
+from aind_data_schema.components.identifiers import DataAsset
 from aind_data_schema.core.processing import (
     Code,
     DataProcess,
@@ -287,6 +288,7 @@ class Pipeline:
                     url=_CODE_URL,
                     version=_PACKAGE_VERSION,
                     name="dynamic-foraging-processing-pipeline",
+                    input_data=[DataAsset(name=Path(self.loader.path).stem)],
                 )
             ],
         )
