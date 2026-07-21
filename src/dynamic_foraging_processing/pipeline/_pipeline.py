@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pynwb
+from aind_data_schema.components.identifiers import DataAsset
 from aind_data_schema.core.processing import (
     Code,
     DataProcess,
@@ -279,8 +280,17 @@ class Pipeline:
                     experimenters=["Alex Piet", "Micah Woodard", "Bruno Cruz", "Arjun Sridhar"],
                     start_date_time=start_date_time,
                     end_date_time=end_date_time,
+                    pipeline_name="dynamic-foraging-processing-pipeline",
                 )
-            ]
+            ],
+            pipelines=[
+                Code(
+                    url=_CODE_URL,
+                    version=_PACKAGE_VERSION,
+                    name="dynamic-foraging-processing-pipeline",
+                    input_data=[DataAsset(name=Path(self.loader.path).stem)],
+                )
+            ],
         )
         processing.write_standard_file(output_directory=Path(output_path))
 
