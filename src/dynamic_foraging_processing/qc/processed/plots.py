@@ -303,6 +303,14 @@ def plot_side_bias(
     )
     _add_reward_probabilities(ax[3], reward_probability_left, reward_probability_right)
 
+    # Align the x-axis across every panel so trials line up vertically. The
+    # panels are all indexed by trial, but some auto-scale (adding margins) while
+    # others set [0, N]; pin them all to a common [0, n_trials].
+    n_trials = max(len(np.asarray(side_bias)), len(np.asarray(animal_response)))
+    if n_trials:
+        for axis in ax:
+            axis.set_xlim([0, n_trials])
+
     fig.savefig(Path(results_folder) / SIDE_BIAS_PLOT, dpi=300, bbox_inches="tight")
     plt.close(fig)
     return SIDE_BIAS_PLOT
