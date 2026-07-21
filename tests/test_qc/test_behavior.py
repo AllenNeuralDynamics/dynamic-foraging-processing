@@ -49,7 +49,7 @@ def test_side_bias_result_pass_and_fail():
     assert passing.passed is True
     assert passing.value == pytest.approx(0.0)
     assert passing.reference == _behavior.SIDE_BIAS_PLOT
-    assert passing.tags == {"behavior": "average side bias"}
+    assert passing.tags == {"type": "Average_Side_Bias"}
 
     failing = _behavior.side_bias_result(np.array([0.8, 0.9, 1.0]))
     assert failing.passed is False
@@ -75,7 +75,7 @@ def test_lick_interval_results_names_and_count():
         "Artifact Percent (%)",
     ]
     assert all(r.reference == _behavior.LICK_INTERVALS_PLOT for r in results)
-    assert all(r.tags == {"behavior": r.name} for r in results)
+    assert all(r.tags == {"metric": r.name, "type": "Lick_Interval"} for r in results)
 
 
 def test_reference_includes_results_folder_name():
