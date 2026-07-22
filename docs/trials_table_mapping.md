@@ -123,11 +123,11 @@ seconds, far too coarse for the ~tens-of-ms valve pulse.
 | --- | --- |
 | `goCue_start_time` | `PlaySoundOrFrequency` `WRITE` message. |
 
-### From `InitialManipulatorPosition` (software event)
+### From `HarpManipulator` `AccumulatedSteps` (+ `InputSchemas.Rig`)
 
 | Trials column | Mapping |
 | --- | --- |
-| `lickspout_positions` | `data` field. |
+| `lickspout_position_x` / `y1` / `y2` / `z` | Per-motor cumulative microstep count from the `AccumulatedSteps` stream, converted to millimetres via the rig manipulator calibration (`full_step_to_mm / microstep_resolution`) and re-referenced to the session-start position (displacement **relative to session start**, mm). The manipulator is a continuously-sampled hardware value, so — like the go cue — each trial takes the sample within its `[start_time, stop_time)` window nearest the start. `Motor{i}` drives `Axis(i + 1)` (X, Y1, Y2, Z). `None` when no sample falls in the trial window. The rig and `AccumulatedSteps` streams are required inputs (`build` raises if either is missing with trials present). |
 
 ### From `trainer_state.json` and `acquisition.json` (autoTrain — can be disregarded)
 
@@ -155,3 +155,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_reward_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
 | 2026-06-20 | Added `reward_size_left` / `reward_size_right` (reward volume in uL) from `task_parameters.reward_size`, and `side_bias` from the per-trial `TrialMetrics` event (`bias` field). |
 | 2026-06-20 | `reward_probabilityL` / `reward_probabilityR` now read the block probability from `trial.metadata.p_reward_left` / `p_reward_right` instead of the top-level per-trial `trial.p_reward_left` / `p_reward_right`. |
+| 2026-07-22 | `lickspout_position_x` / `y1` / `y2` / `z` now derive from the `HarpManipulator` `AccumulatedSteps` stream (microsteps → mm via the `InputSchemas.Rig` manipulator calibration, `full_step_to_mm / microstep_resolution`), sampled per trial via the closest sample in the `[start_time, stop_time)` window and re-referenced to the session-start position (displacement relative to session start, mm), replacing the static `InitialManipulatorPosition` software event. `Motor{i}` maps to `Axis(i + 1)` (X, Y1, Y2, Z). The rig and `AccumulatedSteps` streams are required when there are trials (`build` raises if either is missing). Column descriptions corrected from `um` to `mm`. |
