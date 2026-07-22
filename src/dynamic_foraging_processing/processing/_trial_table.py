@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # ``lickspout_position_*`` suffixes and the ``full_step_to_mm`` attributes.
 _MANIPULATOR_AXES = ("x", "y1", "y2", "z")
 
+
 class TrialTableBuilder:
     """Builds the NWB ``trials`` table from a dynamic foraging ``Dataset``.
 
@@ -529,7 +530,6 @@ class TrialTableBuilder:
         if hasattr(generator, "min_block_reward"):
             columns["min_reward_each_block"] = generator.min_block_reward
         return columns
-
 
     def _manipulator_mm_per_step(self, rig: AindDynamicForagingRig) -> t.Dict[str, float]:
         """Return millimetres travelled per accumulated step, keyed by axis.

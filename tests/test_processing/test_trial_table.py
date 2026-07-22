@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
-from aind_behavior_services.rig.aind_manipulator import Axis, MicrostepResolution
 from aind_behavior_dynamic_foraging.task_logic import (
     AindDynamicForagingTaskLogic,
     AindDynamicForagingTaskParameters,
@@ -18,6 +17,7 @@ from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     UncoupledTrialGeneratorSpec,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
+from aind_behavior_services.rig.aind_manipulator import Axis, MicrostepResolution
 from aind_behavior_services.task.distributions import (
     ExponentialDistribution,
     ExponentialDistributionParameters,
