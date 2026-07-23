@@ -61,7 +61,7 @@ Columns are grouped by the raw source they map from.
 
 | Trials column | Mapping |
 | --- | --- |
-| `side_bias` | Per-trial `bias` field from the `TrialMetrics` event (negative → left bias, positive → right bias). `None` when not recorded. Aligned by position with `TrialOutcome`. |
+| `side_bias` | Per-trial `bias` field from the `TrialMetrics` event (negative → left bias, positive → right bias). `0.0` when not recorded — the acquisition convention is that side bias is `0` for the first trials (before it is computed), so there is one value per trial with no gaps. Aligned by position with `TrialOutcome`. |
 
 ### From `Response.json` (`SoftwareEvents` stream)
 
@@ -155,3 +155,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_reward_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
 | 2026-06-20 | Added `reward_size_left` / `reward_size_right` (reward volume in uL) from `task_parameters.reward_size`, and `side_bias` from the per-trial `TrialMetrics` event (`bias` field). |
 | 2026-06-20 | `reward_probabilityL` / `reward_probabilityR` now read the block probability from `trial.metadata.p_reward_left` / `p_reward_right` instead of the top-level per-trial `trial.p_reward_left` / `p_reward_right`. |
+| 2026-07-22 | `side_bias` now defaults to `0.0` (instead of `None`) for trials where the `TrialMetrics` `bias` is absent — matching the acquisition convention that side bias is `0` for the first trials before it is computed, so the per-trial vector has one value per trial (and the QC side-bias plot starts at trial 0). |
