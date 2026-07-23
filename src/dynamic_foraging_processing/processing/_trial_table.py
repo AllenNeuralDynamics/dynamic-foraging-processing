@@ -259,13 +259,17 @@ class TrialTableBuilder:
         return TrialOutcome.model_validate(payload)
 
     @staticmethod
-    def _side_bias(payload: t.Any) -> t.Optional[float]:
+    def _side_bias(payload: t.Any) -> float:
         """Extract the per-trial side bias from a ``TrialMetrics`` event payload.
 
         The ``TrialMetrics`` event serializes a model with a ``bias`` field
         (negative for left bias, positive for right). Accepts the parsed model, a
-        ``dict``, or a JSON string; returns ``None`` for a missing payload or a
-        ``bias`` that was not recorded.
+        ``dict``, or a JSON string.
+
+        Returns ``0.0`` when the payload is missing or ``bias`` was not recorded.
+        The acquisition convention is that side bias is ``0`` for the first
+        trials (before it can be computed), so the per-trial vector always has
+        one value per trial with no gaps.
 
         Parameters
         ----------
@@ -275,18 +279,18 @@ class TrialTableBuilder:
 
         Returns
         -------
-        float or None
-            The side bias, or ``None`` when unavailable.
+        float
+            The side bias, or ``0.0`` when unavailable.
         """
         if payload is None:
-            return None
+            return 0.0
         if isinstance(payload, TrialMetrics):
             metrics = payload
         elif isinstance(payload, str):
             metrics = TrialMetrics.model_validate_json(payload)
         else:
             metrics = TrialMetrics.model_validate(payload)
-        return metrics.bias
+        return metrics.bias if metrics.bias is not None else 0.0
 
     # ------------------------------------------------------------------ #
     # Per-trial column helpers
