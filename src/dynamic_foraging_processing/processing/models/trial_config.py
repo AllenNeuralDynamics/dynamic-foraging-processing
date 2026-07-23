@@ -78,7 +78,7 @@ class TrialConfig(BaseModel):
     side_bias: Optional[float] = Field(
         default=None,
         description=(
-            "Per-trial side bias computed by the acquisition system. Negative values correspond to a left bias, positive values to a right bias."
+            "Per-trial side bias computed by the acquisition system. Negative values correspond to a left bias, positive values to a right bias. 0.0 for the first trials, before the bias is computed, so there is one value per trial."
         ),
     )
 

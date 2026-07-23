@@ -287,9 +287,9 @@ def test_build_full_dataset():
     assert first["reward_size_right"] == 4.0
     assert second["reward_size_left"] == 2.0
 
-    # Per-trial side bias from the TrialMetrics event; null when not recorded.
+    # Per-trial side bias from the TrialMetrics event; 0.0 when not recorded.
     assert first["side_bias"] == pytest.approx(0.3)
-    assert pd.isna(second["side_bias"])
+    assert second["side_bias"] == 0.0
 
 
 def test_build_raises_when_task_logic_missing_with_trials():
@@ -392,26 +392,26 @@ def test_session_columns_include_reward_size():
     assert columns["reward_size_right"] == 4.0
 
 
-def test_side_bias_parses_dict_model_json_and_none():
-    """``_side_bias`` extracts ``bias`` from a dict, model, JSON, or ``None``."""
+def test_side_bias_parses_dict_model_json_and_defaults_zero():
+    """``_side_bias`` extracts ``bias`` from a dict/model/JSON, else defaults to ``0.0``."""
     from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialMetrics
 
-    assert TrialTableBuilder._side_bias(None) is None
+    assert TrialTableBuilder._side_bias(None) == 0.0
     assert TrialTableBuilder._side_bias({"bias": -0.4}) == pytest.approx(-0.4)
-    assert TrialTableBuilder._side_bias({"bias": None}) is None
+    assert TrialTableBuilder._side_bias({"bias": None}) == 0.0
     assert TrialTableBuilder._side_bias(TrialMetrics(bias=0.5)) == pytest.approx(0.5)
     assert TrialTableBuilder._side_bias(TrialMetrics(bias=0.5).model_dump_json()) == pytest.approx(
         0.5
     )
 
 
-def test_build_missing_trial_metrics_leaves_side_bias_null():
-    """A missing ``TrialMetrics`` stream leaves ``side_bias`` null on every trial."""
+def test_build_missing_trial_metrics_sets_side_bias_zero():
+    """A missing ``TrialMetrics`` stream leaves ``side_bias`` at ``0.0`` on every trial."""
     dataset = _full_dataset()
     software_events = dataset.children["Behavior"].children["SoftwareEvents"]
     del software_events.children["TrialMetrics"]
     table = TrialTableBuilder(dataset).build()
-    assert table["side_bias"].isna().all()
+    assert (table["side_bias"] == 0.0).all()
 
 
 def test_session_columns_uncoupled_has_null_reward_sum():
