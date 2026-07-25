@@ -483,14 +483,6 @@ class TrialTableBuilder:
         if task_logic is None:
             return columns
 
-        # Reward volumes live on the task parameters, not the trial generator, so
-        # populate them before the generator resolution (which may bail out).
-        # Known limitation: the acquisition system can vary reward size per trial,
-        # but the current data format only exposes a single session-level value.
-        reward_size = task_logic.task_parameters.reward_size
-        columns["reward_size_left"] = reward_size.left_value_volume
-        columns["reward_size_right"] = reward_size.right_value_volume
-
         generator = self._summary_generator(task_logic.task_parameters.trial_generator)
         if generator is None:
             return columns
@@ -519,7 +511,7 @@ class TrialTableBuilder:
             delay_max=delay_max,
             base_reward_probability_sum=base_reward_sum,
         )
-        # ``min_block_reward`` is coupled-only; uncoupled generators omit it.
+        # ``min_block_reward`` is warmup-generator-only; main coupled generators omit it.
         if hasattr(generator, "min_block_reward"):
             columns["min_reward_each_block"] = generator.min_block_reward
         return columns
@@ -596,6 +588,8 @@ class TrialTableBuilder:
             bait_right=self._is_baited(trial, is_right=True),
             reward_probabilityL=self._block_reward_probability(trial, is_right=False),
             reward_probabilityR=self._block_reward_probability(trial, is_right=True),
+            reward_size_left=trial.reward_size.left if trial is not None else None,
+            reward_size_right=trial.reward_size.right if trial is not None else None,
             side_bias=side_bias,
             response_duration=trial.response_deadline_duration if trial is not None else None,
             reward_consumption_duration=(
@@ -669,9 +663,7 @@ class TrialTableBuilder:
         Raises
         ------
         ValueError
-            If the ``TaskLogic`` stream is missing while there are trials to
-            build (the required reward-size columns are sourced from it), or if
-            ``raise_on_error`` is ``True`` and a per-trial stream length
+            If ``raise_on_error`` is ``True`` and a per-trial stream length
             disagrees with the ``TrialOutcome`` trial count.
         """
         outcomes = self._load("Behavior", "SoftwareEvents", "TrialOutcome")
@@ -695,16 +687,6 @@ class TrialTableBuilder:
 
         # Guard the positional alignment before we pair streams by index.
         n_trials = len(outcome_payloads)
-
-        # Reward size is sourced from the task logic and is a required column, so
-        # a missing TaskLogic stream cannot yield a valid table when there are
-        # trials to build. Surface that clearly rather than failing later with a
-        # cryptic per-row validation error.
-        if n_trials > 0 and task_logic is None:
-            raise ValueError(
-                "TaskLogic stream is required to build the trials table "
-                f"(reward sizes are sourced from it) but it failed to load for {n_trials} trials."
-            )
 
         warnings = self._check_aligned(
             n_trials,
