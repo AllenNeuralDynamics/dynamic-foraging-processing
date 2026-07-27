@@ -243,7 +243,7 @@ class TrialTableBuilder:
         return 1 if bool(choice) else 0
 
     @staticmethod
-    def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
+    def _parse_outcome(payload: t.Any) -> TrialOutcome:
         """Parse a ``TrialOutcome`` software-event payload into its domain model.
 
         Parameters
@@ -254,11 +254,16 @@ class TrialTableBuilder:
 
         Returns
         -------
-        TrialOutcome or None
-            The parsed model, or ``None`` if ``payload`` is empty.
+        TrialOutcome
+            The parsed model.
+
+        Raises
+        ------
+        ValueError
+            If ``payload`` is ``None``.
         """
         if payload is None:
-            return None
+            raise ValueError("TrialOutcome payload is required but received None.")
         if isinstance(payload, TrialOutcome):
             return payload
         if isinstance(payload, str):
@@ -327,7 +332,7 @@ class TrialTableBuilder:
         return is_rewarded and (is_right_choice is is_right)
 
     @staticmethod
-    def _is_baited(trial: t.Optional[Trial], *, is_right: bool) -> bool:
+    def _is_baited(trial: Trial, *, is_right: bool) -> bool:
         """Return whether the requested lickport is baited on this trial.
 
         A port is "baited" when reward is guaranteed there (its reward
@@ -350,16 +355,15 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        trial : Trial or None
-            The per-trial task-logic model, or ``None`` when unavailable.
+        trial : Trial
+            The per-trial task-logic model.
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
         Returns
         -------
         bool
-            Whether the requested side is baited. A missing ``trial`` is treated
-            as not baited (``False``).
+            Whether the requested side is baited.
 
         Examples
         --------
@@ -381,8 +385,6 @@ class TrialTableBuilder:
         >>> TrialTableBuilder._is_baited(trial, is_right=False)
         False
         """
-        if trial is None:
-            return False
         auto = trial.is_auto_reward_right
         if is_right:
             # Right stays baited unless the animal was auto-responded right.
@@ -391,20 +393,19 @@ class TrialTableBuilder:
         return trial.p_reward_left == 1 and auto in (None, True)
 
     @staticmethod
-    def _auto_water(trial: t.Optional[Trial], *, is_right: bool) -> int:
+    def _auto_water(trial: Trial, *, is_right: bool) -> int:
         """Encode autowater for a side from ``is_auto_reward_right``.
 
         Returns ``1`` if the auto response was to the requested side, else ``0``.
-        A missing trial or no auto-response (``is_auto_reward_right`` is
-        ``None``) counts as no autowater (``0``). ``is_right`` is ``True`` for
-        right.
+        No auto-response (``is_auto_reward_right`` is ``None``) counts as no
+        autowater (``0``). ``is_right`` is ``True`` for right.
         """
-        if trial is None or trial.is_auto_reward_right is None:
+        if trial.is_auto_reward_right is None:
             return 0
         return int(trial.is_auto_reward_right is is_right)
 
     @staticmethod
-    def _block_reward_probability(trial: t.Optional[Trial], *, is_right: bool) -> t.Optional[float]:
+    def _block_reward_probability(trial: Trial, *, is_right: bool) -> t.Optional[float]:
         """Return the block reward probability for a side from the trial metadata.
 
         The top-level ``trial.p_reward_left/right`` is the *per-trial* probability;
@@ -413,18 +414,17 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        trial : Trial or None
-            The per-trial task-logic model, or ``None`` when unavailable.
+        trial : Trial
+            The per-trial task-logic model.
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
         Returns
         -------
         float or None
-            The block reward probability, or ``None`` when the trial or its
-            metadata is unavailable.
+            The block reward probability, or ``None`` when metadata is unavailable.
         """
-        if trial is None or trial.metadata is None:
+        if trial.metadata is None:
             return None
         return trial.metadata.p_reward_right if is_right else trial.metadata.p_reward_left
 
@@ -490,14 +490,6 @@ class TrialTableBuilder:
         if task_logic is None:
             return columns
 
-        # Reward volumes live on the task parameters, not the trial generator, so
-        # populate them before the generator resolution (which may bail out).
-        # Known limitation: the acquisition system can vary reward size per trial,
-        # but the current data format only exposes a single session-level value.
-        reward_size = task_logic.task_parameters.reward_size
-        columns["reward_size_left"] = reward_size.left_value_volume
-        columns["reward_size_right"] = reward_size.right_value_volume
-
         generator = self._summary_generator(task_logic.task_parameters.trial_generator)
         if generator is None:
             return columns
@@ -526,7 +518,7 @@ class TrialTableBuilder:
             delay_max=delay_max,
             base_reward_probability_sum=base_reward_sum,
         )
-        # ``min_block_reward`` is coupled-only; uncoupled generators omit it.
+        # ``min_block_reward`` is warmup-generator-only; main coupled generators omit it.
         if hasattr(generator, "min_block_reward"):
             columns["min_reward_each_block"] = generator.min_block_reward
         return columns
@@ -672,7 +664,7 @@ class TrialTableBuilder:
     def _build_row(
         self,
         *,
-        outcome: t.Optional[TrialOutcome],
+        outcome: TrialOutcome,
         start: float,
         stop: float,
         response: t.Any,
@@ -684,9 +676,9 @@ class TrialTableBuilder:
         lickspout: t.Dict[str, t.Optional[float]],
     ) -> TrialConfig:
         """Assemble a single ``TrialConfig`` from aligned per-trial inputs."""
-        trial = outcome.trial if outcome is not None else None
-        is_right_choice = outcome.is_right_choice if outcome is not None else None
-        is_rewarded = bool(outcome.is_rewarded) if outcome is not None else False
+        trial = outcome.trial
+        is_right_choice = outcome.is_right_choice
+        is_rewarded = bool(outcome.is_rewarded)
 
         return TrialConfig(
             start_time=start,
@@ -702,13 +694,13 @@ class TrialTableBuilder:
             bait_right=self._is_baited(trial, is_right=True),
             reward_probabilityL=self._block_reward_probability(trial, is_right=False),
             reward_probabilityR=self._block_reward_probability(trial, is_right=True),
+            reward_size_left=trial.reward_size.left,
+            reward_size_right=trial.reward_size.right,
             side_bias=side_bias,
-            response_duration=trial.response_deadline_duration if trial is not None else None,
-            reward_consumption_duration=(
-                trial.reward_consumption_duration if trial is not None else None
-            ),
-            ITI_duration=trial.inter_trial_interval_duration if trial is not None else None,
-            delay_duration=trial.quiescence_period_duration if trial is not None else None,
+            response_duration=trial.response_deadline_duration,
+            reward_consumption_duration=trial.reward_consumption_duration,
+            ITI_duration=trial.inter_trial_interval_duration,
+            delay_duration=trial.quiescence_period_duration,
             auto_waterL=self._auto_water(trial, is_right=False),
             auto_waterR=self._auto_water(trial, is_right=True),
             **session,
@@ -775,9 +767,7 @@ class TrialTableBuilder:
         Raises
         ------
         ValueError
-            If the ``TaskLogic`` stream is missing while there are trials to
-            build (the required reward-size columns are sourced from it), or if
-            ``raise_on_error`` is ``True`` and a per-trial stream length
+            If ``raise_on_error`` is ``True`` and a per-trial stream length
             disagrees with the ``TrialOutcome`` trial count.
         """
         outcomes = self._load("Behavior", "SoftwareEvents", "TrialOutcome")
@@ -802,30 +792,6 @@ class TrialTableBuilder:
 
         # Guard the positional alignment before we pair streams by index.
         n_trials = len(outcome_payloads)
-
-        # Reward size is sourced from the task logic and is a required column, so
-        # a missing TaskLogic stream cannot yield a valid table when there are
-        # trials to build. Surface that clearly rather than failing later with a
-        # cryptic per-row validation error.
-        if n_trials > 0 and task_logic is None:
-            raise ValueError(
-                "TaskLogic stream is required to build the trials table "
-                f"(reward sizes are sourced from it) but it failed to load for {n_trials} trials."
-            )
-
-        # The rig and AccumulatedSteps streams are the required sources for the
-        # lickspout positions, so a missing one cannot yield valid position
-        # columns when there are trials to build.
-        if n_trials > 0 and rig is None:
-            raise ValueError(
-                "Rig stream is required to build the trials table "
-                f"(lickspout positions are sourced from it) but it failed to load for {n_trials} trials."
-            )
-        if n_trials > 0 and accumulated_steps is None:
-            raise ValueError(
-                "AccumulatedSteps stream is required to build the trials table "
-                f"(lickspout positions are sourced from it) but it failed to load for {n_trials} trials."
-            )
 
         warnings = self._check_aligned(
             n_trials,
