@@ -236,7 +236,7 @@ class TrialTableBuilder:
         return 1 if bool(choice) else 0
 
     @staticmethod
-    def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
+    def _parse_outcome(payload: t.Any) -> TrialOutcome:
         """Parse a ``TrialOutcome`` software-event payload into its domain model.
 
         Parameters
@@ -247,11 +247,16 @@ class TrialTableBuilder:
 
         Returns
         -------
-        TrialOutcome or None
-            The parsed model, or ``None`` if ``payload`` is empty.
+        TrialOutcome
+            The parsed model.
+
+        Raises
+        ------
+        ValueError
+            If ``payload`` is ``None``.
         """
         if payload is None:
-            return None
+            raise ValueError("TrialOutcome payload is required but received None.")
         if isinstance(payload, TrialOutcome):
             return payload
         if isinstance(payload, str):
@@ -320,7 +325,7 @@ class TrialTableBuilder:
         return is_rewarded and (is_right_choice is is_right)
 
     @staticmethod
-    def _is_baited(trial: t.Optional[Trial], *, is_right: bool) -> bool:
+    def _is_baited(trial: Trial, *, is_right: bool) -> bool:
         """Return whether the requested lickport is baited on this trial.
 
         A port is "baited" when reward is guaranteed there (its reward
@@ -343,16 +348,15 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        trial : Trial or None
-            The per-trial task-logic model, or ``None`` when unavailable.
+        trial : Trial
+            The per-trial task-logic model.
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
         Returns
         -------
         bool
-            Whether the requested side is baited. A missing ``trial`` is treated
-            as not baited (``False``).
+            Whether the requested side is baited.
 
         Examples
         --------
@@ -374,8 +378,6 @@ class TrialTableBuilder:
         >>> TrialTableBuilder._is_baited(trial, is_right=False)
         False
         """
-        if trial is None:
-            return False
         auto = trial.is_auto_reward_right
         if is_right:
             # Right stays baited unless the animal was auto-responded right.
@@ -384,20 +386,19 @@ class TrialTableBuilder:
         return trial.p_reward_left == 1 and auto in (None, True)
 
     @staticmethod
-    def _auto_water(trial: t.Optional[Trial], *, is_right: bool) -> int:
+    def _auto_water(trial: Trial, *, is_right: bool) -> int:
         """Encode autowater for a side from ``is_auto_reward_right``.
 
         Returns ``1`` if the auto response was to the requested side, else ``0``.
-        A missing trial or no auto-response (``is_auto_reward_right`` is
-        ``None``) counts as no autowater (``0``). ``is_right`` is ``True`` for
-        right.
+        No auto-response (``is_auto_reward_right`` is ``None``) counts as no
+        autowater (``0``). ``is_right`` is ``True`` for right.
         """
-        if trial is None or trial.is_auto_reward_right is None:
+        if trial.is_auto_reward_right is None:
             return 0
         return int(trial.is_auto_reward_right is is_right)
 
     @staticmethod
-    def _block_reward_probability(trial: t.Optional[Trial], *, is_right: bool) -> t.Optional[float]:
+    def _block_reward_probability(trial: Trial, *, is_right: bool) -> t.Optional[float]:
         """Return the block reward probability for a side from the trial metadata.
 
         The top-level ``trial.p_reward_left/right`` is the *per-trial* probability;
@@ -406,18 +407,17 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        trial : Trial or None
-            The per-trial task-logic model, or ``None`` when unavailable.
+        trial : Trial
+            The per-trial task-logic model.
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
         Returns
         -------
         float or None
-            The block reward probability, or ``None`` when the trial or its
-            metadata is unavailable.
+            The block reward probability, or ``None`` when metadata is unavailable.
         """
-        if trial is None or trial.metadata is None:
+        if trial.metadata is None:
             return None
         return trial.metadata.p_reward_right if is_right else trial.metadata.p_reward_left
 
@@ -558,7 +558,7 @@ class TrialTableBuilder:
     def _build_row(
         self,
         *,
-        outcome: t.Optional[TrialOutcome],
+        outcome: TrialOutcome,
         start: float,
         stop: float,
         response: t.Any,
@@ -570,9 +570,9 @@ class TrialTableBuilder:
         lickspout: t.Dict[str, t.Optional[float]],
     ) -> TrialConfig:
         """Assemble a single ``TrialConfig`` from aligned per-trial inputs."""
-        trial = outcome.trial if outcome is not None else None
-        is_right_choice = outcome.is_right_choice if outcome is not None else None
-        is_rewarded = bool(outcome.is_rewarded) if outcome is not None else False
+        trial = outcome.trial
+        is_right_choice = outcome.is_right_choice
+        is_rewarded = bool(outcome.is_rewarded)
 
         return TrialConfig(
             start_time=start,
@@ -588,15 +588,13 @@ class TrialTableBuilder:
             bait_right=self._is_baited(trial, is_right=True),
             reward_probabilityL=self._block_reward_probability(trial, is_right=False),
             reward_probabilityR=self._block_reward_probability(trial, is_right=True),
-            reward_size_left=trial.reward_size.left if trial is not None else None,
-            reward_size_right=trial.reward_size.right if trial is not None else None,
+            reward_size_left=trial.reward_size.left,
+            reward_size_right=trial.reward_size.right,
             side_bias=side_bias,
-            response_duration=trial.response_deadline_duration if trial is not None else None,
-            reward_consumption_duration=(
-                trial.reward_consumption_duration if trial is not None else None
-            ),
-            ITI_duration=trial.inter_trial_interval_duration if trial is not None else None,
-            delay_duration=trial.quiescence_period_duration if trial is not None else None,
+            response_duration=trial.response_deadline_duration,
+            reward_consumption_duration=trial.reward_consumption_duration,
+            ITI_duration=trial.inter_trial_interval_duration,
+            delay_duration=trial.quiescence_period_duration,
             auto_waterL=self._auto_water(trial, is_right=False),
             auto_waterR=self._auto_water(trial, is_right=True),
             **session,
