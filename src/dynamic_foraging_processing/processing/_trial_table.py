@@ -819,8 +819,12 @@ class TrialTableBuilder:
         go_cue_times = self._write_times(go_cue)
 
         session = self._session_columns(task_logic)
-        # When there are trials, the guards above guarantee both sources are
-        # present; with no trials the frame goes unused (the loop does not run).
+        if n_trials:
+            if rig is None:
+                raise ValueError("Rig stream is required when there are trials.")
+            if accumulated_steps is None:
+                raise ValueError("AccumulatedSteps stream is required when there are trials.")
+        # With no trials the frame goes unused (the loop does not run).
         lickspout_positions = (
             self._manipulator_positions(accumulated_steps, rig) if n_trials else None
         )
