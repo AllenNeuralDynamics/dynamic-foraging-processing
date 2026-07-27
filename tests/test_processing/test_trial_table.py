@@ -6,7 +6,6 @@ import pytest
 from aind_behavior_dynamic_foraging.task_logic import (
     AindDynamicForagingTaskLogic,
     AindDynamicForagingTaskParameters,
-    RewardSize,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
@@ -89,13 +88,16 @@ def _outcome(
     auto=None,
     block_p_left=None,
     block_p_right=None,
+    reward_size_left=None,
+    reward_size_right=None,
 ):
     """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader).
 
     ``p_left`` / ``p_right`` are the per-trial probabilities (top-level ``trial``
     fields); ``block_p_left`` / ``block_p_right``, when given, are the block
     probabilities stored under ``trial.metadata`` (the source of the
-    ``reward_probability`` columns).
+    ``reward_probability`` columns). ``reward_size_left`` / ``reward_size_right``
+    override the default per-trial reward volumes (uL).
     """
     trial = {
         "p_reward_left": p_left,
@@ -106,6 +108,11 @@ def _outcome(
         "inter_trial_interval_duration": 4.0,
         "is_auto_reward_right": auto,
     }
+    if reward_size_left is not None or reward_size_right is not None:
+        trial["reward_size"] = {
+            "left": reward_size_left if reward_size_left is not None else 2.0,
+            "right": reward_size_right if reward_size_right is not None else 2.0,
+        }
     if block_p_left is not None or block_p_right is not None:
         trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
     return {
@@ -138,10 +145,7 @@ def _task_logic(quiescent_scalar=True):
         min_block_reward=2,
     )
     return AindDynamicForagingTaskLogic(
-        task_parameters=AindDynamicForagingTaskParameters(
-            trial_generator=spec,
-            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
-        )
+        task_parameters=AindDynamicForagingTaskParameters(trial_generator=spec)
     )
 
 
@@ -172,6 +176,8 @@ def _full_dataset():
                             is_rewarded=True,
                             block_p_left=0.7,
                             block_p_right=0.1,
+                            reward_size_left=2.0,
+                            reward_size_right=4.0,
                         ),
                         _outcome(0.5, 0.5, is_right_choice=None, is_rewarded=False),
                     ],
@@ -275,30 +281,33 @@ def test_build_full_dataset():
     assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
     assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
-    assert first["min_reward_each_block"] == 2
+    assert pd.isna(first["min_reward_each_block"])  # removed from generator schema
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
     # Lickspout positions from InitialManipulatorPosition.
     assert first["lickspout_position_x"] == 1.0
     assert first["lickspout_position_z"] == 4.0
 
-    # Session-level reward volumes (uL) from task_parameters.reward_size.
+    # Per-trial reward volumes (uL) from trial.reward_size; second trial uses the default.
     assert first["reward_size_left"] == 2.0
     assert first["reward_size_right"] == 4.0
     assert second["reward_size_left"] == 2.0
+    assert second["reward_size_right"] == 2.0
 
     # Per-trial side bias from the TrialMetrics event; null when not recorded.
     assert first["side_bias"] == pytest.approx(0.3)
     assert pd.isna(second["side_bias"])
 
 
-def test_build_raises_when_task_logic_missing_with_trials():
-    """A missing TaskLogic stream is an error when there are trials (reward size is required)."""
+def test_build_missing_task_logic_leaves_session_columns_null():
+    """A missing TaskLogic stream still builds; session distribution columns are null."""
     dataset = _full_dataset()
     input_schemas = dataset.children["Behavior"].children["InputSchemas"]
     input_schemas.children["TaskLogic"] = _FailedStream()
-    with pytest.raises(ValueError, match="TaskLogic stream is required"):
-        TrialTableBuilder(dataset).build()
+    table = TrialTableBuilder(dataset).build()
+    assert len(table) == 2
+    assert table["ITI_beta"].isna().all()
+    assert table["block_beta"].isna().all()
 
 
 def test_build_empty_dataset_returns_empty_frame():
@@ -348,7 +357,7 @@ def test_summary_generator_prefers_coupled_over_uncoupled():
     composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec(), coupled])
     resolved = TrialTableBuilder._summary_generator(composite)
     assert resolved.type == "CoupledTrialGenerator"
-    assert resolved.min_block_reward == coupled.min_block_reward
+    assert resolved is coupled
 
 
 def test_summary_generator_falls_back_to_uncoupled():
@@ -367,29 +376,16 @@ def test_summary_generator_none_when_no_coupled_or_uncoupled(caplog):
     assert "No coupled or uncoupled generator" in caplog.text
 
 
-def test_session_columns_only_reward_size_when_no_summary_generator():
-    """With no coupled/uncoupled generator, only the generator-independent reward size remains."""
+def test_session_columns_empty_when_no_summary_generator():
+    """With no coupled/uncoupled generator, the session columns dict is empty."""
     task_logic = AindDynamicForagingTaskLogic(
         task_parameters=AindDynamicForagingTaskParameters(
             trial_generator=TrialGeneratorCompositeSpec(
                 generators=[CoupledWarmupTrialGeneratorSpec()]
             ),
-            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
         )
     )
-    # Reward size lives on the task parameters, not the generator, so it is the
-    # only column populated when no summarising generator is found.
-    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {
-        "reward_size_left": 2.0,
-        "reward_size_right": 4.0,
-    }
-
-
-def test_session_columns_include_reward_size():
-    """Reward volumes are read from ``task_parameters.reward_size``."""
-    columns = TrialTableBuilder(_Node({}))._session_columns(_task_logic())
-    assert columns["reward_size_left"] == 2.0
-    assert columns["reward_size_right"] == 4.0
+    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {}
 
 
 def test_side_bias_parses_dict_model_json_and_none():
@@ -412,6 +408,17 @@ def test_build_missing_trial_metrics_leaves_side_bias_null():
     del software_events.children["TrialMetrics"]
     table = TrialTableBuilder(dataset).build()
     assert table["side_bias"].isna().all()
+
+
+def test_session_columns_warmup_generator_populates_min_reward_each_block():
+    """A warmup generator exposes ``min_block_reward``, populating ``min_reward_each_block``."""
+    task_logic = AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=CoupledWarmupTrialGeneratorSpec()
+        )
+    )
+    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic)
+    assert columns["min_reward_each_block"] == CoupledWarmupTrialGeneratorSpec().min_block_reward
 
 
 def test_session_columns_uncoupled_has_null_reward_sum():
@@ -516,12 +523,6 @@ def test_animal_response_encoding():
     assert TrialTableBuilder._animal_response({"Item1": 1.0}) == 2
 
 
-def test_is_baited_none_trial_returns_false():
-    """A missing trial yields ``False`` bait for both sides."""
-    assert TrialTableBuilder._is_baited(None, is_right=True) is False
-    assert TrialTableBuilder._is_baited(None, is_right=False) is False
-
-
 def test_is_baited_forfeited_by_auto_response_on_same_side():
     """A side with guaranteed reward stays baited unless auto-responded to that side."""
     trial = TrialOutcome.model_validate(
@@ -538,8 +539,7 @@ def test_auto_water_encodes_side_from_auto_response():
     ).trial
     assert TrialTableBuilder._auto_water(trial, is_right=True) == 1
     assert TrialTableBuilder._auto_water(trial, is_right=False) == 0
-    # A missing trial or no auto-response counts as no autowater (0).
-    assert TrialTableBuilder._auto_water(None, is_right=True) == 0
+    # No auto-response counts as no autowater (0).
     no_auto = TrialOutcome.model_validate(
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
     ).trial
@@ -557,9 +557,8 @@ def test_block_reward_probability_reads_metadata_not_trial():
     assert TrialTableBuilder._block_reward_probability(trial, is_right=True) == pytest.approx(0.1)
 
 
-def test_block_reward_probability_none_without_metadata_or_trial():
-    """A missing trial or absent metadata yields ``None``."""
-    assert TrialTableBuilder._block_reward_probability(None, is_right=True) is None
+def test_block_reward_probability_none_without_metadata():
+    """Absent metadata yields ``None``."""
     no_meta = TrialOutcome.model_validate(
         _outcome(1.0, 0.2, is_right_choice=True, is_rewarded=True)
     ).trial
@@ -570,15 +569,19 @@ def test_block_reward_probability_none_without_metadata_or_trial():
 @pytest.mark.parametrize(
     "payload",
     [
-        None,
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True),
         TrialOutcome.model_validate(_outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False)),
     ],
 )
-def test_parse_outcome_accepts_dict_model_and_none(payload):
-    """``_parse_outcome`` accepts dicts, model instances, and ``None``."""
-    result = TrialTableBuilder._parse_outcome(payload)
-    assert result is None or isinstance(result, TrialOutcome)
+def test_parse_outcome_accepts_dict_and_model(payload):
+    """``_parse_outcome`` accepts dicts and model instances."""
+    assert isinstance(TrialTableBuilder._parse_outcome(payload), TrialOutcome)
+
+
+def test_parse_outcome_raises_on_none():
+    """``_parse_outcome`` raises ``ValueError`` for a ``None`` payload."""
+    with pytest.raises(ValueError, match="required"):
+        TrialTableBuilder._parse_outcome(None)
 
 
 def test_parse_outcome_accepts_json_string():

@@ -42,21 +42,6 @@ Columns are grouped by the raw source they map from.
 | `block_beta`, `block_duration`, `block_min`, `block_max` | `block_length` |
 | `delay_beta`, `delay_duration`, `delay_min`, `delay_max` | `quiescent_duration_key` (scalar distribution, so no beta/min/max) |
 
-### From `task_logic_input` (under `task_parameters`)
-
-| Trials column | Source field |
-| --- | --- |
-| `reward_size_left` | `task_parameters.reward_size.left_value_volume` — the reward volume (uL) at the left port. |
-| `reward_size_right` | `task_parameters.reward_size.right_value_volume` — the reward volume (uL) at the right port. |
-
-> **Note:** `reward_size` is read from the task parameters, not the trial
-> generator, so it is populated even when no summarising generator is resolved.
-> The acquisition system can in principle vary reward size per trial, but the
-> current data format only exposes a single session-level value, so these
-> columns are constant across trials. They are **required** (non-nullable): a
-> missing `TaskLogic` stream raises rather than silently producing null reward
-> sizes when there are trials to build.
-
 ### From `TrialMetrics.json` (`SoftwareEvents` stream)
 
 | Trials column | Mapping |
@@ -81,6 +66,8 @@ Columns are grouped by the raw source they map from.
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
 | `reward_probabilityL` / `reward_probabilityR` | The **block** probability from `Trial -> metadata -> p_reward_left` / `p_reward_right`. The top-level `trial.p_reward_left` / `p_reward_right` is the per-trial probability, not the block probability, so it is not used here. `None` when the trial or its metadata is missing. |
+| `reward_size_left` | `Trial -> reward_size.left` — the reward volume (uL) at the left port. Defaults to `2.0` when not set on the trial. `None` when the trial is missing. |
+| `reward_size_right` | `Trial -> reward_size.right` — the reward volume (uL) at the right port. Defaults to `2.0` when not set on the trial. `None` when the trial is missing. |
 | `rewarded_historyL` / `rewarded_historyR` | Filter `is_rewarded == True`, then on `is_right_choice`. |
 
 ### From `TrialGeneratorSpec.json` (`SoftwareEvents` stream)
@@ -88,7 +75,7 @@ Columns are grouped by the raw source they map from.
 | Trials column | Mapping |
 | --- | --- |
 | `base_reward_probability_sum` | If `type == "CoupledTrialGenerator"`, look at `reward_probability_parameters`. |
-| `min_reward_each_block` | Present when `type == "CoupledTrialGenerator"`; otherwise `None`. |
+| `min_reward_each_block` | Present when `type == "CoupledWarmupTrialGenerator"` (has `min_block_reward`); otherwise `None`. |
 
 ### From `QuiescentPeriod.json` (`SoftwareEvents` stream)
 
@@ -155,3 +142,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_reward_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
 | 2026-06-20 | Added `reward_size_left` / `reward_size_right` (reward volume in uL) from `task_parameters.reward_size`, and `side_bias` from the per-trial `TrialMetrics` event (`bias` field). |
 | 2026-06-20 | `reward_probabilityL` / `reward_probabilityR` now read the block probability from `trial.metadata.p_reward_left` / `p_reward_right` instead of the top-level per-trial `trial.p_reward_left` / `p_reward_right`. |
+| 2026-07-24 | `reward_size_left` / `reward_size_right` moved from session-level `task_parameters.reward_size` to per-trial `Trial.reward_size` (fields `.left` / `.right`). The columns are now nullable — `None` when the trial is missing. A missing `TaskLogic` stream no longer raises; session distribution columns are simply null. `min_reward_each_block` moved from `CoupledTrialGenerator` to `CoupledWarmupTrialGenerator`. |
