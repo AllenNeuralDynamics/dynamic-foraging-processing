@@ -523,12 +523,6 @@ def test_animal_response_encoding():
     assert TrialTableBuilder._animal_response({"Item1": 1.0}) == 2
 
 
-def test_is_baited_none_trial_returns_false():
-    """A missing trial yields ``False`` bait for both sides."""
-    assert TrialTableBuilder._is_baited(None, is_right=True) is False
-    assert TrialTableBuilder._is_baited(None, is_right=False) is False
-
-
 def test_is_baited_forfeited_by_auto_response_on_same_side():
     """A side with guaranteed reward stays baited unless auto-responded to that side."""
     trial = TrialOutcome.model_validate(
@@ -545,8 +539,7 @@ def test_auto_water_encodes_side_from_auto_response():
     ).trial
     assert TrialTableBuilder._auto_water(trial, is_right=True) == 1
     assert TrialTableBuilder._auto_water(trial, is_right=False) == 0
-    # A missing trial or no auto-response counts as no autowater (0).
-    assert TrialTableBuilder._auto_water(None, is_right=True) == 0
+    # No auto-response counts as no autowater (0).
     no_auto = TrialOutcome.model_validate(
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
     ).trial
@@ -564,9 +557,8 @@ def test_block_reward_probability_reads_metadata_not_trial():
     assert TrialTableBuilder._block_reward_probability(trial, is_right=True) == pytest.approx(0.1)
 
 
-def test_block_reward_probability_none_without_metadata_or_trial():
-    """A missing trial or absent metadata yields ``None``."""
-    assert TrialTableBuilder._block_reward_probability(None, is_right=True) is None
+def test_block_reward_probability_none_without_metadata():
+    """Absent metadata yields ``None``."""
     no_meta = TrialOutcome.model_validate(
         _outcome(1.0, 0.2, is_right_choice=True, is_rewarded=True)
     ).trial
@@ -577,15 +569,19 @@ def test_block_reward_probability_none_without_metadata_or_trial():
 @pytest.mark.parametrize(
     "payload",
     [
-        None,
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True),
         TrialOutcome.model_validate(_outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False)),
     ],
 )
-def test_parse_outcome_accepts_dict_model_and_none(payload):
-    """``_parse_outcome`` accepts dicts, model instances, and ``None``."""
-    result = TrialTableBuilder._parse_outcome(payload)
-    assert result is None or isinstance(result, TrialOutcome)
+def test_parse_outcome_accepts_dict_and_model(payload):
+    """``_parse_outcome`` accepts dicts and model instances."""
+    assert isinstance(TrialTableBuilder._parse_outcome(payload), TrialOutcome)
+
+
+def test_parse_outcome_raises_on_none():
+    """``_parse_outcome`` raises ``ValueError`` for a ``None`` payload."""
+    with pytest.raises(ValueError, match="required"):
+        TrialTableBuilder._parse_outcome(None)
 
 
 def test_parse_outcome_accepts_json_string():
