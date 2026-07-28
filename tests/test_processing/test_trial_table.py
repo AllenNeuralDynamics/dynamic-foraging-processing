@@ -608,7 +608,11 @@ def test_anti_bias_water_gated_on_intervention_flag_and_side():
     # Right-side bias-water intervention.
     right = TrialOutcome.model_validate(
         _outcome(
-            1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True,
+            1.0,
+            1.0,
+            is_right_choice=True,
+            is_rewarded=True,
+            auto=True,
             is_bias_water_intervention=True,
         )
     ).trial
@@ -629,8 +633,12 @@ def test_anti_bias_lickspout_movement_gated_on_stage_flag():
     """Movement is the offset delta only when flagged a bias-stage intervention."""
     moved = TrialOutcome.model_validate(
         _outcome(
-            1.0, 1.0, is_right_choice=True, is_rewarded=True,
-            lickspout_offset_delta=1.5, is_bias_stage_intervention=True,
+            1.0,
+            1.0,
+            is_right_choice=True,
+            is_rewarded=True,
+            lickspout_offset_delta=1.5,
+            is_bias_stage_intervention=True,
         )
     ).trial
     assert TrialTableBuilder._anti_bias_lickspout_movement(
@@ -658,12 +666,20 @@ def test_build_populates_anti_bias_columns():
             [10.1, 20.1],
             [
                 _outcome(
-                    1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True,
+                    1.0,
+                    1.0,
+                    is_right_choice=True,
+                    is_rewarded=True,
+                    auto=True,
                     is_bias_water_intervention=True,
                 ),
                 _outcome(
-                    1.0, 1.0, is_right_choice=True, is_rewarded=True,
-                    lickspout_offset_delta=-0.8, is_bias_stage_intervention=True,
+                    1.0,
+                    1.0,
+                    is_right_choice=True,
+                    is_rewarded=True,
+                    lickspout_offset_delta=-0.8,
+                    is_bias_stage_intervention=True,
                 ),
             ],
         )
