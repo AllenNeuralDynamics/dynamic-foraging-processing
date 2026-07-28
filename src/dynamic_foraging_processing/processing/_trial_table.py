@@ -10,6 +10,7 @@ import typing as t
 
 import numpy as np
 import pandas as pd
+from aind_behavior_dynamic_foraging.rig import AindDynamicForagingRig
 from aind_behavior_dynamic_foraging.task_logic import AindDynamicForagingTaskLogic
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import TrialGeneratorSpec
 from aind_behavior_dynamic_foraging.task_logic.trial_models import (
@@ -23,6 +24,12 @@ from contraqctor.contract import Dataset
 from dynamic_foraging_processing.processing.models import TrialConfig
 
 logger = logging.getLogger(__name__)
+
+# The four manipulator axes, ordered so that index ``i`` is the axis driven
+# by ``Motor{i}`` in the ``AccumulatedSteps`` stream: ``Motor{i}`` maps to
+# ``Axis(i + 1)`` (Axis.X=1, Y1=2, Y2=3, Z=4), whose names match the
+# ``lickspout_position_*`` suffixes and the ``full_step_to_mm`` attributes.
+_MANIPULATOR_AXES = ("x", "y1", "y2", "z")
 
 
 class TrialTableBuilder:
@@ -516,41 +523,140 @@ class TrialTableBuilder:
             columns["min_reward_each_block"] = generator.min_block_reward
         return columns
 
-    def _lickspout_columns(
-        self, manipulator: t.Optional[pd.DataFrame]
-    ) -> t.Dict[str, t.Optional[float]]:
-        """Return lickspout position columns from ``InitialManipulatorPosition``.
+    def _manipulator_mm_per_step(self, rig: AindDynamicForagingRig) -> t.Dict[str, float]:
+        """Return millimetres travelled per accumulated step, keyed by axis.
 
-        The event's ``data`` payload carries the x / y1 / y2 / z positions. These
-        are the *initial* manipulator coordinates recorded once at experiment
-        start, so the columns are currently constant across trials.
+        ``AccumulatedSteps`` counts *microsteps*. The physical distance per
+        microstep is the full-step-to-mm calibration divided by the microstep
+        resolution (e.g. ``MICROSTEP8`` → 8 microsteps per full step), both read
+        from the rig's manipulator calibration.
 
-        Known limitation: the manipulator can move within a session (e.g. the
-        anti-bias intervention shifts the lickspouts horizontally), which this
-        static initial position does not capture.
+        Parameters
+        ----------
+        rig : AindDynamicForagingRig
+            The ``InputSchemas.Rig`` stream data. The rig is a required input
+            schema, so ``build`` guarantees it is present before this is called.
 
-        TODO: think about how to represent
-        this if it becomes relevant. The ideal solution would be to use the harp files
-        to track the manipulator position over time
+        Returns
+        -------
+        dict of str to float
+            ``{axis: mm_per_step}`` for ``x`` / ``y1`` / ``y2`` / ``z``.
+
+        Raises
+        ------
+        ValueError
+            If the manipulator calibration is missing one of the four axes.
         """
-        keys = (
-            "lickspout_position_x",
-            "lickspout_position_y1",
-            "lickspout_position_y2",
-            "lickspout_position_z",
-        )
-        empty = {key: None for key in keys}
-        payloads = self._event_payloads(manipulator)
-        if not payloads:
-            return empty
-        payload = payloads[0]
-        components = ("x", "y1", "y2", "z")
-        if isinstance(payload, dict):
-            return {key: payload.get(comp) for key, comp in zip(keys, components)}
-        if isinstance(payload, (list, tuple)) and len(payload) == len(keys):
-            return {key: payload[idx] for idx, key in enumerate(keys)}
-        logger.warning("Unrecognized InitialManipulatorPosition payload; leaving lickspout null.")
-        return empty
+        calibration = rig.manipulator.calibration
+        resolution_by_axis = {
+            config.axis.name.lower(): config.microstep_resolution
+            for config in calibration.axis_configuration
+        }
+        mm_per_step: t.Dict[str, float] = {}
+        for axis in _MANIPULATOR_AXES:
+            resolution = resolution_by_axis.get(axis)
+            if resolution is None:
+                raise ValueError(
+                    f"Manipulator calibration is missing axis {axis!r}; "
+                    "cannot derive lickspout position."
+                )
+            # Resolution enum names encode the divisor (MICROSTEP8 -> 8); the
+            # enum *value* (0..3) does not, so parse from the name.
+            microsteps = int(resolution.name.replace("MICROSTEP", ""))
+            mm_per_step[axis] = getattr(calibration.full_step_to_mm, axis) / microsteps
+        return mm_per_step
+
+    def _manipulator_positions(
+        self,
+        accumulated_steps: pd.DataFrame,
+        rig: AindDynamicForagingRig,
+    ) -> pd.DataFrame:
+        """Return a time-indexed frame of lickspout position (mm) over the session.
+
+        Built from the ``HarpManipulator`` ``AccumulatedSteps`` stream: each
+        ``EVENT`` row's per-motor microstep count is converted to millimetres via
+        the rig calibration. ``AccumulatedSteps`` is absolute (zero-referenced at
+        the homing position), so the count maps directly to position with no
+        offset. The frame is then re-referenced to the session start (the first
+        sample subtracted from every row), so the stored values are displacement
+        *relative to session start* — the units the QC plot expects.
+
+        Parameters
+        ----------
+        accumulated_steps : pandas.DataFrame
+            The ``AccumulatedSteps`` stream data (``Motor0``..``Motor3`` columns).
+            Required; guaranteed present by ``build``.
+        rig : AindDynamicForagingRig
+            The ``InputSchemas.Rig`` stream data (required; guaranteed present by
+            ``build``).
+
+        Returns
+        -------
+        pandas.DataFrame
+            Columns ``lickspout_position_x`` / ``y1`` / ``y2`` / ``z`` indexed by
+            time (sorted ascending), relative to the session-start position.
+
+        Raises
+        ------
+        ValueError
+            If the stream has no ``EVENT`` rows, is missing a motor column, or the
+            rig calibration is missing an axis.
+        """
+        mm_per_step = self._manipulator_mm_per_step(rig)
+        events = accumulated_steps
+        if "MessageType" in events.columns:
+            events = events[events["MessageType"] == "EVENT"]
+        if len(events) == 0:
+            raise ValueError(
+                "AccumulatedSteps stream has no EVENT rows; cannot derive lickspout position."
+            )
+        events = events.sort_index()
+        columns: t.Dict[str, np.ndarray] = {}
+        for index, axis in enumerate(_MANIPULATOR_AXES):
+            motor = f"Motor{index}"
+            if motor not in events.columns:
+                raise ValueError(
+                    f"AccumulatedSteps stream is missing column {motor}; "
+                    "cannot derive lickspout position."
+                )
+            columns[f"lickspout_position_{axis}"] = (
+                events[motor].to_numpy(dtype=float) * mm_per_step[axis]
+            )
+        positions = pd.DataFrame(columns, index=events.index)
+        # Re-reference to session start so the stored values are displacement
+        # from the first sample (previously done in the plot as ``values[0]``).
+        return positions - positions.iloc[0]
+
+    def _sample_lickspout(
+        self, positions: pd.DataFrame, start: float, stop: float
+    ) -> t.Dict[str, t.Optional[float]]:
+        """Return the lickspout position sampled within a trial's window.
+
+        The manipulator position is a continuously-sampled hardware value, so —
+        like the go cue — each trial takes the sample within its ``[start, stop)``
+        window nearest the start (see :meth:`_closest_time_in_window`).
+
+        Parameters
+        ----------
+        positions : pandas.DataFrame
+            The time-indexed position frame from :meth:`_manipulator_positions`.
+        start, stop : float
+            The trial window bounds (seconds); ``start`` inclusive, ``stop``
+            exclusive. May be ``NaN`` when unaligned.
+
+        Returns
+        -------
+        dict of str to (float or None)
+            The four ``lickspout_position_*`` values, all ``None`` for a trial
+            whose window contains no manipulator sample.
+        """
+        keys = tuple(f"lickspout_position_{axis}" for axis in _MANIPULATOR_AXES)
+        times = positions.index.to_numpy(dtype=float)
+        sample_time = self._closest_time_in_window(times, start, stop)
+        if sample_time is None:
+            return {key: None for key in keys}
+        row = positions.loc[sample_time]
+        return {key: (None if pd.isna(row[key]) else float(row[key])) for key in keys}
 
     # ------------------------------------------------------------------ #
     # Per-trial assembly
@@ -673,7 +779,8 @@ class TrialTableBuilder:
         pulse_supply_left = self._load("Behavior", "HarpBehavior", "PulseSupplyPort0")
         pulse_supply_right = self._load("Behavior", "HarpBehavior", "PulseSupplyPort1")
         go_cue = self._load("Behavior", "HarpSoundCard", "PlaySoundOrFrequency")
-        manipulator = self._load("Behavior", "SoftwareEvents", "InitialManipulatorPosition")
+        accumulated_steps = self._load("Behavior", "HarpManipulator", "AccumulatedSteps")
+        rig = self._load("Behavior", "InputSchemas", "Rig")
         task_logic = self._load("Behavior", "InputSchemas", "TaskLogic")
 
         # Per-trial streams: one payload/timestamp per trial, aligned by index.
@@ -712,7 +819,15 @@ class TrialTableBuilder:
         go_cue_times = self._write_times(go_cue)
 
         session = self._session_columns(task_logic)
-        lickspout = self._lickspout_columns(manipulator)
+        if n_trials:
+            if rig is None:
+                raise ValueError("Rig stream is required when there are trials.")
+            if accumulated_steps is None:
+                raise ValueError("AccumulatedSteps stream is required when there are trials.")
+        # With no trials the frame goes unused (the loop does not run).
+        lickspout_positions = (
+            self._manipulator_positions(accumulated_steps, rig) if n_trials else None
+        )
 
         rows: t.List[TrialConfig] = []
         for i, outcome_payload in enumerate(outcome_payloads):
@@ -723,6 +838,7 @@ class TrialTableBuilder:
             stop = float(stop_times[i]) if i < stop_times.size else np.nan
             response = response_payloads[i] if i < len(response_payloads) else None
             side_bias = self._side_bias(metric_payloads[i] if i < len(metric_payloads) else None)
+            lickspout = self._sample_lickspout(lickspout_positions, start, stop)
 
             rows.append(
                 self._build_row(

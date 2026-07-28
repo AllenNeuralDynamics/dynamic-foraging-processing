@@ -37,7 +37,7 @@ full = [
 
 [dependency-groups]
 dev = [
-    'ruff',
+    'ruff<0.16',
     'coverage',
     'interrogate',
     'pytest',
