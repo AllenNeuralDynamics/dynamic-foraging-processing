@@ -16,6 +16,27 @@ def test_plot_lick_intervals_writes_file(tmp_path):
     assert os.path.exists(tmp_path / name)
 
 
+def test_plot_lick_latency_writes_file(tmp_path):
+    """The per-side lick-latency histogram is written and its filename returned."""
+    go_cue = np.array([0.0, 1.0, 2.0, 3.0])
+    animal_response = np.array([0, 1, 2, 1])
+    name = _plots.plot_lick_latency(
+        go_cue,
+        animal_response,
+        np.array([0.3]),
+        np.array([1.4, 3.2]),
+        str(tmp_path),
+    )
+    assert name == _plots.LICK_LATENCY_PLOT
+    assert os.path.exists(tmp_path / name)
+
+
+def test_plot_lick_latency_no_trials(tmp_path):
+    """Absent go-cue / response columns still write an (empty) latency figure."""
+    name = _plots.plot_lick_latency(None, None, np.array([1.0]), np.array([2.0]), str(tmp_path))
+    assert os.path.exists(tmp_path / name)
+
+
 def test_time_to_trial_index_covers_all_branches():
     """Empty go cues and early/late event times map to the right indices."""
     # No go cues -> every event maps to -1.
