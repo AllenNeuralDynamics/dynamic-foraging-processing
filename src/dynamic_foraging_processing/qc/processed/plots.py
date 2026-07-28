@@ -85,8 +85,21 @@ def plot_lick_intervals(
     return LICK_INTERVALS_PLOT
 
 
-def _add_bias_plot(ax: plt.Axes, side_bias: np.ndarray) -> None:
-    """Draw the per-trial side-bias trace from the trial-table column."""
+def _add_bias_plot(
+    ax: plt.Axes,
+    side_bias: np.ndarray,
+    anti_bias_left_water: t.Optional[np.ndarray] = None,
+    anti_bias_right_water: t.Optional[np.ndarray] = None,
+    anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
+) -> None:
+    """Draw the per-trial side-bias trace with anti-bias interventions overlaid.
+
+    The anti-bias algorithm pushes against a developing side bias, so its two
+    interventions are drawn on top of the bias trace they respond to: water
+    interventions as short ticks at the top (right port) and bottom (left
+    port), and lickspout movements as markers on the trace at the trials where
+    the spout was shifted.
+    """
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Side Bias")
     ax.axhline(+0.7, color="r", linestyle="--")
@@ -99,6 +112,24 @@ def _add_bias_plot(ax: plt.Axes, side_bias: np.ndarray) -> None:
     ax.plot(trials, bias, "k", linewidth=2)
     if len(bias):
         ax.set_xlim([0, len(bias)])
+
+    plotted = False
+    if anti_bias_right_water is not None:
+        right = np.where(np.asarray(anti_bias_right_water, dtype=bool))[0]
+        ax.vlines(right, 0.9, 1.0, color="cyan", linewidth=1, label="Anti-bias water (R)")
+        plotted = True
+    if anti_bias_left_water is not None:
+        left = np.where(np.asarray(anti_bias_left_water, dtype=bool))[0]
+        ax.vlines(left, -1.0, -0.9, color="cyan", linewidth=1, label="Anti-bias water (L)")
+        plotted = True
+    if anti_bias_lickspout_movement is not None:
+        move = np.asarray(anti_bias_lickspout_movement, dtype=float)
+        moved = np.where(move != 0)[0]
+        heights = bias[moved] if len(bias) else np.zeros(len(moved))
+        ax.plot(moved, heights, "g^", markersize=6, label="Anti-bias lickspout move")
+        plotted = True
+    if plotted:
+        ax.legend(loc="upper left", fontsize="x-small")
 
 
 def _add_lickspout_position_plot(
@@ -250,6 +281,9 @@ def plot_side_bias(
     autowater_right: t.Optional[np.ndarray] = None,
     manual_left_times: t.Optional[np.ndarray] = None,
     manual_right_times: t.Optional[np.ndarray] = None,
+    anti_bias_left_water: t.Optional[np.ndarray] = None,
+    anti_bias_right_water: t.Optional[np.ndarray] = None,
+    anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
 ) -> str:
     """Save the four-panel side-bias figure.
 
@@ -276,6 +310,12 @@ def plot_side_bias(
         Per-trial autowater indicator arrays.
     manual_left_times, manual_right_times : numpy.ndarray, optional
         Manual-water delivery timestamps (s).
+    anti_bias_left_water, anti_bias_right_water : numpy.ndarray, optional
+        Boolean per-trial arrays flagging anti-bias water interventions on each
+        side; overlaid on the side-bias trace.
+    anti_bias_lickspout_movement : numpy.ndarray, optional
+        Per-trial signed lickspout displacement (mm) applied by the anti-bias
+        algorithm; nonzero trials are marked on the side-bias trace.
 
     Returns
     -------
@@ -288,7 +328,13 @@ def plot_side_bias(
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
 
-    _add_bias_plot(ax[0], side_bias)
+    _add_bias_plot(
+        ax[0],
+        side_bias,
+        anti_bias_left_water=anti_bias_left_water,
+        anti_bias_right_water=anti_bias_right_water,
+        anti_bias_lickspout_movement=anti_bias_lickspout_movement,
+    )
     _add_lickspout_position_plot(ax[1], lickspout_x, lickspout_y1, lickspout_y2, lickspout_z)
     _add_behavior_plot(
         ax[2],

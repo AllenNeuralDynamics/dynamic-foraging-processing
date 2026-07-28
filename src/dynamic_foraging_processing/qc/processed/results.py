@@ -37,6 +37,9 @@ _COLUMNS = {
     "reward_probability_right": "reward_probabilityR",
     "autowater_left": "auto_waterL",
     "autowater_right": "auto_waterR",
+    "anti_bias_left_water": "anti_bias_left_water",
+    "anti_bias_right_water": "anti_bias_right_water",
+    "anti_bias_lickspout_movement": "anti_bias_lickspout_movement",
     "go_cue_times": "goCue_start_time",
 }
 
@@ -114,6 +117,9 @@ def behavior_qc_results(
             autowater_right=_column(trials, "autowater_right"),
             manual_left_times=manual_left_times,
             manual_right_times=manual_right_times,
+            anti_bias_left_water=_column(trials, "anti_bias_left_water"),
+            anti_bias_right_water=_column(trials, "anti_bias_right_water"),
+            anti_bias_lickspout_movement=_column(trials, "anti_bias_lickspout_movement"),
         )
         plot_lick_intervals(left_lick_times, right_lick_times, results_folder)
     return results
