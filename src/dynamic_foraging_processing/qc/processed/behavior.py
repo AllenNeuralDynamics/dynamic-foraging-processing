@@ -17,6 +17,7 @@ from dynamic_foraging_processing.qc._core.result import QCResult
 #: Reference plot assets shared by the behavior metrics.
 SIDE_BIAS_PLOT = "side_bias.png"
 LICK_INTERVALS_PLOT = "lick_intervals.png"
+LICK_LATENCY_PLOT = "lick_latency.png"
 
 
 def _plot_reference(plot_name: str, results_folder: t.Optional[str]) -> str:
@@ -162,6 +163,105 @@ def side_bias_result(side_bias: np.ndarray, results_folder: t.Optional[str] = No
         description="Average side bias should be less than 0.5",
         reference=_plot_reference(SIDE_BIAS_PLOT, results_folder),
         tags={"type": "Average_Side_Bias"},
+    )
+
+
+def _first_lick_latency(go_cue: float, licks: np.ndarray) -> float:
+    """Return the latency (s) from ``go_cue`` to the first lick after it.
+
+    Parameters
+    ----------
+    go_cue : float
+        The trial's go-cue time (s). ``nan`` yields ``nan`` (no lick compares
+        greater than ``nan``).
+    licks : numpy.ndarray
+        Ascending lick timestamps (s).
+
+    Returns
+    -------
+    float
+        The first-lick latency, or ``nan`` when no lick follows the go cue.
+    """
+    after = licks[licks > go_cue]
+    if after.size:
+        return float(after[0] - go_cue)
+    return float("nan")
+
+
+def lick_latency_by_side(
+    go_cue_times: t.Optional[np.ndarray],
+    animal_response: t.Optional[np.ndarray],
+    left_lick_times: np.ndarray,
+    right_lick_times: np.ndarray,
+) -> t.Tuple[np.ndarray, np.ndarray]:
+    """Return per-trial first-lick latency (s) after the go cue, split by chosen side.
+
+    For each trial the latency is the time from the go cue to the first lick on
+    the *chosen* side — left when ``animal_response == 0``, right when ``== 1``.
+    Trials with no response (``2``), and any go cue after which the chosen side
+    never licks, are ``nan``. Slow or one-sided licking is the diagnostic signal
+    (e.g. deafness, or a non-functional lickport on one side).
+
+    Parameters
+    ----------
+    go_cue_times : numpy.ndarray or None
+        Per-trial go-cue times (s). ``None`` (column absent) is treated as no
+        trials.
+    animal_response : numpy.ndarray or None
+        Per-trial choice codes (``0`` left, ``1`` right, ``2`` ignore). ``None``
+        is treated as no trials.
+    left_lick_times, right_lick_times : numpy.ndarray
+        Timestamps (s) of left/right-port licks (need not be sorted).
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The ``(left_latency, right_latency)`` per-trial arrays; each trial has a
+        latency on at most its chosen side, ``nan`` elsewhere.
+    """
+    if go_cue_times is None or animal_response is None:
+        return np.empty(0), np.empty(0)
+    go_cue = np.asarray(go_cue_times, dtype=float)
+    response = np.asarray(animal_response)
+    left = np.sort(np.asarray(left_lick_times, dtype=float))
+    right = np.sort(np.asarray(right_lick_times, dtype=float))
+    left_latency = np.full(go_cue.shape, np.nan)
+    right_latency = np.full(go_cue.shape, np.nan)
+    for i, cue in enumerate(go_cue):
+        if response[i] == 0:
+            left_latency[i] = _first_lick_latency(cue, left)
+        elif response[i] == 1:
+            right_latency[i] = _first_lick_latency(cue, right)
+    return left_latency, right_latency
+
+
+def lick_latency_result(results_folder: t.Optional[str] = None) -> QCResult:
+    """Build the review-only first-lick-latency ``QCResult``.
+
+    A single review-only metric surfacing the lick-latency plot (per-side
+    first-lick latency after the go cue): there is no computed value
+    (``value=None``) and no automated pass/fail (``passed=None`` -> ``PENDING``).
+    Tagged ``type="Lick_Interval"`` so it groups with the lick-interval metrics.
+
+    Parameters
+    ----------
+    results_folder : str, optional
+        Directory the lick-latency plot is written to; used to build the
+        result's reference. When ``None``, the reference is the bare plot name.
+
+    Returns
+    -------
+    QCResult
+        The lick-latency result (``PENDING``, no value or auto pass/fail)
+        referencing the lick-latency plot.
+    """
+    return QCResult(
+        name="Lick_Latency",
+        value=None,
+        passed=None,  # no automated pass/fail -> PENDING for manual review
+        description="First-lick latency (s) after the go cue, by side (review-only).",
+        reference=_plot_reference(LICK_LATENCY_PLOT, results_folder),
+        tags={"metric": "Lick_Latency", "type": "Lick_Interval"},
     )
 
 

@@ -51,7 +51,8 @@ class ProcessedQC(BaseQC):
         Returns
         -------
         list of QCMetric
-            The side-bias metric followed by the four lick-interval metrics.
+            The side-bias metric, the four lick-interval metrics, and the
+            review-only lick-latency metric.
         """
         results = behavior_qc_results(
             trials,
