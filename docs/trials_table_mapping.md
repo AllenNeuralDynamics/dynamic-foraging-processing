@@ -62,6 +62,8 @@ Columns are grouped by the raw source they map from.
 | Trials column | Mapping |
 | --- | --- |
 | `auto_waterL` / `auto_waterR` | From `is_auto_reward_right`. `1` on the auto-responded side; `0` on the other side, when there was no auto-response (`None`), or when the trial is missing. |
+| `anti_bias_left_water` / `anti_bias_right_water` | Boolean. `True` when the anti-bias algorithm delivered a water intervention to that side — i.e. `trial.metadata.extra.is_bias_water_intervention` is `True` **and** `is_auto_reward_right` points to that side (`False` → left, `True` → right). The anti-bias water uses the same auto-response channel as ordinary autowater, so the `is_bias_water_intervention` flag is what distinguishes it. `False` otherwise. |
+| `anti_bias_lickspout_movement` | Signed horizontal displacement (mm, positive is rightward) the anti-bias algorithm moved the lickspouts on this trial: `trial.lickspout_offset_delta` when `trial.metadata.extra.is_bias_stage_intervention` is `True`, else `0.0`. |
 | `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_reward_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_reward_right` is `None` or `True`. |
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
@@ -142,4 +144,5 @@ These were mapped during exploration but are no longer in scope:
 | 2026-06-17 | `auto_waterL` / `auto_waterR` now encode no auto-response (`is_auto_reward_right` is `None`) and missing trials as `0` instead of `NULL`. The columns are non-nullable (`int`, default `0`). |
 | 2026-06-20 | Added `reward_size_left` / `reward_size_right` (reward volume in uL) from `task_parameters.reward_size`, and `side_bias` from the per-trial `TrialMetrics` event (`bias` field). |
 | 2026-06-20 | `reward_probabilityL` / `reward_probabilityR` now read the block probability from `trial.metadata.p_reward_left` / `p_reward_right` instead of the top-level per-trial `trial.p_reward_left` / `p_reward_right`. |
+| 2026-07-27 | Added `anti_bias_left_water` / `anti_bias_right_water` (boolean anti-bias water interventions per side) and `anti_bias_lickspout_movement` (mm the anti-bias algorithm shifted the lickspouts) from `TrialOutcome`'s `trial.metadata.extra` (`is_bias_water_intervention` / `is_bias_stage_intervention`), `is_auto_reward_right`, and `lickspout_offset_delta`. These are also overlaid on the QC `side_bias.png` figure. |
 | 2026-07-24 | `reward_size_left` / `reward_size_right` moved from session-level `task_parameters.reward_size` to per-trial `Trial.reward_size` (fields `.left` / `.right`). The columns are now nullable — `None` when the trial is missing. A missing `TaskLogic` stream no longer raises; session distribution columns are simply null. `min_reward_each_block` moved from `CoupledTrialGenerator` to `CoupledWarmupTrialGenerator`. |
