@@ -29,6 +29,22 @@ def test_behavior_qc_results_without_plots():
     assert results[0].name == "average side bias"
 
 
+def test_lickspout_columns_map_to_trial_table_names():
+    """The lickspout mapping resolves to the ``lickspout_position_*`` trial columns."""
+    trials = pd.DataFrame(
+        {
+            "lickspout_position_x": [16.0, 16.0],
+            "lickspout_position_y1": [9.6, 9.6],
+            "lickspout_position_y2": [9.7, 9.7],
+            "lickspout_position_z": [17.25, 17.25],
+        }
+    )
+    for key in ("lickspout_x", "lickspout_y1", "lickspout_y2", "lickspout_z"):
+        column = _results._column(trials, key)
+        assert column is not None, key
+        assert column[0] == trials[_results._COLUMNS[key]][0]
+
+
 def test_behavior_qc_results_writes_plots(tmp_path):
     """Supplying a results folder writes both behavior plots."""
     trials = pd.DataFrame(

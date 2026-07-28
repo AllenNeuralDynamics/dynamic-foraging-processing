@@ -10,6 +10,7 @@ import typing as t
 
 import numpy as np
 import pandas as pd
+from aind_behavior_dynamic_foraging.rig import AindDynamicForagingRig
 from aind_behavior_dynamic_foraging.task_logic import AindDynamicForagingTaskLogic
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import TrialGeneratorSpec
 from aind_behavior_dynamic_foraging.task_logic.trial_models import (
@@ -23,6 +24,12 @@ from contraqctor.contract import Dataset
 from dynamic_foraging_processing.processing.models import TrialConfig
 
 logger = logging.getLogger(__name__)
+
+# The four manipulator axes, ordered so that index ``i`` is the axis driven
+# by ``Motor{i}`` in the ``AccumulatedSteps`` stream: ``Motor{i}`` maps to
+# ``Axis(i + 1)`` (Axis.X=1, Y1=2, Y2=3, Z=4), whose names match the
+# ``lickspout_position_*`` suffixes and the ``full_step_to_mm`` attributes.
+_MANIPULATOR_AXES = ("x", "y1", "y2", "z")
 
 
 class TrialTableBuilder:
@@ -236,7 +243,7 @@ class TrialTableBuilder:
         return 1 if bool(choice) else 0
 
     @staticmethod
-    def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
+    def _parse_outcome(payload: t.Any) -> TrialOutcome:
         """Parse a ``TrialOutcome`` software-event payload into its domain model.
 
         Parameters
@@ -247,11 +254,16 @@ class TrialTableBuilder:
 
         Returns
         -------
-        TrialOutcome or None
-            The parsed model, or ``None`` if ``payload`` is empty.
+        TrialOutcome
+            The parsed model.
+
+        Raises
+        ------
+        ValueError
+            If ``payload`` is ``None``.
         """
         if payload is None:
-            return None
+            raise ValueError("TrialOutcome payload is required but received None.")
         if isinstance(payload, TrialOutcome):
             return payload
         if isinstance(payload, str):
@@ -320,7 +332,7 @@ class TrialTableBuilder:
         return is_rewarded and (is_right_choice is is_right)
 
     @staticmethod
-    def _is_baited(trial: t.Optional[Trial], *, is_right: bool) -> bool:
+    def _is_baited(trial: Trial, *, is_right: bool) -> bool:
         """Return whether the requested lickport is baited on this trial.
 
         A port is "baited" when reward is guaranteed there (its reward
@@ -343,16 +355,15 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        trial : Trial or None
-            The per-trial task-logic model, or ``None`` when unavailable.
+        trial : Trial
+            The per-trial task-logic model.
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
         Returns
         -------
         bool
-            Whether the requested side is baited. A missing ``trial`` is treated
-            as not baited (``False``).
+            Whether the requested side is baited.
 
         Examples
         --------
@@ -374,8 +385,6 @@ class TrialTableBuilder:
         >>> TrialTableBuilder._is_baited(trial, is_right=False)
         False
         """
-        if trial is None:
-            return False
         auto = trial.is_auto_reward_right
         if is_right:
             # Right stays baited unless the animal was auto-responded right.
@@ -384,20 +393,19 @@ class TrialTableBuilder:
         return trial.p_reward_left == 1 and auto in (None, True)
 
     @staticmethod
-    def _auto_water(trial: t.Optional[Trial], *, is_right: bool) -> int:
+    def _auto_water(trial: Trial, *, is_right: bool) -> int:
         """Encode autowater for a side from ``is_auto_reward_right``.
 
         Returns ``1`` if the auto response was to the requested side, else ``0``.
-        A missing trial or no auto-response (``is_auto_reward_right`` is
-        ``None``) counts as no autowater (``0``). ``is_right`` is ``True`` for
-        right.
+        No auto-response (``is_auto_reward_right`` is ``None``) counts as no
+        autowater (``0``). ``is_right`` is ``True`` for right.
         """
-        if trial is None or trial.is_auto_reward_right is None:
+        if trial.is_auto_reward_right is None:
             return 0
         return int(trial.is_auto_reward_right is is_right)
 
     @staticmethod
-    def _block_reward_probability(trial: t.Optional[Trial], *, is_right: bool) -> t.Optional[float]:
+    def _block_reward_probability(trial: Trial, *, is_right: bool) -> t.Optional[float]:
         """Return the block reward probability for a side from the trial metadata.
 
         The top-level ``trial.p_reward_left/right`` is the *per-trial* probability;
@@ -406,18 +414,17 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        trial : Trial or None
-            The per-trial task-logic model, or ``None`` when unavailable.
+        trial : Trial
+            The per-trial task-logic model.
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
         Returns
         -------
         float or None
-            The block reward probability, or ``None`` when the trial or its
-            metadata is unavailable.
+            The block reward probability, or ``None`` when metadata is unavailable.
         """
-        if trial is None or trial.metadata is None:
+        if trial.metadata is None:
             return None
         return trial.metadata.p_reward_right if is_right else trial.metadata.p_reward_left
 
@@ -483,14 +490,6 @@ class TrialTableBuilder:
         if task_logic is None:
             return columns
 
-        # Reward volumes live on the task parameters, not the trial generator, so
-        # populate them before the generator resolution (which may bail out).
-        # Known limitation: the acquisition system can vary reward size per trial,
-        # but the current data format only exposes a single session-level value.
-        reward_size = task_logic.task_parameters.reward_size
-        columns["reward_size_left"] = reward_size.left_value_volume
-        columns["reward_size_right"] = reward_size.right_value_volume
-
         generator = self._summary_generator(task_logic.task_parameters.trial_generator)
         if generator is None:
             return columns
@@ -519,46 +518,145 @@ class TrialTableBuilder:
             delay_max=delay_max,
             base_reward_probability_sum=base_reward_sum,
         )
-        # ``min_block_reward`` is coupled-only; uncoupled generators omit it.
+        # ``min_block_reward`` is warmup-generator-only; main coupled generators omit it.
         if hasattr(generator, "min_block_reward"):
             columns["min_reward_each_block"] = generator.min_block_reward
         return columns
 
-    def _lickspout_columns(
-        self, manipulator: t.Optional[pd.DataFrame]
-    ) -> t.Dict[str, t.Optional[float]]:
-        """Return lickspout position columns from ``InitialManipulatorPosition``.
+    def _manipulator_mm_per_step(self, rig: AindDynamicForagingRig) -> t.Dict[str, float]:
+        """Return millimetres travelled per accumulated step, keyed by axis.
 
-        The event's ``data`` payload carries the x / y1 / y2 / z positions. These
-        are the *initial* manipulator coordinates recorded once at experiment
-        start, so the columns are currently constant across trials.
+        ``AccumulatedSteps`` counts *microsteps*. The physical distance per
+        microstep is the full-step-to-mm calibration divided by the microstep
+        resolution (e.g. ``MICROSTEP8`` → 8 microsteps per full step), both read
+        from the rig's manipulator calibration.
 
-        Known limitation: the manipulator can move within a session (e.g. the
-        anti-bias intervention shifts the lickspouts horizontally), which this
-        static initial position does not capture.
+        Parameters
+        ----------
+        rig : AindDynamicForagingRig
+            The ``InputSchemas.Rig`` stream data. The rig is a required input
+            schema, so ``build`` guarantees it is present before this is called.
 
-        TODO: think about how to represent
-        this if it becomes relevant. The ideal solution would be to use the harp files
-        to track the manipulator position over time
+        Returns
+        -------
+        dict of str to float
+            ``{axis: mm_per_step}`` for ``x`` / ``y1`` / ``y2`` / ``z``.
+
+        Raises
+        ------
+        ValueError
+            If the manipulator calibration is missing one of the four axes.
         """
-        keys = (
-            "lickspout_position_x",
-            "lickspout_position_y1",
-            "lickspout_position_y2",
-            "lickspout_position_z",
-        )
-        empty = {key: None for key in keys}
-        payloads = self._event_payloads(manipulator)
-        if not payloads:
-            return empty
-        payload = payloads[0]
-        components = ("x", "y1", "y2", "z")
-        if isinstance(payload, dict):
-            return {key: payload.get(comp) for key, comp in zip(keys, components)}
-        if isinstance(payload, (list, tuple)) and len(payload) == len(keys):
-            return {key: payload[idx] for idx, key in enumerate(keys)}
-        logger.warning("Unrecognized InitialManipulatorPosition payload; leaving lickspout null.")
-        return empty
+        calibration = rig.manipulator.calibration
+        resolution_by_axis = {
+            config.axis.name.lower(): config.microstep_resolution
+            for config in calibration.axis_configuration
+        }
+        mm_per_step: t.Dict[str, float] = {}
+        for axis in _MANIPULATOR_AXES:
+            resolution = resolution_by_axis.get(axis)
+            if resolution is None:
+                raise ValueError(
+                    f"Manipulator calibration is missing axis {axis!r}; "
+                    "cannot derive lickspout position."
+                )
+            # Resolution enum names encode the divisor (MICROSTEP8 -> 8); the
+            # enum *value* (0..3) does not, so parse from the name.
+            microsteps = int(resolution.name.replace("MICROSTEP", ""))
+            mm_per_step[axis] = getattr(calibration.full_step_to_mm, axis) / microsteps
+        return mm_per_step
+
+    def _manipulator_positions(
+        self,
+        accumulated_steps: pd.DataFrame,
+        rig: AindDynamicForagingRig,
+    ) -> pd.DataFrame:
+        """Return a time-indexed frame of lickspout position (mm) over the session.
+
+        Built from the ``HarpManipulator`` ``AccumulatedSteps`` stream: each
+        ``EVENT`` row's per-motor microstep count is converted to millimetres via
+        the rig calibration. ``AccumulatedSteps`` is absolute (zero-referenced at
+        the homing position), so the count maps directly to position with no
+        offset. The frame is then re-referenced to the session start (the first
+        sample subtracted from every row), so the stored values are displacement
+        *relative to session start* — the units the QC plot expects.
+
+        Parameters
+        ----------
+        accumulated_steps : pandas.DataFrame
+            The ``AccumulatedSteps`` stream data (``Motor0``..``Motor3`` columns).
+            Required; guaranteed present by ``build``.
+        rig : AindDynamicForagingRig
+            The ``InputSchemas.Rig`` stream data (required; guaranteed present by
+            ``build``).
+
+        Returns
+        -------
+        pandas.DataFrame
+            Columns ``lickspout_position_x`` / ``y1`` / ``y2`` / ``z`` indexed by
+            time (sorted ascending), relative to the session-start position.
+
+        Raises
+        ------
+        ValueError
+            If the stream has no ``EVENT`` rows, is missing a motor column, or the
+            rig calibration is missing an axis.
+        """
+        mm_per_step = self._manipulator_mm_per_step(rig)
+        events = accumulated_steps
+        if "MessageType" in events.columns:
+            events = events[events["MessageType"] == "EVENT"]
+        if len(events) == 0:
+            raise ValueError(
+                "AccumulatedSteps stream has no EVENT rows; cannot derive lickspout position."
+            )
+        events = events.sort_index()
+        columns: t.Dict[str, np.ndarray] = {}
+        for index, axis in enumerate(_MANIPULATOR_AXES):
+            motor = f"Motor{index}"
+            if motor not in events.columns:
+                raise ValueError(
+                    f"AccumulatedSteps stream is missing column {motor}; "
+                    "cannot derive lickspout position."
+                )
+            columns[f"lickspout_position_{axis}"] = (
+                events[motor].to_numpy(dtype=float) * mm_per_step[axis]
+            )
+        positions = pd.DataFrame(columns, index=events.index)
+        # Re-reference to session start so the stored values are displacement
+        # from the first sample (previously done in the plot as ``values[0]``).
+        return positions - positions.iloc[0]
+
+    def _sample_lickspout(
+        self, positions: pd.DataFrame, start: float, stop: float
+    ) -> t.Dict[str, t.Optional[float]]:
+        """Return the lickspout position sampled within a trial's window.
+
+        The manipulator position is a continuously-sampled hardware value, so —
+        like the go cue — each trial takes the sample within its ``[start, stop)``
+        window nearest the start (see :meth:`_closest_time_in_window`).
+
+        Parameters
+        ----------
+        positions : pandas.DataFrame
+            The time-indexed position frame from :meth:`_manipulator_positions`.
+        start, stop : float
+            The trial window bounds (seconds); ``start`` inclusive, ``stop``
+            exclusive. May be ``NaN`` when unaligned.
+
+        Returns
+        -------
+        dict of str to (float or None)
+            The four ``lickspout_position_*`` values, all ``None`` for a trial
+            whose window contains no manipulator sample.
+        """
+        keys = tuple(f"lickspout_position_{axis}" for axis in _MANIPULATOR_AXES)
+        times = positions.index.to_numpy(dtype=float)
+        sample_time = self._closest_time_in_window(times, start, stop)
+        if sample_time is None:
+            return {key: None for key in keys}
+        row = positions.loc[sample_time]
+        return {key: (None if pd.isna(row[key]) else float(row[key])) for key in keys}
 
     # ------------------------------------------------------------------ #
     # Per-trial assembly
@@ -566,7 +664,7 @@ class TrialTableBuilder:
     def _build_row(
         self,
         *,
-        outcome: t.Optional[TrialOutcome],
+        outcome: TrialOutcome,
         start: float,
         stop: float,
         response: t.Any,
@@ -578,9 +676,9 @@ class TrialTableBuilder:
         lickspout: t.Dict[str, t.Optional[float]],
     ) -> TrialConfig:
         """Assemble a single ``TrialConfig`` from aligned per-trial inputs."""
-        trial = outcome.trial if outcome is not None else None
-        is_right_choice = outcome.is_right_choice if outcome is not None else None
-        is_rewarded = bool(outcome.is_rewarded) if outcome is not None else False
+        trial = outcome.trial
+        is_right_choice = outcome.is_right_choice
+        is_rewarded = bool(outcome.is_rewarded)
 
         return TrialConfig(
             start_time=start,
@@ -596,13 +694,13 @@ class TrialTableBuilder:
             bait_right=self._is_baited(trial, is_right=True),
             reward_probabilityL=self._block_reward_probability(trial, is_right=False),
             reward_probabilityR=self._block_reward_probability(trial, is_right=True),
+            reward_size_left=trial.reward_size.left,
+            reward_size_right=trial.reward_size.right,
             side_bias=side_bias,
-            response_duration=trial.response_deadline_duration if trial is not None else None,
-            reward_consumption_duration=(
-                trial.reward_consumption_duration if trial is not None else None
-            ),
-            ITI_duration=trial.inter_trial_interval_duration if trial is not None else None,
-            delay_duration=trial.quiescence_period_duration if trial is not None else None,
+            response_duration=trial.response_deadline_duration,
+            reward_consumption_duration=trial.reward_consumption_duration,
+            ITI_duration=trial.inter_trial_interval_duration,
+            delay_duration=trial.quiescence_period_duration,
             auto_waterL=self._auto_water(trial, is_right=False),
             auto_waterR=self._auto_water(trial, is_right=True),
             **session,
@@ -669,9 +767,7 @@ class TrialTableBuilder:
         Raises
         ------
         ValueError
-            If the ``TaskLogic`` stream is missing while there are trials to
-            build (the required reward-size columns are sourced from it), or if
-            ``raise_on_error`` is ``True`` and a per-trial stream length
+            If ``raise_on_error`` is ``True`` and a per-trial stream length
             disagrees with the ``TrialOutcome`` trial count.
         """
         outcomes = self._load("Behavior", "SoftwareEvents", "TrialOutcome")
@@ -683,7 +779,8 @@ class TrialTableBuilder:
         pulse_supply_left = self._load("Behavior", "HarpBehavior", "PulseSupplyPort0")
         pulse_supply_right = self._load("Behavior", "HarpBehavior", "PulseSupplyPort1")
         go_cue = self._load("Behavior", "HarpSoundCard", "PlaySoundOrFrequency")
-        manipulator = self._load("Behavior", "SoftwareEvents", "InitialManipulatorPosition")
+        accumulated_steps = self._load("Behavior", "HarpManipulator", "AccumulatedSteps")
+        rig = self._load("Behavior", "InputSchemas", "Rig")
         task_logic = self._load("Behavior", "InputSchemas", "TaskLogic")
 
         # Per-trial streams: one payload/timestamp per trial, aligned by index.
@@ -695,16 +792,6 @@ class TrialTableBuilder:
 
         # Guard the positional alignment before we pair streams by index.
         n_trials = len(outcome_payloads)
-
-        # Reward size is sourced from the task logic and is a required column, so
-        # a missing TaskLogic stream cannot yield a valid table when there are
-        # trials to build. Surface that clearly rather than failing later with a
-        # cryptic per-row validation error.
-        if n_trials > 0 and task_logic is None:
-            raise ValueError(
-                "TaskLogic stream is required to build the trials table "
-                f"(reward sizes are sourced from it) but it failed to load for {n_trials} trials."
-            )
 
         warnings = self._check_aligned(
             n_trials,
@@ -732,7 +819,15 @@ class TrialTableBuilder:
         go_cue_times = self._write_times(go_cue)
 
         session = self._session_columns(task_logic)
-        lickspout = self._lickspout_columns(manipulator)
+        if n_trials:
+            if rig is None:
+                raise ValueError("Rig stream is required when there are trials.")
+            if accumulated_steps is None:
+                raise ValueError("AccumulatedSteps stream is required when there are trials.")
+        # With no trials the frame goes unused (the loop does not run).
+        lickspout_positions = (
+            self._manipulator_positions(accumulated_steps, rig) if n_trials else None
+        )
 
         rows: t.List[TrialConfig] = []
         for i, outcome_payload in enumerate(outcome_payloads):
@@ -743,6 +838,7 @@ class TrialTableBuilder:
             stop = float(stop_times[i]) if i < stop_times.size else np.nan
             response = response_payloads[i] if i < len(response_payloads) else None
             side_bias = self._side_bias(metric_payloads[i] if i < len(metric_payloads) else None)
+            lickspout = self._sample_lickspout(lickspout_positions, start, stop)
 
             rows.append(
                 self._build_row(

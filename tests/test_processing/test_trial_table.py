@@ -1,12 +1,13 @@
 """Tests for ``dynamic_foraging_processing.processing._trial_table``."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
 from aind_behavior_dynamic_foraging.task_logic import (
     AindDynamicForagingTaskLogic,
     AindDynamicForagingTaskParameters,
-    RewardSize,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
@@ -15,6 +16,7 @@ from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     UncoupledTrialGeneratorSpec,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
+from aind_behavior_services.rig.aind_manipulator import Axis, MicrostepResolution
 from aind_behavior_services.task.distributions import (
     ExponentialDistribution,
     ExponentialDistributionParameters,
@@ -89,13 +91,16 @@ def _outcome(
     auto=None,
     block_p_left=None,
     block_p_right=None,
+    reward_size_left=None,
+    reward_size_right=None,
 ):
     """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader).
 
     ``p_left`` / ``p_right`` are the per-trial probabilities (top-level ``trial``
     fields); ``block_p_left`` / ``block_p_right``, when given, are the block
     probabilities stored under ``trial.metadata`` (the source of the
-    ``reward_probability`` columns).
+    ``reward_probability`` columns). ``reward_size_left`` / ``reward_size_right``
+    override the default per-trial reward volumes (uL).
     """
     trial = {
         "p_reward_left": p_left,
@@ -106,6 +111,11 @@ def _outcome(
         "inter_trial_interval_duration": 4.0,
         "is_auto_reward_right": auto,
     }
+    if reward_size_left is not None or reward_size_right is not None:
+        trial["reward_size"] = {
+            "left": reward_size_left if reward_size_left is not None else 2.0,
+            "right": reward_size_right if reward_size_right is not None else 2.0,
+        }
     if block_p_left is not None or block_p_right is not None:
         trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
     return {
@@ -138,10 +148,7 @@ def _task_logic(quiescent_scalar=True):
         min_block_reward=2,
     )
     return AindDynamicForagingTaskLogic(
-        task_parameters=AindDynamicForagingTaskParameters(
-            trial_generator=spec,
-            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
-        )
+        task_parameters=AindDynamicForagingTaskParameters(trial_generator=spec)
     )
 
 
@@ -155,6 +162,35 @@ def _pulse_supply(column, value_ms):
         {column: [value_ms], "MessageType": ["READ"]},
         index=pd.Index([12.0], name="Time"),
     )
+
+
+def _rig(step_mm=0.01, resolution=MicrostepResolution.MICROSTEP8):
+    """Build a rig stub exposing the manipulator calibration the builder reads.
+
+    A ``SimpleNamespace`` mirrors the ``AindDynamicForagingRig`` attribute path
+    (``manipulator.calibration.full_step_to_mm`` / ``axis_configuration``) used by
+    the builder, with real ``Axis`` / ``MicrostepResolution`` enums.
+    """
+    full_step_to_mm = SimpleNamespace(x=step_mm, y1=step_mm, y2=step_mm, z=step_mm)
+    axis_configuration = [
+        SimpleNamespace(axis=axis, microstep_resolution=resolution)
+        for axis in (Axis.X, Axis.Y1, Axis.Y2, Axis.Z)
+    ]
+    calibration = SimpleNamespace(
+        full_step_to_mm=full_step_to_mm, axis_configuration=axis_configuration
+    )
+    return SimpleNamespace(manipulator=SimpleNamespace(calibration=calibration))
+
+
+def _accumulated_steps(times, motor_steps):
+    """Build an ``AccumulatedSteps`` frame (Motor0..Motor3 microstep counts).
+
+    ``motor_steps`` is a sequence of ``(m0, m1, m2, m3)`` per timestamp; all rows
+    are ``EVENT`` messages, mirroring the HarpManipulator stream.
+    """
+    columns = {f"Motor{i}": [row[i] for row in motor_steps] for i in range(4)}
+    columns["MessageType"] = ["EVENT"] * len(times)
+    return pd.DataFrame(columns, index=pd.Index(times, name="Time"))
 
 
 def _full_dataset():
@@ -172,6 +208,8 @@ def _full_dataset():
                             is_rewarded=True,
                             block_p_left=0.7,
                             block_p_right=0.1,
+                            reward_size_left=2.0,
+                            reward_size_right=4.0,
                         ),
                         _outcome(0.5, 0.5, is_right_choice=None, is_rewarded=False),
                     ],
@@ -183,9 +221,6 @@ def _full_dataset():
                 _events(
                     [10.5, 20.5], [{"Item1": 10.5, "Item2": True}, {"Item1": 20.5, "Item2": None}]
                 )
-            ),
-            "InitialManipulatorPosition": _Stream(
-                _events([5.0], [{"x": 1.0, "y1": 2.0, "y2": 3.0, "z": 4.0}])
             ),
             "TrialMetrics": _Stream(_events([10.2, 20.2], [{"bias": 0.3}, {"bias": None}])),
         }
@@ -209,7 +244,20 @@ def _full_dataset():
                     )
                 }
             ),
-            "InputSchemas": _Node({"TaskLogic": _Stream(_task_logic())}),
+            "HarpManipulator": _Node(
+                {
+                    # 0.00125 mm/microstep (0.01 / MICROSTEP8). One sample falls
+                    # inside each trial window ([10, 20) and [20, 30)); x moves
+                    # 10.0 -> 15.0 between the two trials.
+                    "AccumulatedSteps": _Stream(
+                        _accumulated_steps(
+                            [10.5, 20.5],
+                            [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)],
+                        )
+                    )
+                }
+            ),
+            "InputSchemas": _Node({"TaskLogic": _Stream(_task_logic()), "Rig": _Stream(_rig())}),
         }
     )
     return _Node({"Behavior": behavior})
@@ -275,29 +323,55 @@ def test_build_full_dataset():
     assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
     assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
-    assert first["min_reward_each_block"] == 2
+    assert pd.isna(first["min_reward_each_block"])  # removed from generator schema
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
-    # Lickspout positions from InitialManipulatorPosition.
-    assert first["lickspout_position_x"] == 1.0
-    assert first["lickspout_position_z"] == 4.0
+    # Lickspout positions from AccumulatedSteps (microsteps * 0.00125 mm),
+    # sampled at each trial start and re-referenced to session start. The first
+    # sample is the baseline (all zero); x then moves +5.0 mm for the second trial.
+    assert first["lickspout_position_x"] == 0.0
+    assert first["lickspout_position_y1"] == 0.0
+    assert first["lickspout_position_y2"] == 0.0
+    assert first["lickspout_position_z"] == 0.0
+    assert second["lickspout_position_x"] == 5.0
 
-    # Session-level reward volumes (uL) from task_parameters.reward_size.
+    # Per-trial reward volumes (uL) from trial.reward_size; second trial uses the default.
     assert first["reward_size_left"] == 2.0
     assert first["reward_size_right"] == 4.0
     assert second["reward_size_left"] == 2.0
+    assert second["reward_size_right"] == 2.0
 
     # Per-trial side bias from the TrialMetrics event; null when not recorded.
     assert first["side_bias"] == pytest.approx(0.3)
     assert pd.isna(second["side_bias"])
 
 
-def test_build_raises_when_task_logic_missing_with_trials():
-    """A missing TaskLogic stream is an error when there are trials (reward size is required)."""
+def test_build_missing_task_logic_leaves_session_columns_null():
+    """A missing TaskLogic stream still builds; session distribution columns are null."""
     dataset = _full_dataset()
     input_schemas = dataset.children["Behavior"].children["InputSchemas"]
     input_schemas.children["TaskLogic"] = _FailedStream()
-    with pytest.raises(ValueError, match="TaskLogic stream is required"):
+    table = TrialTableBuilder(dataset).build()
+    assert len(table) == 2
+    assert table["ITI_beta"].isna().all()
+    assert table["block_beta"].isna().all()
+
+
+def test_build_raises_when_rig_missing_with_trials():
+    """A missing Rig stream is an error when there are trials (lickspout position needs it)."""
+    dataset = _full_dataset()
+    input_schemas = dataset.children["Behavior"].children["InputSchemas"]
+    input_schemas.children["Rig"] = _FailedStream()
+    with pytest.raises(ValueError, match="Rig stream is required"):
+        TrialTableBuilder(dataset).build()
+
+
+def test_build_raises_when_accumulated_steps_missing_with_trials():
+    """A missing AccumulatedSteps stream is an error when there are trials."""
+    dataset = _full_dataset()
+    harp_manipulator = dataset.children["Behavior"].children["HarpManipulator"]
+    harp_manipulator.children["AccumulatedSteps"] = _FailedStream()
+    with pytest.raises(ValueError, match="AccumulatedSteps stream is required"):
         TrialTableBuilder(dataset).build()
 
 
@@ -348,7 +422,7 @@ def test_summary_generator_prefers_coupled_over_uncoupled():
     composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec(), coupled])
     resolved = TrialTableBuilder._summary_generator(composite)
     assert resolved.type == "CoupledTrialGenerator"
-    assert resolved.min_block_reward == coupled.min_block_reward
+    assert resolved is coupled
 
 
 def test_summary_generator_falls_back_to_uncoupled():
@@ -367,29 +441,16 @@ def test_summary_generator_none_when_no_coupled_or_uncoupled(caplog):
     assert "No coupled or uncoupled generator" in caplog.text
 
 
-def test_session_columns_only_reward_size_when_no_summary_generator():
-    """With no coupled/uncoupled generator, only the generator-independent reward size remains."""
+def test_session_columns_empty_when_no_summary_generator():
+    """With no coupled/uncoupled generator, the session columns dict is empty."""
     task_logic = AindDynamicForagingTaskLogic(
         task_parameters=AindDynamicForagingTaskParameters(
             trial_generator=TrialGeneratorCompositeSpec(
                 generators=[CoupledWarmupTrialGeneratorSpec()]
             ),
-            reward_size=RewardSize(left_value_volume=2.0, right_value_volume=4.0),
         )
     )
-    # Reward size lives on the task parameters, not the generator, so it is the
-    # only column populated when no summarising generator is found.
-    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {
-        "reward_size_left": 2.0,
-        "reward_size_right": 4.0,
-    }
-
-
-def test_session_columns_include_reward_size():
-    """Reward volumes are read from ``task_parameters.reward_size``."""
-    columns = TrialTableBuilder(_Node({}))._session_columns(_task_logic())
-    assert columns["reward_size_left"] == 2.0
-    assert columns["reward_size_right"] == 4.0
+    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {}
 
 
 def test_side_bias_parses_dict_model_json_and_none():
@@ -412,6 +473,17 @@ def test_build_missing_trial_metrics_leaves_side_bias_null():
     del software_events.children["TrialMetrics"]
     table = TrialTableBuilder(dataset).build()
     assert table["side_bias"].isna().all()
+
+
+def test_session_columns_warmup_generator_populates_min_reward_each_block():
+    """A warmup generator exposes ``min_block_reward``, populating ``min_reward_each_block``."""
+    task_logic = AindDynamicForagingTaskLogic(
+        task_parameters=AindDynamicForagingTaskParameters(
+            trial_generator=CoupledWarmupTrialGeneratorSpec()
+        )
+    )
+    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic)
+    assert columns["min_reward_each_block"] == CoupledWarmupTrialGeneratorSpec().min_block_reward
 
 
 def test_session_columns_uncoupled_has_null_reward_sum():
@@ -516,12 +588,6 @@ def test_animal_response_encoding():
     assert TrialTableBuilder._animal_response({"Item1": 1.0}) == 2
 
 
-def test_is_baited_none_trial_returns_false():
-    """A missing trial yields ``False`` bait for both sides."""
-    assert TrialTableBuilder._is_baited(None, is_right=True) is False
-    assert TrialTableBuilder._is_baited(None, is_right=False) is False
-
-
 def test_is_baited_forfeited_by_auto_response_on_same_side():
     """A side with guaranteed reward stays baited unless auto-responded to that side."""
     trial = TrialOutcome.model_validate(
@@ -538,8 +604,7 @@ def test_auto_water_encodes_side_from_auto_response():
     ).trial
     assert TrialTableBuilder._auto_water(trial, is_right=True) == 1
     assert TrialTableBuilder._auto_water(trial, is_right=False) == 0
-    # A missing trial or no auto-response counts as no autowater (0).
-    assert TrialTableBuilder._auto_water(None, is_right=True) == 0
+    # No auto-response counts as no autowater (0).
     no_auto = TrialOutcome.model_validate(
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
     ).trial
@@ -557,9 +622,8 @@ def test_block_reward_probability_reads_metadata_not_trial():
     assert TrialTableBuilder._block_reward_probability(trial, is_right=True) == pytest.approx(0.1)
 
 
-def test_block_reward_probability_none_without_metadata_or_trial():
-    """A missing trial or absent metadata yields ``None``."""
-    assert TrialTableBuilder._block_reward_probability(None, is_right=True) is None
+def test_block_reward_probability_none_without_metadata():
+    """Absent metadata yields ``None``."""
     no_meta = TrialOutcome.model_validate(
         _outcome(1.0, 0.2, is_right_choice=True, is_rewarded=True)
     ).trial
@@ -570,15 +634,19 @@ def test_block_reward_probability_none_without_metadata_or_trial():
 @pytest.mark.parametrize(
     "payload",
     [
-        None,
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True),
         TrialOutcome.model_validate(_outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False)),
     ],
 )
-def test_parse_outcome_accepts_dict_model_and_none(payload):
-    """``_parse_outcome`` accepts dicts, model instances, and ``None``."""
-    result = TrialTableBuilder._parse_outcome(payload)
-    assert result is None or isinstance(result, TrialOutcome)
+def test_parse_outcome_accepts_dict_and_model(payload):
+    """``_parse_outcome`` accepts dicts and model instances."""
+    assert isinstance(TrialTableBuilder._parse_outcome(payload), TrialOutcome)
+
+
+def test_parse_outcome_raises_on_none():
+    """``_parse_outcome`` raises ``ValueError`` for a ``None`` payload."""
+    with pytest.raises(ValueError, match="required"):
+        TrialTableBuilder._parse_outcome(None)
 
 
 def test_parse_outcome_accepts_json_string():
@@ -589,23 +657,109 @@ def test_parse_outcome_accepts_json_string():
     assert isinstance(TrialTableBuilder._parse_outcome(payload), TrialOutcome)
 
 
-def test_lickspout_columns_from_list_payload():
-    """A list payload is mapped positionally to x/y1/y2/z."""
+def test_manipulator_mm_per_step_from_calibration():
+    """mm-per-microstep is full_step_to_mm / microstep resolution, per axis."""
     builder = TrialTableBuilder(_Node({}))
-    columns = builder._lickspout_columns(_events([1.0], [[10.0, 20.0, 30.0, 40.0]]))
-    assert columns["lickspout_position_x"] == 10.0
-    assert columns["lickspout_position_y2"] == 30.0
+    mm_per_step = builder._manipulator_mm_per_step(_rig())
+    assert mm_per_step == {"x": 0.00125, "y1": 0.00125, "y2": 0.00125, "z": 0.00125}
 
 
-def test_lickspout_columns_unrecognized_payload_is_null():
-    """An unrecognized payload leaves all lickspout positions ``None``."""
+def test_manipulator_mm_per_step_respects_resolution():
+    """A finer microstep resolution shrinks the distance per step."""
     builder = TrialTableBuilder(_Node({}))
-    columns = builder._lickspout_columns(_events([1.0], ["unexpected"]))
-    assert all(value is None for value in columns.values())
+    mm_per_step = builder._manipulator_mm_per_step(
+        _rig(step_mm=0.01, resolution=MicrostepResolution.MICROSTEP16)
+    )
+    assert mm_per_step["x"] == pytest.approx(0.01 / 16)
 
 
-def test_lickspout_columns_missing_stream_is_null():
-    """A missing manipulator stream leaves all lickspout positions ``None``."""
+def test_manipulator_mm_per_step_missing_axis_raises():
+    """A calibration lacking one of the four axes raises ``ValueError``."""
     builder = TrialTableBuilder(_Node({}))
-    columns = builder._lickspout_columns(None)
+    rig = _rig()
+    # Drop the Z axis configuration.
+    rig.manipulator.calibration.axis_configuration = [
+        config
+        for config in rig.manipulator.calibration.axis_configuration
+        if config.axis is not Axis.Z
+    ]
+    with pytest.raises(ValueError, match="missing axis 'z'"):
+        builder._manipulator_mm_per_step(rig)
+
+
+def test_manipulator_positions_converts_steps_to_mm_relative_to_start():
+    """EVENT rows convert to mm and are re-referenced to the session-start sample."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)])
+    positions = builder._manipulator_positions(steps, _rig())
+    assert list(positions.index) == [8.0, 15.0]
+    # First sample is the baseline (zeroed); x then moves +5.0 mm (4000 steps).
+    assert positions.loc[8.0, "lickspout_position_x"] == 0.0
+    assert positions.loc[15.0, "lickspout_position_x"] == 5.0
+    assert positions.loc[8.0, "lickspout_position_z"] == 0.0
+
+
+def test_manipulator_positions_filters_non_event_rows():
+    """Only ``EVENT`` rows contribute to the position frame."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)])
+    steps.loc[15.0, "MessageType"] = "WRITE"
+    positions = builder._manipulator_positions(steps, _rig())
+    assert list(positions.index) == [8.0]
+
+
+def test_manipulator_positions_all_non_event_raises():
+    """A stream with no ``EVENT`` rows raises ``ValueError``."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0], [(8000, 1600, 2400, 4000)])
+    steps["MessageType"] = "WRITE"
+    with pytest.raises(ValueError, match="no EVENT rows"):
+        builder._manipulator_positions(steps, _rig())
+
+
+def test_manipulator_positions_missing_motor_column_raises():
+    """A stream missing a Motor column raises ``ValueError``."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0], [(8000, 1600, 2400, 4000)]).drop(columns=["Motor3"])
+    with pytest.raises(ValueError, match="missing column Motor3"):
+        builder._manipulator_positions(steps, _rig())
+
+
+def test_manipulator_positions_incomplete_calibration_raises():
+    """Steps present but a calibration axis missing raises ``ValueError``."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0], [(8000, 1600, 2400, 4000)])
+    rig = _rig()
+    rig.manipulator.calibration.axis_configuration = [
+        config
+        for config in rig.manipulator.calibration.axis_configuration
+        if config.axis is not Axis.Z
+    ]
+    with pytest.raises(ValueError, match="missing axis 'z'"):
+        builder._manipulator_positions(steps, rig)
+
+
+def _two_sample_positions(builder):
+    """Build a position frame relative to session start: t=8.0 (x=0.0), t=15.0 (x=5.0)."""
+    return builder._manipulator_positions(
+        _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)]),
+        _rig(),
+    )
+
+
+def test_sample_lickspout_picks_sample_nearest_start_in_window():
+    """A trial takes the in-window sample nearest its start."""
+    builder = TrialTableBuilder(_Node({}))
+    positions = _two_sample_positions(builder)
+    # Window [7.0, 12.0) contains only the t=8.0 baseline sample (0.0).
+    assert builder._sample_lickspout(positions, 7.0, 12.0)["lickspout_position_x"] == 0.0
+    # Window [14.0, 20.0) contains only the t=15.0 sample (+5.0 mm).
+    assert builder._sample_lickspout(positions, 14.0, 20.0)["lickspout_position_x"] == 5.0
+
+
+def test_sample_lickspout_no_sample_in_window_is_null():
+    """A trial whose window contains no sample yields ``None`` columns."""
+    builder = TrialTableBuilder(_Node({}))
+    positions = _two_sample_positions(builder)
+    columns = builder._sample_lickspout(positions, 20.0, 30.0)
     assert all(value is None for value in columns.values())

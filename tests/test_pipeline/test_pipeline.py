@@ -1,5 +1,6 @@
 """Tests for ``dynamic_foraging_processing.pipeline._pipeline``."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -371,6 +372,25 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert processing_json.exists()
     loaded = Processing.model_validate_json(processing_json.read_text())
     assert loaded.data_processes[0].process_type == ProcessName.PIPELINE
+    # The data process and the top-level pipeline are linked by name.
+    assert loaded.data_processes[0].pipeline_name == "dynamic-foraging-processing-pipeline"
+    assert [p.name for p in loaded.pipelines] == ["dynamic-foraging-processing-pipeline"]
+    assert loaded.pipelines[0].version == _pipeline._PACKAGE_VERSION
+    assert loaded.pipelines[0].url == _pipeline._CODE_URL
+
+
+def test_write_processing_records_input_data_from_loader_path(tmp_path):
+    """``_write_processing`` records the loader file stem as the pipeline ``input_data``."""
+    pipeline = _make_pipeline()
+    pipeline.loader.path = Path("some/dir/my_session.json")
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 2, tzinfo=timezone.utc)
+
+    pipeline._write_processing(str(tmp_path), start, end)
+
+    loaded = Processing.model_validate_json((tmp_path / "processing.json").read_text())
+    input_data = loaded.pipelines[0].input_data
+    assert [asset.name for asset in input_data] == ["my_session"]
 
 
 def test_run_qc_writes_quality_control(tmp_path):

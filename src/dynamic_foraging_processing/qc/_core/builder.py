@@ -1,8 +1,8 @@
 """Assemble the dynamic foraging ``QualityControl`` object.
 
-Collects a flat list of metrics (behavior + contract QA) into a single
-``QualityControl``, wiring up ``default_grouping`` so the QC portal lays out
-``behavior`` and ``test_suite`` as sibling top-level groups.
+Collects a flat list of metrics (behavior + contract QC) into a single
+``QualityControl``, wiring up ``default_grouping`` so the QC portal groups
+metrics by their ``type`` and ``test_suite`` tags.
 """
 
 import typing as t
@@ -10,7 +10,7 @@ import typing as t
 from aind_data_schema.core.quality_control import QCMetric, QualityControl
 
 #: Tag keys laid out as siblings at the top level of the QC portal.
-DEFAULT_GROUPING = ["behavior", "test_suite"]
+DEFAULT_GROUPING = [("type", "test_suite")]
 
 
 def build_quality_control(
@@ -26,9 +26,9 @@ def build_quality_control(
     Parameters
     ----------
     metrics : list of QCMetric
-        All metrics (behavior + contract QA).
+        All metrics (behavior + contract QC).
     default_grouping : list of str, optional
-        Tag keys the portal groups by. Defaults to ``["behavior", "test_suite"]``.
+        Tag keys the portal groups by. Defaults to ``[("type", "test_suite")]``.
     allow_tag_failures : list of str, optional
         Tag values whose metric failures should not fail the overall QC.
     key_experimenters : list of str, optional

@@ -122,7 +122,9 @@ def _add_lickspout_position_plot(
         if position is None or len(position) == 0:
             continue
         values = np.asarray(position, dtype=float)
-        ax.plot(values - values[0], color, label=label)
+        # Values already come in relative to session start (normalized by the
+        # trial-table builder), so plot them directly.
+        ax.plot(values, color, label=label)
         plotted = True
     if plotted:
         ax.legend()
@@ -302,6 +304,14 @@ def plot_side_bias(
         go_cue_times,
     )
     _add_reward_probabilities(ax[3], reward_probability_left, reward_probability_right)
+
+    # Align the x-axis across every panel so trials line up vertically. The
+    # panels are all indexed by trial, but some auto-scale (adding margins) while
+    # others set [0, N]; pin them all to a common [0, n_trials].
+    n_trials = max(len(np.asarray(side_bias)), len(np.asarray(animal_response)))
+    if n_trials:
+        for axis in ax:
+            axis.set_xlim([0, n_trials])
 
     fig.savefig(Path(results_folder) / SIDE_BIAS_PLOT, dpi=300, bbox_inches="tight")
     plt.close(fig)
