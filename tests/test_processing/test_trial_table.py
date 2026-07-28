@@ -90,6 +90,9 @@ def _outcome(
     block_p_right=None,
     reward_size_left=None,
     reward_size_right=None,
+    lickspout_offset_delta=None,
+    is_bias_water_intervention=None,
+    is_bias_stage_intervention=None,
 ):
     """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader).
 
@@ -97,7 +100,10 @@ def _outcome(
     fields); ``block_p_left`` / ``block_p_right``, when given, are the block
     probabilities stored under ``trial.metadata`` (the source of the
     ``reward_probability`` columns). ``reward_size_left`` / ``reward_size_right``
-    override the default per-trial reward volumes (uL).
+    override the default per-trial reward volumes (uL). ``lickspout_offset_delta``
+    sets the per-trial horizontal spout displacement (mm), and the
+    ``is_bias_*_intervention`` flags populate the anti-bias ``metadata.extra``
+    (``BlockBasedTrialMetadata``) block.
     """
     trial = {
         "p_reward_left": p_left,
@@ -108,6 +114,8 @@ def _outcome(
         "inter_trial_interval_duration": 4.0,
         "is_auto_reward_right": auto,
     }
+    if lickspout_offset_delta is not None:
+        trial["lickspout_offset_delta"] = lickspout_offset_delta
     if reward_size_left is not None or reward_size_right is not None:
         trial["reward_size"] = {
             "left": reward_size_left if reward_size_left is not None else 2.0,
@@ -115,6 +123,12 @@ def _outcome(
         }
     if block_p_left is not None or block_p_right is not None:
         trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
+    if is_bias_water_intervention is not None or is_bias_stage_intervention is not None:
+        metadata = trial.setdefault("metadata", {})
+        metadata["extra"] = {
+            "is_bias_water_intervention": bool(is_bias_water_intervention),
+            "is_bias_stage_intervention": bool(is_bias_stage_intervention),
+        }
     return {
         "trial": trial,
         "is_right_choice": is_right_choice,
@@ -297,6 +311,13 @@ def test_build_full_dataset():
     # Per-trial side bias from the TrialMetrics event; null when not recorded.
     assert first["side_bias"] == pytest.approx(0.3)
     assert pd.isna(second["side_bias"])
+
+    # No anti-bias interventions in the base fixture -> inert defaults.
+    assert bool(first["anti_bias_left_water"]) is False
+    assert bool(first["anti_bias_right_water"]) is False
+    assert first["anti_bias_lickspout_movement"] == 0.0
+    assert bool(second["anti_bias_left_water"]) is False
+    assert second["anti_bias_lickspout_movement"] == 0.0
 
 
 def test_build_missing_task_logic_leaves_session_columns_null():
@@ -544,6 +565,116 @@ def test_auto_water_encodes_side_from_auto_response():
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
     ).trial
     assert TrialTableBuilder._auto_water(no_auto, is_right=True) == 0
+
+
+def test_bias_metadata_parses_dict_model_and_default():
+    """``_bias_metadata`` handles a dict extra, a model extra, and missing metadata."""
+    from aind_behavior_dynamic_foraging.task_logic.trial_generators.block_based_trial_generator import (
+        BlockBasedTrialMetadata,
+    )
+
+    # Dict extra (as delivered off the stream) is validated into the model.
+    from_dict = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, is_bias_water_intervention=True)
+    ).trial
+    assert TrialTableBuilder._bias_metadata(from_dict).is_bias_water_intervention is True
+
+    # A ``BlockBasedTrialMetadata`` instance is returned as-is.
+    trial = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, block_p_left=0.5)
+    ).trial
+    trial.metadata.extra = BlockBasedTrialMetadata(is_bias_stage_intervention=True)
+    assert TrialTableBuilder._bias_metadata(trial).is_bias_stage_intervention is True
+
+    # No metadata -> all-False default.
+    no_meta = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True)
+    ).trial
+    assert no_meta.metadata is None
+    default = TrialTableBuilder._bias_metadata(no_meta)
+    assert default.is_bias_water_intervention is False
+    assert default.is_bias_stage_intervention is False
+
+    # Metadata present but a non-dict / non-model extra -> default.
+    other = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, block_p_left=0.5)
+    ).trial
+    other.metadata.extra = "unexpected"
+    assert TrialTableBuilder._bias_metadata(other).is_bias_water_intervention is False
+
+
+def test_anti_bias_water_gated_on_intervention_flag_and_side():
+    """Anti-bias water is True only for a bias-water intervention on the matching side."""
+    # Right-side bias-water intervention.
+    right = TrialOutcome.model_validate(
+        _outcome(
+            1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True,
+            is_bias_water_intervention=True,
+        )
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(right)
+    assert TrialTableBuilder._anti_bias_water(right, meta, is_right=True) is True
+    assert TrialTableBuilder._anti_bias_water(right, meta, is_right=False) is False
+
+    # Auto-response to the left without the bias flag is ordinary autowater, not
+    # an anti-bias intervention.
+    autowater = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=False, is_rewarded=True, auto=False)
+    ).trial
+    auto_meta = TrialTableBuilder._bias_metadata(autowater)
+    assert TrialTableBuilder._anti_bias_water(autowater, auto_meta, is_right=False) is False
+
+
+def test_anti_bias_lickspout_movement_gated_on_stage_flag():
+    """Movement is the offset delta only when flagged a bias-stage intervention."""
+    moved = TrialOutcome.model_validate(
+        _outcome(
+            1.0, 1.0, is_right_choice=True, is_rewarded=True,
+            lickspout_offset_delta=1.5, is_bias_stage_intervention=True,
+        )
+    ).trial
+    assert TrialTableBuilder._anti_bias_lickspout_movement(
+        moved, TrialTableBuilder._bias_metadata(moved)
+    ) == pytest.approx(1.5)
+
+    # Offset present but not flagged as a stage intervention -> 0.0.
+    unflagged = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, lickspout_offset_delta=1.5)
+    ).trial
+    assert (
+        TrialTableBuilder._anti_bias_lickspout_movement(
+            unflagged, TrialTableBuilder._bias_metadata(unflagged)
+        )
+        == 0.0
+    )
+
+
+def test_build_populates_anti_bias_columns():
+    """A dataset with anti-bias interventions populates the three anti-bias columns."""
+    dataset = _full_dataset()
+    software_events = dataset.children["Behavior"].children["SoftwareEvents"]
+    software_events.children["TrialOutcome"] = _Stream(
+        _events(
+            [10.1, 20.1],
+            [
+                _outcome(
+                    1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True,
+                    is_bias_water_intervention=True,
+                ),
+                _outcome(
+                    1.0, 1.0, is_right_choice=True, is_rewarded=True,
+                    lickspout_offset_delta=-0.8, is_bias_stage_intervention=True,
+                ),
+            ],
+        )
+    )
+    table = TrialTableBuilder(dataset).build()
+    first, second = table.iloc[0], table.iloc[1]
+    assert bool(first["anti_bias_right_water"]) is True
+    assert bool(first["anti_bias_left_water"]) is False
+    assert first["anti_bias_lickspout_movement"] == 0.0
+    assert bool(second["anti_bias_right_water"]) is False
+    assert second["anti_bias_lickspout_movement"] == pytest.approx(-0.8)
 
 
 def test_block_reward_probability_reads_metadata_not_trial():

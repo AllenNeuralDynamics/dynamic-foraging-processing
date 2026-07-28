@@ -2,6 +2,7 @@
 
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from dynamic_foraging_processing.qc.processed import plots as _plots
@@ -46,9 +47,24 @@ def test_plot_side_bias_full_inputs(tmp_path):
         autowater_right=np.array([0, 0, 0, 1, 0, 0]),
         manual_left_times=np.array([0.1, 3.6]),  # 0.1 -> -1, 3.6 -> trial index
         manual_right_times=np.array([5.6]),
+        anti_bias_left_water=np.array([False, False, True, False, False, False]),
+        anti_bias_right_water=np.array([False, False, False, False, False, True]),
+        anti_bias_lickspout_movement=np.array([0.0, 0.5, 0.0, 0.0, -0.3, 0.0]),
     )
     assert name == _plots.SIDE_BIAS_PLOT
     assert os.path.exists(tmp_path / name)
+
+
+def test_add_bias_plot_movement_with_empty_bias():
+    """Lickspout markers fall back to y=0 when the bias trace is empty."""
+    fig, ax = plt.subplots()
+    # Empty bias but a nonzero movement -> heights come from ``np.zeros``.
+    _plots._add_bias_plot(
+        ax,
+        np.array([]),
+        anti_bias_lickspout_movement=np.array([1.0, 0.0]),
+    )
+    plt.close(fig)
 
 
 def test_plot_side_bias_minimal_inputs(tmp_path):
