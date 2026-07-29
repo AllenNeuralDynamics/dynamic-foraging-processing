@@ -1,5 +1,7 @@
 """Tests for ``dynamic_foraging_processing.processing._trial_table``."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -14,6 +16,7 @@ from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     UncoupledTrialGeneratorSpec,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
+from aind_behavior_services.rig.aind_manipulator import Axis, MicrostepResolution
 from aind_behavior_services.task.distributions import (
     ExponentialDistribution,
     ExponentialDistributionParameters,
@@ -175,6 +178,35 @@ def _pulse_supply(column, value_ms):
     )
 
 
+def _rig(step_mm=0.01, resolution=MicrostepResolution.MICROSTEP8):
+    """Build a rig stub exposing the manipulator calibration the builder reads.
+
+    A ``SimpleNamespace`` mirrors the ``AindDynamicForagingRig`` attribute path
+    (``manipulator.calibration.full_step_to_mm`` / ``axis_configuration``) used by
+    the builder, with real ``Axis`` / ``MicrostepResolution`` enums.
+    """
+    full_step_to_mm = SimpleNamespace(x=step_mm, y1=step_mm, y2=step_mm, z=step_mm)
+    axis_configuration = [
+        SimpleNamespace(axis=axis, microstep_resolution=resolution)
+        for axis in (Axis.X, Axis.Y1, Axis.Y2, Axis.Z)
+    ]
+    calibration = SimpleNamespace(
+        full_step_to_mm=full_step_to_mm, axis_configuration=axis_configuration
+    )
+    return SimpleNamespace(manipulator=SimpleNamespace(calibration=calibration))
+
+
+def _accumulated_steps(times, motor_steps):
+    """Build an ``AccumulatedSteps`` frame (Motor0..Motor3 microstep counts).
+
+    ``motor_steps`` is a sequence of ``(m0, m1, m2, m3)`` per timestamp; all rows
+    are ``EVENT`` messages, mirroring the HarpManipulator stream.
+    """
+    columns = {f"Motor{i}": [row[i] for row in motor_steps] for i in range(4)}
+    columns["MessageType"] = ["EVENT"] * len(times)
+    return pd.DataFrame(columns, index=pd.Index(times, name="Time"))
+
+
 def _full_dataset():
     """Assemble a two-trial fake dataset covering the common path."""
     software_events = _Node(
@@ -204,9 +236,6 @@ def _full_dataset():
                     [10.5, 20.5], [{"Item1": 10.5, "Item2": True}, {"Item1": 20.5, "Item2": None}]
                 )
             ),
-            "InitialManipulatorPosition": _Stream(
-                _events([5.0], [{"x": 1.0, "y1": 2.0, "y2": 3.0, "z": 4.0}])
-            ),
             "TrialMetrics": _Stream(_events([10.2, 20.2], [{"bias": 0.3}, {"bias": None}])),
         }
     )
@@ -229,7 +258,20 @@ def _full_dataset():
                     )
                 }
             ),
-            "InputSchemas": _Node({"TaskLogic": _Stream(_task_logic())}),
+            "HarpManipulator": _Node(
+                {
+                    # 0.00125 mm/microstep (0.01 / MICROSTEP8). One sample falls
+                    # inside each trial window ([10, 20) and [20, 30)); x moves
+                    # 10.0 -> 15.0 between the two trials.
+                    "AccumulatedSteps": _Stream(
+                        _accumulated_steps(
+                            [10.5, 20.5],
+                            [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)],
+                        )
+                    )
+                }
+            ),
+            "InputSchemas": _Node({"TaskLogic": _Stream(_task_logic()), "Rig": _Stream(_rig())}),
         }
     )
     return _Node({"Behavior": behavior})
@@ -298,9 +340,14 @@ def test_build_full_dataset():
     assert pd.isna(first["min_reward_each_block"])  # removed from generator schema
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
-    # Lickspout positions from InitialManipulatorPosition.
-    assert first["lickspout_position_x"] == 1.0
-    assert first["lickspout_position_z"] == 4.0
+    # Lickspout positions from AccumulatedSteps (microsteps * 0.00125 mm),
+    # sampled at each trial start and re-referenced to session start. The first
+    # sample is the baseline (all zero); x then moves +5.0 mm for the second trial.
+    assert first["lickspout_position_x"] == 0.0
+    assert first["lickspout_position_y1"] == 0.0
+    assert first["lickspout_position_y2"] == 0.0
+    assert first["lickspout_position_z"] == 0.0
+    assert second["lickspout_position_x"] == 5.0
 
     # Per-trial reward volumes (uL) from trial.reward_size; second trial uses the default.
     assert first["reward_size_left"] == 2.0
@@ -329,6 +376,24 @@ def test_build_missing_task_logic_leaves_session_columns_null():
     assert len(table) == 2
     assert table["ITI_beta"].isna().all()
     assert table["block_beta"].isna().all()
+
+
+def test_build_raises_when_rig_missing_with_trials():
+    """A missing Rig stream is an error when there are trials (lickspout position needs it)."""
+    dataset = _full_dataset()
+    input_schemas = dataset.children["Behavior"].children["InputSchemas"]
+    input_schemas.children["Rig"] = _FailedStream()
+    with pytest.raises(ValueError, match="Rig stream is required"):
+        TrialTableBuilder(dataset).build()
+
+
+def test_build_raises_when_accumulated_steps_missing_with_trials():
+    """A missing AccumulatedSteps stream is an error when there are trials."""
+    dataset = _full_dataset()
+    harp_manipulator = dataset.children["Behavior"].children["HarpManipulator"]
+    harp_manipulator.children["AccumulatedSteps"] = _FailedStream()
+    with pytest.raises(ValueError, match="AccumulatedSteps stream is required"):
+        TrialTableBuilder(dataset).build()
 
 
 def test_build_empty_dataset_returns_empty_frame():
@@ -739,23 +804,109 @@ def test_parse_outcome_accepts_json_string():
     assert isinstance(TrialTableBuilder._parse_outcome(payload), TrialOutcome)
 
 
-def test_lickspout_columns_from_list_payload():
-    """A list payload is mapped positionally to x/y1/y2/z."""
+def test_manipulator_mm_per_step_from_calibration():
+    """mm-per-microstep is full_step_to_mm / microstep resolution, per axis."""
     builder = TrialTableBuilder(_Node({}))
-    columns = builder._lickspout_columns(_events([1.0], [[10.0, 20.0, 30.0, 40.0]]))
-    assert columns["lickspout_position_x"] == 10.0
-    assert columns["lickspout_position_y2"] == 30.0
+    mm_per_step = builder._manipulator_mm_per_step(_rig())
+    assert mm_per_step == {"x": 0.00125, "y1": 0.00125, "y2": 0.00125, "z": 0.00125}
 
 
-def test_lickspout_columns_unrecognized_payload_is_null():
-    """An unrecognized payload leaves all lickspout positions ``None``."""
+def test_manipulator_mm_per_step_respects_resolution():
+    """A finer microstep resolution shrinks the distance per step."""
     builder = TrialTableBuilder(_Node({}))
-    columns = builder._lickspout_columns(_events([1.0], ["unexpected"]))
-    assert all(value is None for value in columns.values())
+    mm_per_step = builder._manipulator_mm_per_step(
+        _rig(step_mm=0.01, resolution=MicrostepResolution.MICROSTEP16)
+    )
+    assert mm_per_step["x"] == pytest.approx(0.01 / 16)
 
 
-def test_lickspout_columns_missing_stream_is_null():
-    """A missing manipulator stream leaves all lickspout positions ``None``."""
+def test_manipulator_mm_per_step_missing_axis_raises():
+    """A calibration lacking one of the four axes raises ``ValueError``."""
     builder = TrialTableBuilder(_Node({}))
-    columns = builder._lickspout_columns(None)
+    rig = _rig()
+    # Drop the Z axis configuration.
+    rig.manipulator.calibration.axis_configuration = [
+        config
+        for config in rig.manipulator.calibration.axis_configuration
+        if config.axis is not Axis.Z
+    ]
+    with pytest.raises(ValueError, match="missing axis 'z'"):
+        builder._manipulator_mm_per_step(rig)
+
+
+def test_manipulator_positions_converts_steps_to_mm_relative_to_start():
+    """EVENT rows convert to mm and are re-referenced to the session-start sample."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)])
+    positions = builder._manipulator_positions(steps, _rig())
+    assert list(positions.index) == [8.0, 15.0]
+    # First sample is the baseline (zeroed); x then moves +5.0 mm (4000 steps).
+    assert positions.loc[8.0, "lickspout_position_x"] == 0.0
+    assert positions.loc[15.0, "lickspout_position_x"] == 5.0
+    assert positions.loc[8.0, "lickspout_position_z"] == 0.0
+
+
+def test_manipulator_positions_filters_non_event_rows():
+    """Only ``EVENT`` rows contribute to the position frame."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)])
+    steps.loc[15.0, "MessageType"] = "WRITE"
+    positions = builder._manipulator_positions(steps, _rig())
+    assert list(positions.index) == [8.0]
+
+
+def test_manipulator_positions_all_non_event_raises():
+    """A stream with no ``EVENT`` rows raises ``ValueError``."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0], [(8000, 1600, 2400, 4000)])
+    steps["MessageType"] = "WRITE"
+    with pytest.raises(ValueError, match="no EVENT rows"):
+        builder._manipulator_positions(steps, _rig())
+
+
+def test_manipulator_positions_missing_motor_column_raises():
+    """A stream missing a Motor column raises ``ValueError``."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0], [(8000, 1600, 2400, 4000)]).drop(columns=["Motor3"])
+    with pytest.raises(ValueError, match="missing column Motor3"):
+        builder._manipulator_positions(steps, _rig())
+
+
+def test_manipulator_positions_incomplete_calibration_raises():
+    """Steps present but a calibration axis missing raises ``ValueError``."""
+    builder = TrialTableBuilder(_Node({}))
+    steps = _accumulated_steps([8.0], [(8000, 1600, 2400, 4000)])
+    rig = _rig()
+    rig.manipulator.calibration.axis_configuration = [
+        config
+        for config in rig.manipulator.calibration.axis_configuration
+        if config.axis is not Axis.Z
+    ]
+    with pytest.raises(ValueError, match="missing axis 'z'"):
+        builder._manipulator_positions(steps, rig)
+
+
+def _two_sample_positions(builder):
+    """Build a position frame relative to session start: t=8.0 (x=0.0), t=15.0 (x=5.0)."""
+    return builder._manipulator_positions(
+        _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)]),
+        _rig(),
+    )
+
+
+def test_sample_lickspout_picks_sample_nearest_start_in_window():
+    """A trial takes the in-window sample nearest its start."""
+    builder = TrialTableBuilder(_Node({}))
+    positions = _two_sample_positions(builder)
+    # Window [7.0, 12.0) contains only the t=8.0 baseline sample (0.0).
+    assert builder._sample_lickspout(positions, 7.0, 12.0)["lickspout_position_x"] == 0.0
+    # Window [14.0, 20.0) contains only the t=15.0 sample (+5.0 mm).
+    assert builder._sample_lickspout(positions, 14.0, 20.0)["lickspout_position_x"] == 5.0
+
+
+def test_sample_lickspout_no_sample_in_window_is_null():
+    """A trial whose window contains no sample yields ``None`` columns."""
+    builder = TrialTableBuilder(_Node({}))
+    positions = _two_sample_positions(builder)
+    columns = builder._sample_lickspout(positions, 20.0, 30.0)
     assert all(value is None for value in columns.values())
