@@ -128,7 +128,7 @@ def plot_lick_latency(
     ax.hist(left_latency[~np.isnan(left_latency)], bins=bins, alpha=0.5, label="L", density=True)
     ax.legend()
     ax.set_title("lick latency by lick side")
-    ax.set_xlabel("s")
+    ax.set_xlabel("Time from go cue (s)")
     ax.set_ylabel("density %")
     ax.set_xlim(left=0)
 
