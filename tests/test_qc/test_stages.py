@@ -45,27 +45,40 @@ def test_raw_qc_run_delegates_to_contract_metrics(monkeypatch):
 
 
 def test_processed_qc_run_returns_metrics():
-    """``ProcessedQC.run`` produces the five behavior metrics."""
-    trials = pd.DataFrame({"animal_response": [0, 1, 2, 1], "side_bias": [-0.1, 0.0, np.nan, 0.1]})
+    """``ProcessedQC.run`` produces the six behavior metrics."""
+    trials = pd.DataFrame(
+        {
+            "animal_response": [0, 1, 2, 1],
+            "side_bias": [-0.1, 0.0, np.nan, 0.1],
+            "goCue_start_time": [0.5, 1.5, 2.5, 3.5],
+        }
+    )
     metrics = ProcessedQC().run(
         trials,
         np.array([1.0, 1.01]),
         np.array([2.0, 2.01]),
     )
-    assert len(metrics) == 5
+    assert len(metrics) == 6
     assert all(isinstance(m, QCMetric) for m in metrics)
     assert metrics[0].name == "average side bias"
 
 
 def test_processed_qc_run_writes_plots(tmp_path):
     """Supplying a results folder writes the supporting plots."""
-    trials = pd.DataFrame({"animal_response": [0, 1, 2, 1], "side_bias": [-0.1, 0.0, np.nan, 0.1]})
+    trials = pd.DataFrame(
+        {
+            "animal_response": [0, 1, 2, 1],
+            "side_bias": [-0.1, 0.0, np.nan, 0.1],
+            "goCue_start_time": [0.5, 1.5, 2.5, 3.5],
+        }
+    )
     metrics = ProcessedQC().run(
         trials,
         np.array([1.0, 1.01]),
         np.array([2.0, 2.01]),
         str(tmp_path),
     )
-    assert len(metrics) == 5
+    assert len(metrics) == 6
     assert os.path.exists(tmp_path / "side_bias.png")
     assert os.path.exists(tmp_path / "lick_intervals.png")
+    assert os.path.exists(tmp_path / "lick_latency.png")

@@ -51,23 +51,30 @@ def now_utc() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def bool_to_status(passed: bool, timestamp: t.Optional[datetime.datetime] = None) -> QCStatus:
-    """Convert a boolean pass/fail into an automated ``QCStatus``.
+def bool_to_status(
+    passed: t.Optional[bool], timestamp: t.Optional[datetime.datetime] = None
+) -> QCStatus:
+    """Convert a boolean pass/fail (or ``None``) into an automated ``QCStatus``.
 
     Parameters
     ----------
-    passed : bool
-        ``True`` for a passing metric, ``False`` for a failing one.
+    passed : bool or None
+        ``True`` for a passing metric, ``False`` for a failing one, and ``None``
+        for a metric with no automated pass/fail — the value is reported but the
+        judgment is deferred, so the status is ``PENDING`` (needs manual review).
     timestamp : datetime.datetime, optional
         Timezone-aware evaluation time. Defaults to the current Seattle time.
 
     Returns
     -------
     QCStatus
-        An ``"Automated"`` status with ``PASS`` or ``FAIL``.
+        An ``"Automated"`` status with ``PASS``, ``FAIL``, or ``PENDING``.
     """
     timestamp = timestamp if timestamp is not None else now_seattle()
-    status = Status.PASS if passed else Status.FAIL
+    if passed is None:
+        status = Status.PENDING
+    else:
+        status = Status.PASS if passed else Status.FAIL
     return QCStatus(evaluator="Automated", status=status, timestamp=timestamp)
 
 
