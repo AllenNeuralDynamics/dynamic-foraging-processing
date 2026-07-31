@@ -169,11 +169,11 @@ def _add_bias_plot(
     plotted = False
     if anti_bias_right_water is not None:
         right = np.where(np.asarray(anti_bias_right_water, dtype=bool))[0]
-        ax.vlines(right, 0.9, 1.0, color="cyan", linewidth=1, label="Anti-bias water (R)")
+        ax.vlines(right, 0.9, 1.0, color="red", linewidth=1, label="Anti-bias water (R)")
         plotted = True
     if anti_bias_left_water is not None:
         left = np.where(np.asarray(anti_bias_left_water, dtype=bool))[0]
-        ax.vlines(left, -1.0, -0.9, color="cyan", linewidth=1, label="Anti-bias water (L)")
+        ax.vlines(left, -1.0, -0.9, color="blue", linewidth=1, label="Anti-bias water (L)")
         plotted = True
     if anti_bias_lickspout_movement is not None:
         move = np.asarray(anti_bias_lickspout_movement, dtype=float)
