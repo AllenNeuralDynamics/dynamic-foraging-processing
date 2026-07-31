@@ -138,8 +138,21 @@ def plot_lick_latency(
     return LICK_LATENCY_PLOT
 
 
-def _add_bias_plot(ax: plt.Axes, side_bias: np.ndarray) -> None:
-    """Draw the per-trial side-bias trace from the trial-table column."""
+def _add_bias_plot(
+    ax: plt.Axes,
+    side_bias: np.ndarray,
+    anti_bias_left_water: t.Optional[np.ndarray] = None,
+    anti_bias_right_water: t.Optional[np.ndarray] = None,
+    anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
+) -> None:
+    """Draw the per-trial side-bias trace with anti-bias interventions overlaid.
+
+    The anti-bias algorithm pushes against a developing side bias, so its two
+    interventions are drawn on top of the bias trace they respond to: water
+    interventions as short ticks at the top (right port) and bottom (left
+    port), and lickspout movements as markers on the trace at the trials where
+    the spout was shifted.
+    """
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Side Bias")
     ax.axhline(+0.7, color="r", linestyle="--")
