@@ -17,7 +17,9 @@ import numpy as np
 
 from dynamic_foraging_processing.qc.processed.behavior import (
     LICK_INTERVALS_PLOT,
+    LICK_LATENCY_PLOT,
     SIDE_BIAS_PLOT,
+    lick_latency_by_side,
 )
 
 
@@ -85,21 +87,59 @@ def plot_lick_intervals(
     return LICK_INTERVALS_PLOT
 
 
-def _add_bias_plot(
-    ax: plt.Axes,
-    side_bias: np.ndarray,
-    anti_bias_left_water: t.Optional[np.ndarray] = None,
-    anti_bias_right_water: t.Optional[np.ndarray] = None,
-    anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
-) -> None:
-    """Draw the per-trial side-bias trace with anti-bias interventions overlaid.
+def plot_lick_latency(
+    go_cue_times: t.Optional[np.ndarray],
+    animal_response: t.Optional[np.ndarray],
+    left_lick_times: np.ndarray,
+    right_lick_times: np.ndarray,
+    results_folder: str,
+) -> str:
+    """Save the per-side first-lick-latency histogram (response to the go cue).
 
-    The anti-bias algorithm pushes against a developing side bias, so its two
-    interventions are drawn on top of the bias trace they respond to: water
-    interventions as short ticks at the top (right port) and bottom (left
-    port), and lickspout movements as markers on the trace at the trials where
-    the spout was shifted.
+    One overlaid histogram of the time from the go cue to the first lick on the
+    chosen side (right and left, density-normalized). It shows how quickly the
+    animal licks each side after the go cue; a shifted or absent distribution on
+    one side is the diagnostic signal (e.g. deafness or a dead lickport).
+
+    Parameters
+    ----------
+    go_cue_times, animal_response : numpy.ndarray or None
+        Per-trial go-cue times and choice codes (see ``lick_latency_by_side``).
+    left_lick_times, right_lick_times : numpy.ndarray
+        Timestamps (s) of left/right-port licks.
+    results_folder : str
+        Directory to write ``lick_latency.png`` into.
+
+    Returns
+    -------
+    str
+        The plot filename (``lick_latency.png``), for use as a metric
+        ``reference``.
     """
+    left_latency, right_latency = lick_latency_by_side(
+        go_cue_times, animal_response, left_lick_times, right_lick_times
+    )
+
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    bins = np.arange(0, 1, 0.05)
+    ax.hist(right_latency[~np.isnan(right_latency)], bins=bins, alpha=0.5, label="R", density=True)
+    ax.hist(left_latency[~np.isnan(left_latency)], bins=bins, alpha=0.5, label="L", density=True)
+    ax.legend()
+    ax.set_title("lick latency by lick side")
+    ax.set_xlabel("Time from go cue (s)")
+    ax.set_ylabel("density %")
+    ax.set_xlim(left=0)
+
+    fig.tight_layout()
+    fig.savefig(Path(results_folder) / LICK_LATENCY_PLOT, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return LICK_LATENCY_PLOT
+
+
+def _add_bias_plot(ax: plt.Axes, side_bias: np.ndarray) -> None:
+    """Draw the per-trial side-bias trace from the trial-table column."""
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Side Bias")
     ax.axhline(+0.7, color="r", linestyle="--")

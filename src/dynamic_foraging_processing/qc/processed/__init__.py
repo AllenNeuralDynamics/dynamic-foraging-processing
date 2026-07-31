@@ -3,10 +3,12 @@
 from dynamic_foraging_processing.qc.processed.behavior import (
     calculate_lick_intervals,
     lick_interval_results,
+    lick_latency_result,
     side_bias_result,
 )
 from dynamic_foraging_processing.qc.processed.plots import (
     plot_lick_intervals,
+    plot_lick_latency,
     plot_side_bias,
 )
 from dynamic_foraging_processing.qc.processed.results import behavior_qc_results
@@ -17,7 +19,9 @@ __all__ = [
     "behavior_qc_results",
     "calculate_lick_intervals",
     "lick_interval_results",
+    "lick_latency_result",
     "plot_lick_intervals",
+    "plot_lick_latency",
     "plot_side_bias",
     "side_bias_result",
 ]

@@ -78,6 +78,50 @@ def test_lick_interval_results_names_and_count():
     assert all(r.tags == {"metric": r.name, "type": "Lick_Interval"} for r in results)
 
 
+def test_first_lick_latency_after_go_cue_and_none():
+    """The first lick after the go cue gives the latency; no later lick -> nan."""
+    licks = np.array([0.5, 1.2, 2.0])
+    assert _behavior._first_lick_latency(1.0, licks) == pytest.approx(0.2)
+    # No lick after the cue -> nan.
+    assert np.isnan(_behavior._first_lick_latency(2.5, licks))
+    # A nan go cue has no lick strictly greater than it -> nan.
+    assert np.isnan(_behavior._first_lick_latency(float("nan"), licks))
+
+
+def test_lick_latency_by_side_splits_on_choice():
+    """Latency is measured on the chosen side; other side / ignore trials are nan."""
+    go_cue = np.array([0.0, 1.0, 2.0, 3.0])
+    response = np.array([0, 1, 2, 1])  # left, right, ignore, right
+    left_licks = np.array([0.3])  # after the trial-0 cue
+    right_licks = np.array([1.4, 3.2])  # after the trial-1 and trial-3 cues
+    left_latency, right_latency = _behavior.lick_latency_by_side(
+        go_cue, response, left_licks, right_licks
+    )
+    assert left_latency[0] == pytest.approx(0.3)
+    assert np.isnan(left_latency[1])  # right-choice trial has no left latency
+    assert right_latency[1] == pytest.approx(0.4)
+    assert right_latency[3] == pytest.approx(0.2)
+    assert np.isnan(right_latency[2])  # ignore trial
+
+
+def test_lick_latency_by_side_none_inputs_return_empty():
+    """Absent go-cue / response columns yield empty latency arrays."""
+    left, right = _behavior.lick_latency_by_side(None, None, np.array([1.0]), np.array([2.0]))
+    assert left.size == 0 and right.size == 0
+
+
+def test_lick_latency_result_is_pending_review_only():
+    """The single latency result is review-only: no value, PENDING, plot ref."""
+    result = _behavior.lick_latency_result("/data/my_results")
+    assert result.name == "Lick_Latency"
+    # No computed value yet, and no automated pass/fail (renders as PENDING).
+    assert result.value is None
+    assert result.passed is None
+    assert result.reference == f"my_results/{_behavior.LICK_LATENCY_PLOT}"
+    # Tagged Lick_Interval so it groups with the lick-interval metrics.
+    assert result.tags == {"metric": "Lick_Latency", "type": "Lick_Interval"}
+
+
 def test_reference_includes_results_folder_name():
     """With a results_folder, references are '<folder-name>/<plot>'."""
     side_bias = _behavior.side_bias_result(np.array([0.1]), "/data/my_results")

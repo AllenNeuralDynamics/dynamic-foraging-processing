@@ -17,9 +17,14 @@ import pandas as pd
 from dynamic_foraging_processing.qc._core.result import QCResult
 from dynamic_foraging_processing.qc.processed.behavior import (
     lick_interval_results,
+    lick_latency_result,
     side_bias_result,
 )
-from dynamic_foraging_processing.qc.processed.plots import plot_lick_intervals, plot_side_bias
+from dynamic_foraging_processing.qc.processed.plots import (
+    plot_lick_intervals,
+    plot_lick_latency,
+    plot_side_bias,
+)
 
 # Logical input -> trials-table column name. Centralized so the mapping is easy
 # to correct against the trial-table builder. The lickspout columns are the
@@ -67,9 +72,9 @@ def behavior_qc_results(
 ) -> t.List[QCResult]:
     """Build the behavior QC results (side bias + lick intervals).
 
-    When ``results_folder`` is provided, the supporting ``side_bias.png`` and
-    ``lick_intervals.png`` plots are written there so the result references
-    resolve. Convert the returned results to schema metrics with
+    When ``results_folder`` is provided, the supporting ``side_bias.png``,
+    ``lick_intervals.png``, and ``lick_latency.png`` plots are written there so
+    the result references resolve. Convert the returned results to schema metrics with
     ``to_metrics`` / ``QCResult.to_metric`` when assembling a ``QualityControl``.
 
     Parameters
@@ -92,12 +97,16 @@ def behavior_qc_results(
     Returns
     -------
     list of QCResult
-        The average-side-bias result followed by the four lick-interval results.
+        The average-side-bias result, the four lick-interval results, and the
+        review-only lick-latency result.
     """
     side_bias = _column(trials, "side_bias")
+    go_cue_times = _column(trials, "go_cue_times")
+    animal_response = _column(trials, "animal_response")
     results = [
         side_bias_result(side_bias, results_folder),
         *lick_interval_results(left_lick_times, right_lick_times, results_folder),
+        lick_latency_result(results_folder),
     ]
     if results_folder is not None:
         plot_side_bias(
@@ -122,4 +131,7 @@ def behavior_qc_results(
             anti_bias_lickspout_movement=_column(trials, "anti_bias_lickspout_movement"),
         )
         plot_lick_intervals(left_lick_times, right_lick_times, results_folder)
+        plot_lick_latency(
+            go_cue_times, animal_response, left_lick_times, right_lick_times, results_folder
+        )
     return results

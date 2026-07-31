@@ -13,11 +13,12 @@ from dynamic_foraging_processing.qc.processed import results as _results
 
 
 def test_behavior_qc_results_without_plots():
-    """Five behavior results are produced and no plots are written."""
+    """Six behavior results are produced and no plots are written."""
     trials = pd.DataFrame(
         {
             "animal_response": [0, 1, 2, 1],
             "side_bias": [-0.1, 0.0, np.nan, 0.1],
+            "goCue_start_time": [0.5, 1.5, 2.5, 3.5],
         }
     )
     results = _results.behavior_qc_results(
@@ -25,7 +26,7 @@ def test_behavior_qc_results_without_plots():
         np.array([1.0, 1.01]),
         np.array([2.0, 2.01]),
     )
-    assert len(results) == 5
+    assert len(results) == 6
     assert results[0].name == "average side bias"
 
 
@@ -46,11 +47,12 @@ def test_lickspout_columns_map_to_trial_table_names():
 
 
 def test_behavior_qc_results_writes_plots(tmp_path):
-    """Supplying a results folder writes both behavior plots."""
+    """Supplying a results folder writes all three behavior plots."""
     trials = pd.DataFrame(
         {
             "animal_response": [0, 1, 2, 1],
             "side_bias": [-0.1, 0.0, np.nan, 0.1],
+            "goCue_start_time": [0.5, 1.5, 2.5, 3.5],
         }
     )
     results = _results.behavior_qc_results(
@@ -59,9 +61,10 @@ def test_behavior_qc_results_writes_plots(tmp_path):
         np.array([2.0, 2.01]),
         str(tmp_path),
     )
-    assert len(results) == 5
+    assert len(results) == 6
     assert os.path.exists(tmp_path / "side_bias.png")
     assert os.path.exists(tmp_path / "lick_intervals.png")
+    assert os.path.exists(tmp_path / "lick_latency.png")
 
 
 def test_build_quality_control_defaults():
