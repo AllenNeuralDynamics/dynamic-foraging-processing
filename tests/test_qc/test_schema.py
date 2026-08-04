@@ -35,6 +35,13 @@ def test_bool_to_status_pass_and_fail_with_default_timestamp():
     assert passed.timestamp.tzinfo is not None
 
 
+def test_bool_to_status_none_is_pending():
+    """``None`` (no automated pass/fail) yields a PENDING status."""
+    pending = _schema.bool_to_status(None)
+    assert pending.status == Status.PENDING
+    assert pending.evaluator == "Automated"
+
+
 def test_bool_to_status_uses_supplied_timestamp():
     """An explicit timestamp is passed through unchanged."""
     ts = datetime.datetime(2026, 6, 11, tzinfo=datetime.timezone.utc)

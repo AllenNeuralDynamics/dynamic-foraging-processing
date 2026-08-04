@@ -63,6 +63,9 @@ _CODE_URL = "https://github.com/AllenNeuralDynamics/dynamic-foraging-processing"
 #: Installed version of this package, recorded on the processing ``Code``.
 _PACKAGE_VERSION = version("dynamic-foraging-processing")
 
+#: Default pipeline name linking the data process to the ``processing.json`` pipeline.
+_PIPELINE_NAME = "dynamic-foraging-processing-pipeline"
+
 #: Filename of the NWB (Zarr) store written under the output directory.
 _NWB_FILENAME = "behavior.nwb.zarr"
 
@@ -270,6 +273,7 @@ class Pipeline:
         start_date_time, end_date_time : datetime
             When the NWB packaging started and finished.
         """
+        pipeline_name = os.getenv("PIPELINE_NAME", _PIPELINE_NAME)
         processing = Processing(
             data_processes=[
                 DataProcess(
@@ -280,14 +284,14 @@ class Pipeline:
                     experimenters=["Alex Piet", "Micah Woodard", "Bruno Cruz", "Arjun Sridhar"],
                     start_date_time=start_date_time,
                     end_date_time=end_date_time,
-                    pipeline_name="dynamic-foraging-processing-pipeline",
+                    pipeline_name=pipeline_name,
                 )
             ],
             pipelines=[
                 Code(
-                    url=_CODE_URL,
-                    version=_PACKAGE_VERSION,
-                    name="dynamic-foraging-processing-pipeline",
+                    url=os.getenv("PIPELINE_URL", _CODE_URL),
+                    version=os.getenv("PIPELINE_VERSION", _PACKAGE_VERSION),
+                    name=pipeline_name,
                     input_data=[DataAsset(name=Path(self.loader.path).stem)],
                 )
             ],

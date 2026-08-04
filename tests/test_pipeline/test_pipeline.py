@@ -350,8 +350,10 @@ def test_read_processed_inputs_reads_from_nwb():
     np.testing.assert_array_equal(manual_right, np.array([0.3]))
 
 
-def test_run_nwb_writes_nwb_and_processing(tmp_path):
+def test_run_nwb_writes_nwb_and_processing(tmp_path, monkeypatch):
     """``run_nwb`` writes the NWB store and a valid ``processing.json``."""
+    for name in ("PIPELINE_URL", "PIPELINE_VERSION", "PIPELINE_NAME"):
+        monkeypatch.delenv(name, raising=False)
     pipeline = _make_pipeline()
     acquisition = ["entry"]
     trials = _trials_frame()
@@ -379,8 +381,34 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert loaded.pipelines[0].url == _pipeline._CODE_URL
 
 
-def test_write_processing_records_input_data_from_loader_path(tmp_path):
+def test_write_processing_uses_pipeline_env_overrides(tmp_path, monkeypatch):
+    """The pipeline ``Code`` url/version/name come from the ``PIPELINE_*`` env vars."""
+    monkeypatch.setenv("PIPELINE_URL", "https://codeocean.example/capsule/123")
+    monkeypatch.setenv("PIPELINE_VERSION", "4.5.6")
+    monkeypatch.setenv("PIPELINE_NAME", "code-ocean-pipeline")
+    pipeline = _make_pipeline()
+
+    pipeline._write_processing(
+        str(tmp_path),
+        datetime(2024, 1, 1, tzinfo=timezone.utc),
+        datetime(2024, 1, 2, tzinfo=timezone.utc),
+    )
+
+    loaded = Processing.model_validate_json((tmp_path / "processing.json").read_text())
+    assert loaded.pipelines[0].url == "https://codeocean.example/capsule/123"
+    assert loaded.pipelines[0].version == "4.5.6"
+    assert loaded.pipelines[0].name == "code-ocean-pipeline"
+    # The data process link follows the renamed pipeline.
+    assert loaded.data_processes[0].pipeline_name == "code-ocean-pipeline"
+    # The data process code still records the package defaults.
+    assert loaded.data_processes[0].code.url == _pipeline._CODE_URL
+    assert loaded.data_processes[0].code.version == _pipeline._PACKAGE_VERSION
+
+
+def test_write_processing_records_input_data_from_loader_path(tmp_path, monkeypatch):
     """``_write_processing`` records the loader file stem as the pipeline ``input_data``."""
+    for name in ("PIPELINE_URL", "PIPELINE_VERSION", "PIPELINE_NAME"):
+        monkeypatch.delenv(name, raising=False)
     pipeline = _make_pipeline()
     pipeline.loader.path = Path("some/dir/my_session.json")
     start = datetime(2024, 1, 1, tzinfo=timezone.utc)

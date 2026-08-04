@@ -24,8 +24,10 @@ class QCResult:
         Metric name.
     value : Any
         The computed value.
-    passed : bool
-        Whether the check passed.
+    passed : bool or None
+        Whether the check passed. ``None`` for a metric with no automated
+        pass/fail (its value is reported but the status is left ``PENDING`` for
+        manual review).
     description : str, optional
         Human-readable description.
     reference : str, optional
@@ -36,7 +38,7 @@ class QCResult:
 
     name: str
     value: t.Any
-    passed: bool
+    passed: t.Optional[bool]
     description: t.Optional[str] = None
     reference: t.Optional[str] = None
     tags: t.Dict[str, str] = dataclasses.field(default_factory=dict)
