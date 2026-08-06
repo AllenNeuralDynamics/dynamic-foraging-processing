@@ -88,6 +88,36 @@ def test_add_bias_plot_movement_with_empty_bias():
     plt.close(fig)
 
 
+def test_moved_trials_ignores_missing_and_unchanged_axes():
+    """Only real per-trial changes count as moves; NaN and short arrays don't."""
+    moved = _plots._moved_trials(
+        [
+            None,
+            np.array([1.0]),  # too short to diff
+            np.array([2.0, 2.0, 2.5, 2.5]),  # change at trial 2
+            np.array([3.0, np.nan, 3.0, 4.0]),  # NaN ignored; change at trial 3
+        ]
+    )
+    assert moved.tolist() == [2, 3]
+
+
+def test_add_lickspout_position_plot_splits_automatic_and_manual_moves():
+    """Anti-bias trials tick as automatic; every other move ticks as manual."""
+    fig, ax = plt.subplots()
+    _plots._add_lickspout_position_plot(
+        ax,
+        np.array([0.0, 1.0, 1.0, 2.0]),  # moves at trials 1 and 3
+        None,
+        None,
+        None,
+        anti_bias_lickspout_movement=np.array([0.0, 0.5, 0.0, 0.0]),
+    )
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert "Automatic move" in labels
+    assert "Manual move" in labels
+    plt.close(fig)
+
+
 def test_plot_side_bias_minimal_inputs(tmp_path):
     """With only choices supplied, the optional panels are skipped cleanly."""
     name = _plots.plot_side_bias(np.array([]), np.array([]), str(tmp_path))

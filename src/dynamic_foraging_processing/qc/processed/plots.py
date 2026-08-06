@@ -138,6 +138,16 @@ def plot_lick_latency(
     return LICK_LATENCY_PLOT
 
 
+def _legend_outside(ax: plt.Axes) -> None:
+    """Place the axes legend just outside the right edge of the panel.
+
+    The trial traces span the full width of these panels, so an in-axes legend
+    sits on top of the data. Anchoring it outside keeps the trace readable; the
+    figure is saved with ``bbox_inches="tight"``, so the legend is not clipped.
+    """
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), borderaxespad=0.0, fontsize="x-small")
+
+
 def _add_bias_plot(
     ax: plt.Axes,
     side_bias: np.ndarray,
@@ -182,7 +192,37 @@ def _add_bias_plot(
         ax.plot(moved, heights, "g^", markersize=6, label="Anti-bias lickspout move")
         plotted = True
     if plotted:
-        ax.legend(loc="upper left", fontsize="x-small")
+        _legend_outside(ax)
+
+
+def _moved_trials(positions: t.Sequence[t.Optional[np.ndarray]]) -> np.ndarray:
+    """Return the trial indices where any lickspout axis changed position.
+
+    A move is detected as a change from the previous trial on any of the
+    supplied axes, so a trial is flagged once no matter how many axes shifted.
+    NaN samples (missing position readings) are ignored rather than counted as
+    a change.
+
+    Parameters
+    ----------
+    positions : sequence of numpy.ndarray or None
+        Per-trial position arrays (one per axis); ``None`` and empty arrays are
+        skipped.
+
+    Returns
+    -------
+    numpy.ndarray
+        Sorted, unique trial indices at which the lickspouts moved.
+    """
+    moved: t.Set[int] = set()
+    for position in positions:
+        if position is None or len(position) < 2:
+            continue
+        values = np.asarray(position, dtype=float)
+        delta = np.diff(values)
+        changed = np.where(~np.isnan(delta) & (delta != 0))[0] + 1
+        moved.update(int(index) for index in changed)
+    return np.array(sorted(moved), dtype=int)
 
 
 def _add_lickspout_position_plot(
@@ -191,8 +231,15 @@ def _add_lickspout_position_plot(
     lickspout_y1: t.Optional[np.ndarray],
     lickspout_y2: t.Optional[np.ndarray],
     lickspout_z: t.Optional[np.ndarray],
+    anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
 ) -> None:
-    """Draw lickspout x/y/z positions relative to session start (mm)."""
+    """Draw lickspout x/y/z positions relative to session start (mm).
+
+    Trials where the spouts moved are marked with ticks along the bottom of the
+    panel, split by who moved them: the anti-bias algorithm (same flag as the
+    markers on the side-bias panel) versus the experimenter, which is any other
+    change in position.
+    """
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Lickspout Position \n relative to session start (mm)")
     positions = [
@@ -210,8 +257,39 @@ def _add_lickspout_position_plot(
         # trial-table builder), so plot them directly.
         ax.plot(values, color, label=label)
         plotted = True
+
+    # Ticks sit in axes-fraction coordinates on y so they stay pinned to the
+    # bottom of the panel whatever the position data's range is.
+    transform = ax.get_xaxis_transform()
+    automatic = np.array([], dtype=int)
+    if anti_bias_lickspout_movement is not None:
+        move = np.asarray(anti_bias_lickspout_movement, dtype=float)
+        automatic = np.where(move != 0)[0]
+        ax.vlines(
+            automatic,
+            0.0,
+            0.08,
+            transform=transform,
+            color="g",
+            linewidth=1,
+            label="Automatic move",
+        )
+        plotted = True
+    moved = _moved_trials([lickspout_x, lickspout_y1, lickspout_y2, lickspout_z])
+    manual = np.setdiff1d(moved, automatic)
+    if len(manual):
+        ax.vlines(
+            manual,
+            0.0,
+            0.08,
+            transform=transform,
+            color="k",
+            linewidth=1,
+            label="Manual move",
+        )
+        plotted = True
     if plotted:
-        ax.legend()
+        _legend_outside(ax)
 
 
 def _time_to_trial_index(go_cue_times: np.ndarray, times: np.ndarray) -> t.List[int]:
@@ -370,7 +448,9 @@ def plot_side_bias(
         side; overlaid on the side-bias trace.
     anti_bias_lickspout_movement : numpy.ndarray, optional
         Per-trial signed lickspout displacement (mm) applied by the anti-bias
-        algorithm; nonzero trials are marked on the side-bias trace.
+        algorithm; nonzero trials are marked on the side-bias trace and ticked
+        as automatic moves on the lickspout-position panel, where any other
+        change in position is ticked as a manual move.
 
     Returns
     -------
@@ -390,7 +470,14 @@ def plot_side_bias(
         anti_bias_right_water=anti_bias_right_water,
         anti_bias_lickspout_movement=anti_bias_lickspout_movement,
     )
-    _add_lickspout_position_plot(ax[1], lickspout_x, lickspout_y1, lickspout_y2, lickspout_z)
+    _add_lickspout_position_plot(
+        ax[1],
+        lickspout_x,
+        lickspout_y1,
+        lickspout_y2,
+        lickspout_z,
+        anti_bias_lickspout_movement=anti_bias_lickspout_movement,
+    )
     _add_behavior_plot(
         ax[2],
         animal_response,
