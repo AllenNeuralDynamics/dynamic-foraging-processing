@@ -53,9 +53,16 @@ from dynamic_foraging_processing.raw_data_loader import RawDataLoader
 _DEFAULT_LEFT_LICK = LickSource("HarpBehavior", "DigitalInputState", "DIPort0")
 _DEFAULT_RIGHT_LICK = LickSource("HarpBehavior", "DigitalInputState", "DIPort1")
 
-#: Trials-table columns NWB models natively; every other column is added as an
-#: extra trial column.
-_TRIAL_TIME_COLUMNS = ("start_time", "stop_time")
+#: Trials-table column NWB's required native ``start_time`` is taken from. The
+#: trials table itself no longer carries trial ``start_time`` / ``stop_time``
+#: columns — it carries one start/stop pair per task period instead — but
+#: ``TimeIntervals`` requires both, so they are derived here.
+_NWB_START_COLUMN = "quiescent_start_time"
+
+#: Columns NWB's required native ``stop_time`` is taken from, in order of
+#: preference: the end of the ITI, falling back to its start on the last trial
+#: of the session (where the ITI end is unknown).
+_NWB_STOP_COLUMNS = ("ITI_stop_time", "ITI_start_time")
 
 #: Source repository recorded in the ``processing.json`` data process.
 _CODE_URL = "https://github.com/AllenNeuralDynamics/dynamic-foraging-processing"
@@ -224,23 +231,54 @@ class Pipeline:
         )
 
     @staticmethod
-    def _add_trials(nwb_file: pynwb.NWBFile, trials: pd.DataFrame) -> None:
+    def _trial_extent(row: pd.Series) -> t.Tuple[float, float]:
+        """Return NWB's required native ``(start_time, stop_time)`` for one trial.
+
+        The trials table has no trial start/stop columns of its own, so the
+        trial's extent is taken from its period bounds: it starts with the
+        quiescent period and ends with the ITI, falling back to the ITI start on
+        the last trial of the session (whose ITI end is unknown).
+
+        Parameters
+        ----------
+        row : pandas.Series
+            One row of the trials table.
+
+        Returns
+        -------
+        tuple of (float, float)
+            The trial start and stop time (seconds).
+        """
+        stops = [row[column] for column in _NWB_STOP_COLUMNS if pd.notnull(row[column])]
+        stop = stops[0] if stops else np.nan
+        return float(row[_NWB_START_COLUMN]), float(stop)
+
+    @classmethod
+    def _add_trials(cls, nwb_file: pynwb.NWBFile, trials: pd.DataFrame) -> None:
         """Add the trials table to the NWB file's native ``trials`` table.
 
-        ``start_time`` / ``stop_time`` are modeled natively by NWB; every other
-        column is registered as an extra trial column (described by the matching
-        :class:`TrialConfig` field) and populated per row. The DataFrame index
+        Every trials-table column is registered as an extra trial column
+        (described by the matching :class:`TrialConfig` field) and populated per
+        row. NWB additionally requires a native ``start_time`` / ``stop_time`` per
+        trial, which are derived from the period columns (see
+        :meth:`_trial_extent`) rather than stored as columns. The DataFrame index
         (named ``id``) is replicated as each trial's NWB ``id``. An empty table
-        (or one missing the required time columns) is skipped.
+        (or one missing the period columns the extent is derived from) is skipped.
         """
-        if trials.empty or any(col not in trials.columns for col in _TRIAL_TIME_COLUMNS):
+        required = (_NWB_START_COLUMN, *_NWB_STOP_COLUMNS)
+        if trials.empty or any(col not in trials.columns for col in required):
             return
         descriptions = TrialConfig.column_descriptions()
-        extra_columns = [col for col in trials.columns if col not in _TRIAL_TIME_COLUMNS]
-        for column in extra_columns:
+        for column in trials.columns:
             nwb_file.add_trial_column(name=column, description=descriptions.get(column, column))
         for row_id, row in trials.iterrows():
-            nwb_file.add_trial(id=int(row_id), **{column: row[column] for column in trials.columns})
+            start_time, stop_time = cls._trial_extent(row)
+            nwb_file.add_trial(
+                id=int(row_id),
+                start_time=start_time,
+                stop_time=stop_time,
+                **{column: row[column] for column in trials.columns},
+            )
 
     # ------------------------------------------------------------------ #
     # Writers
