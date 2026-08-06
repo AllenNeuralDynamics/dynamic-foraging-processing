@@ -215,8 +215,12 @@ def _full_dataset():
                     ],
                 )
             ),
+            # The four period streams, each emitted at its period's start:
+            # quiescent -> response -> reward consumption -> ITI, per trial.
             "QuiescentPeriod": _Stream(_events([10.0, 20.0], [None, None])),
-            "ItiPeriod": _Stream(_events([20.0, 30.0], [None, None])),
+            "ResponsePeriod": _Stream(_events([11.0, 21.0], [None, None])),
+            "RewardConsumptionPeriod": _Stream(_events([12.0, 22.0], [None, None])),
+            "ItiPeriod": _Stream(_events([15.0, 25.0], [None, None])),
             "Response": _Stream(
                 _events(
                     [10.5, 20.5], [{"Item1": 10.5, "Item2": True}, {"Item1": 20.5, "Item2": None}]
@@ -284,9 +288,16 @@ def test_build_full_dataset():
 
     first, second = table.iloc[0], table.iloc[1]
 
-    # Trial windows.
-    assert first["start_time"] == 10.0 and first["stop_time"] == 20.0
-    assert first["delay_start_time"] == 10.0
+    # Period bounds: each period ends where the next one starts, and the ITI
+    # ends at the next trial's quiescent period (NaN on the last trial).
+    assert first["quiescent_start_time"] == 10.0 and first["quiescent_stop_time"] == 11.0
+    assert first["response_start_time"] == 11.0 and first["response_stop_time"] == 12.0
+    assert first["reward_consumption_start_time"] == 12.0
+    assert first["reward_consumption_stop_time"] == 15.0
+    assert first["ITI_start_time"] == 15.0 and first["ITI_stop_time"] == 20.0
+    assert second["ITI_start_time"] == 25.0 and np.isnan(second["ITI_stop_time"])
+    # delay_start_time is the legacy name for the quiescent period start.
+    assert first["delay_start_time"] == first["quiescent_start_time"] == 10.0
 
     # Response encoding: True -> right (1), None -> no response (2).
     assert first["animal_response"] == 1

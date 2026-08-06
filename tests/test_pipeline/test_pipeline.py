@@ -35,11 +35,16 @@ def _make_pipeline() -> Pipeline:
 
 
 def _trials_frame() -> pd.DataFrame:
-    """Two-trial table with the time columns plus one modeled, one unmodeled column."""
+    """Two-trial table with the period columns plus one modeled, one unmodeled column.
+
+    The second trial's ``ITI_stop_time`` is ``NaN``, as it is for the last trial
+    of a session.
+    """
     return pd.DataFrame(
         {
-            "start_time": [0.0, 1.0],
-            "stop_time": [0.5, 1.5],
+            "quiescent_start_time": [0.0, 1.0],
+            "ITI_start_time": [0.4, 1.4],
+            "ITI_stop_time": [1.0, np.nan],
             "animal_response": [0, 1],
             "not_in_model": [7, 8],
         }
@@ -268,7 +273,7 @@ def test_add_acquisition_table_builds_dynamic_table():
 
 
 def test_add_trials_populates_columns_and_rows():
-    """Extra columns are described via ``TrialConfig``; rows are added."""
+    """Every trials column is registered and described via ``TrialConfig``."""
     nwb_file = MagicMock()
     trials = _trials_frame()
 
@@ -278,14 +283,41 @@ def test_add_trials_populates_columns_and_rows():
         call.kwargs["name"]: call.kwargs["description"]
         for call in nwb_file.add_trial_column.call_args_list
     }
-    # start_time / stop_time are native and not registered as extra columns.
-    assert set(added_columns) == {"animal_response", "not_in_model"}
+    # The table has no trial start/stop columns, so every column is an extra one.
+    assert set(added_columns) == set(trials.columns)
     assert added_columns["animal_response"] == TrialConfig.column_descriptions()["animal_response"]
     # A column absent from TrialConfig falls back to its own name as description.
     assert added_columns["not_in_model"] == "not_in_model"
     assert nwb_file.add_trial.call_count == 2
     # The DataFrame index is replicated as each trial's NWB id.
     assert [call.kwargs["id"] for call in nwb_file.add_trial.call_args_list] == [0, 1]
+
+
+def test_add_trials_derives_native_start_and_stop_from_periods():
+    """NWB's native trial extent spans the quiescent start to the ITI end.
+
+    The last trial has no ITI end (no following quiescent period), so its stop
+    time falls back to the ITI start.
+    """
+    nwb_file = MagicMock()
+
+    Pipeline._add_trials(nwb_file, _trials_frame())
+
+    extents = [
+        (call.kwargs["start_time"], call.kwargs["stop_time"])
+        for call in nwb_file.add_trial.call_args_list
+    ]
+    assert extents == [(0.0, 1.0), (1.0, 1.4)]
+
+
+def test_add_trials_skips_frame_without_period_columns():
+    """A table missing the columns the trial extent is derived from adds nothing."""
+    nwb_file = MagicMock()
+
+    Pipeline._add_trials(nwb_file, pd.DataFrame({"animal_response": [0, 1]}))
+
+    nwb_file.add_trial_column.assert_not_called()
+    nwb_file.add_trial.assert_not_called()
 
 
 def test_add_trials_skips_empty_frame():
