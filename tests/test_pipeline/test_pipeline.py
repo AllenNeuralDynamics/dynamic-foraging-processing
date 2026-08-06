@@ -35,11 +35,16 @@ def _make_pipeline() -> Pipeline:
 
 
 def _trials_frame() -> pd.DataFrame:
-    """Two-trial table with the time columns plus one modeled, one unmodeled column."""
+    """Two-trial table with the period columns plus one modeled, one unmodeled column.
+
+    The second trial's ``ITI_stop_time`` is ``NaN``, as it is for the last trial
+    of a session.
+    """
     return pd.DataFrame(
         {
-            "start_time": [0.0, 1.0],
-            "stop_time": [0.5, 1.5],
+            "quiescent_start_time": [0.0, 1.0],
+            "ITI_start_time": [0.4, 1.4],
+            "ITI_stop_time": [1.0, np.nan],
             "animal_response": [0, 1],
             "not_in_model": [7, 8],
         }
@@ -268,7 +273,7 @@ def test_add_acquisition_table_builds_dynamic_table():
 
 
 def test_add_trials_populates_columns_and_rows():
-    """Extra columns are described via ``TrialConfig``; rows are added."""
+    """Every trials column is registered and described via ``TrialConfig``."""
     nwb_file = MagicMock()
     trials = _trials_frame()
 
@@ -278,14 +283,41 @@ def test_add_trials_populates_columns_and_rows():
         call.kwargs["name"]: call.kwargs["description"]
         for call in nwb_file.add_trial_column.call_args_list
     }
-    # start_time / stop_time are native and not registered as extra columns.
-    assert set(added_columns) == {"animal_response", "not_in_model"}
+    # The table has no trial start/stop columns, so every column is an extra one.
+    assert set(added_columns) == set(trials.columns)
     assert added_columns["animal_response"] == TrialConfig.column_descriptions()["animal_response"]
     # A column absent from TrialConfig falls back to its own name as description.
     assert added_columns["not_in_model"] == "not_in_model"
     assert nwb_file.add_trial.call_count == 2
     # The DataFrame index is replicated as each trial's NWB id.
     assert [call.kwargs["id"] for call in nwb_file.add_trial.call_args_list] == [0, 1]
+
+
+def test_add_trials_derives_native_start_and_stop_from_periods():
+    """NWB's native trial extent spans the quiescent start to the ITI end.
+
+    The last trial has no ITI end (no following quiescent period), so its stop
+    time falls back to the ITI start.
+    """
+    nwb_file = MagicMock()
+
+    Pipeline._add_trials(nwb_file, _trials_frame())
+
+    extents = [
+        (call.kwargs["start_time"], call.kwargs["stop_time"])
+        for call in nwb_file.add_trial.call_args_list
+    ]
+    assert extents == [(0.0, 1.0), (1.0, 1.4)]
+
+
+def test_add_trials_skips_frame_without_period_columns():
+    """A table missing the columns the trial extent is derived from adds nothing."""
+    nwb_file = MagicMock()
+
+    Pipeline._add_trials(nwb_file, pd.DataFrame({"animal_response": [0, 1]}))
+
+    nwb_file.add_trial_column.assert_not_called()
+    nwb_file.add_trial.assert_not_called()
 
 
 def test_add_trials_skips_empty_frame():
@@ -350,8 +382,10 @@ def test_read_processed_inputs_reads_from_nwb():
     np.testing.assert_array_equal(manual_right, np.array([0.3]))
 
 
-def test_run_nwb_writes_nwb_and_processing(tmp_path):
+def test_run_nwb_writes_nwb_and_processing(tmp_path, monkeypatch):
     """``run_nwb`` writes the NWB store and a valid ``processing.json``."""
+    for name in ("PIPELINE_URL", "PIPELINE_VERSION", "PIPELINE_NAME"):
+        monkeypatch.delenv(name, raising=False)
     pipeline = _make_pipeline()
     acquisition = ["entry"]
     trials = _trials_frame()
@@ -379,8 +413,34 @@ def test_run_nwb_writes_nwb_and_processing(tmp_path):
     assert loaded.pipelines[0].url == _pipeline._CODE_URL
 
 
-def test_write_processing_records_input_data_from_loader_path(tmp_path):
+def test_write_processing_uses_pipeline_env_overrides(tmp_path, monkeypatch):
+    """The pipeline ``Code`` url/version/name come from the ``PIPELINE_*`` env vars."""
+    monkeypatch.setenv("PIPELINE_URL", "https://codeocean.example/capsule/123")
+    monkeypatch.setenv("PIPELINE_VERSION", "4.5.6")
+    monkeypatch.setenv("PIPELINE_NAME", "code-ocean-pipeline")
+    pipeline = _make_pipeline()
+
+    pipeline._write_processing(
+        str(tmp_path),
+        datetime(2024, 1, 1, tzinfo=timezone.utc),
+        datetime(2024, 1, 2, tzinfo=timezone.utc),
+    )
+
+    loaded = Processing.model_validate_json((tmp_path / "processing.json").read_text())
+    assert loaded.pipelines[0].url == "https://codeocean.example/capsule/123"
+    assert loaded.pipelines[0].version == "4.5.6"
+    assert loaded.pipelines[0].name == "code-ocean-pipeline"
+    # The data process link follows the renamed pipeline.
+    assert loaded.data_processes[0].pipeline_name == "code-ocean-pipeline"
+    # The data process code still records the package defaults.
+    assert loaded.data_processes[0].code.url == _pipeline._CODE_URL
+    assert loaded.data_processes[0].code.version == _pipeline._PACKAGE_VERSION
+
+
+def test_write_processing_records_input_data_from_loader_path(tmp_path, monkeypatch):
     """``_write_processing`` records the loader file stem as the pipeline ``input_data``."""
+    for name in ("PIPELINE_URL", "PIPELINE_VERSION", "PIPELINE_NAME"):
+        monkeypatch.delenv(name, raising=False)
     pipeline = _make_pipeline()
     pipeline.loader.path = Path("some/dir/my_session.json")
     start = datetime(2024, 1, 1, tzinfo=timezone.utc)
