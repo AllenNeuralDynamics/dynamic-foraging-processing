@@ -128,6 +128,30 @@ class TrialTableBuilder:
         return df.sort_index().index.to_numpy(dtype=float)
 
     @staticmethod
+    def _time_at(times: np.ndarray, index: int) -> float:
+        """Return ``times[index]``, or ``NaN`` when the stream is that much shorter.
+
+        The per-trial streams are paired by position, so a stream with fewer
+        events than there are trials (already reported by ``_check_aligned``) is
+        padded rather than raising.
+
+        Parameters
+        ----------
+        times : numpy.ndarray
+            Sorted per-trial event timestamps.
+        index : int
+            The trial index to read.
+
+        Returns
+        -------
+        float
+            The timestamp, or ``numpy.nan`` when ``index`` is out of range.
+        """
+        if index < 0 or index >= times.size:
+            return np.nan
+        return float(times[index])
+
+    @staticmethod
     def _closest_time_in_window(times: np.ndarray, start: float, stop: float) -> t.Optional[float]:
         """Return the timestamp in ``times`` closest to ``start`` within ``[start, stop)``.
 
@@ -661,12 +685,57 @@ class TrialTableBuilder:
     # ------------------------------------------------------------------ #
     # Per-trial assembly
     # ------------------------------------------------------------------ #
+    @classmethod
+    def _trial_periods(
+        cls,
+        index: int,
+        *,
+        quiescent_times: np.ndarray,
+        response_period_times: np.ndarray,
+        consumption_times: np.ndarray,
+        iti_times: np.ndarray,
+    ) -> t.Dict[str, float]:
+        """Return the start and stop time of every task period for one trial.
+
+        Each software event marks the *start* of its period and the periods run
+        back-to-back — quiescent, response, reward consumption, ITI, then the
+        next trial's quiescent — so every period's stop time is the following
+        period's start time. The last trial's ITI has no following quiescent
+        event, so its stop time is ``NaN``.
+
+        Parameters
+        ----------
+        index : int
+            The trial index; every per-trial stream is paired by position.
+        quiescent_times, response_period_times, consumption_times, iti_times : numpy.ndarray
+            Per-trial timestamps of the ``QuiescentPeriod``, ``ResponsePeriod``,
+            ``RewardConsumptionPeriod``, and ``ItiPeriod`` streams.
+
+        Returns
+        -------
+        dict of str to float
+            The eight ``*_start_time`` / ``*_stop_time`` period columns; an entry
+            is ``NaN`` where the corresponding event is missing.
+        """
+        response_start = cls._time_at(response_period_times, index)
+        consumption_start = cls._time_at(consumption_times, index)
+        iti_start = cls._time_at(iti_times, index)
+        return {
+            "quiescent_start_time": cls._time_at(quiescent_times, index),
+            "quiescent_stop_time": response_start,
+            "response_start_time": response_start,
+            "response_stop_time": consumption_start,
+            "reward_consumption_start_time": consumption_start,
+            "reward_consumption_stop_time": iti_start,
+            "ITI_start_time": iti_start,
+            "ITI_stop_time": cls._time_at(quiescent_times, index + 1),
+        }
+
     def _build_row(
         self,
         *,
         outcome: TrialOutcome,
-        start: float,
-        stop: float,
+        periods: t.Dict[str, float],
         response: t.Any,
         side_bias: t.Optional[float],
         left_valve_open_time: t.Optional[float],
@@ -675,14 +744,20 @@ class TrialTableBuilder:
         session: t.Dict[str, t.Any],
         lickspout: t.Dict[str, t.Optional[float]],
     ) -> TrialConfig:
-        """Assemble a single ``TrialConfig`` from aligned per-trial inputs."""
+        """Assemble a single ``TrialConfig`` from aligned per-trial inputs.
+
+        ``periods`` holds the trial's period bounds (see :meth:`_trial_periods`);
+        the quiescent-period start through the ITI start is also the window used
+        to pick this trial's go cue out of the unaligned hardware stream.
+        """
         trial = outcome.trial
         is_right_choice = outcome.is_right_choice
         is_rewarded = bool(outcome.is_rewarded)
+        start = periods["quiescent_start_time"]
+        stop = periods["ITI_start_time"]
 
         return TrialConfig(
-            start_time=start,
-            stop_time=stop,
+            **periods,
             delay_start_time=start,
             animal_response=self._animal_response(response),
             rewarded_historyL=self._rewarded_history(is_rewarded, is_right_choice, is_right=False),
@@ -712,9 +787,10 @@ class TrialTableBuilder:
         """Return human-readable warnings for per-trial streams that mismatch ``n_trials``.
 
         The builder aligns the per-trial software-event streams *positionally*:
-        the i-th ``TrialOutcome`` is paired with the i-th ``QuiescentPeriod``
-        (start), the i-th ``ItiPeriod`` (stop), and the i-th ``Response``. If any
-        of those streams has a different length than the ``TrialOutcome`` stream,
+        the i-th ``TrialOutcome`` is paired with the i-th event of each period
+        stream (``QuiescentPeriod``, ``ResponsePeriod``,
+        ``RewardConsumptionPeriod``, ``ItiPeriod``) and the i-th ``Response``. If
+        any of those streams has a different length than the ``TrialOutcome`` stream,
         the pairing slips and every subsequent row is silently misaligned
         (shorter streams are padded with ``NaN``/``None``; longer streams are
         ignored past ``n_trials``).
@@ -745,18 +821,22 @@ class TrialTableBuilder:
         """Build the trials table.
 
         The per-trial software-event streams (``TrialOutcome``,
-        ``QuiescentPeriod``, ``ItiPeriod``, ``Response``) are emitted once per
-        trial and are aligned here *by position*: row ``i`` draws its outcome,
-        start time, stop time, and response from index ``i`` of each stream. The
-        ``TrialOutcome`` stream defines the trial count; the lengths of the other
-        streams are checked against it before assembly (see ``_check_aligned``)
-        so a slipped stream surfaces as a warning (or a ``ValueError`` when
-        ``raise_on_error`` is set) rather than silently misaligned rows.
+        ``QuiescentPeriod``, ``ResponsePeriod``, ``RewardConsumptionPeriod``,
+        ``ItiPeriod``, ``Response``) are emitted once per trial and are aligned
+        here *by position*: row ``i`` draws its outcome, period start times, and
+        response from index ``i`` of each stream. The ``TrialOutcome`` stream
+        defines the trial count; the lengths of the other streams are checked
+        against it before assembly (see ``_check_aligned``) so a slipped stream
+        surfaces as a warning (or a ``ValueError`` when ``raise_on_error`` is set)
+        rather than silently misaligned rows.
+
+        Each period event marks the start of its period, so the periods' stop
+        times come from the next event in sequence (see ``_trial_periods``).
 
         Hardware streams are handled per their nature: the go cue is an event
-        each trial selects within its ``[start, stop)`` window, while the valve
-        open duration is a constant session-configured supply-port pulse width
-        applied to every trial.
+        each trial selects within its ``[quiescent_start_time, ITI_start_time)``
+        window, while the valve open duration is a constant session-configured
+        supply-port pulse width applied to every trial.
 
         Returns
         -------
@@ -772,6 +852,8 @@ class TrialTableBuilder:
         """
         outcomes = self._load("Behavior", "SoftwareEvents", "TrialOutcome")
         quiescent = self._load("Behavior", "SoftwareEvents", "QuiescentPeriod")
+        response_period = self._load("Behavior", "SoftwareEvents", "ResponsePeriod")
+        consumption = self._load("Behavior", "SoftwareEvents", "RewardConsumptionPeriod")
         iti = self._load("Behavior", "SoftwareEvents", "ItiPeriod")
         responses = self._load("Behavior", "SoftwareEvents", "Response")
         metrics = self._load("Behavior", "SoftwareEvents", "TrialMetrics")
@@ -785,8 +867,10 @@ class TrialTableBuilder:
 
         # Per-trial streams: one payload/timestamp per trial, aligned by index.
         outcome_payloads = self._event_payloads(outcomes)
-        start_times = self._event_times(quiescent)
-        stop_times = self._event_times(iti)
+        quiescent_times = self._event_times(quiescent)
+        response_period_times = self._event_times(response_period)
+        consumption_times = self._event_times(consumption)
+        iti_times = self._event_times(iti)
         response_payloads = self._event_payloads(responses)
         metric_payloads = self._event_payloads(metrics)
 
@@ -796,8 +880,10 @@ class TrialTableBuilder:
         warnings = self._check_aligned(
             n_trials,
             {
-                "QuiescentPeriod (start_time)": start_times.size,
-                "ItiPeriod (stop_time)": stop_times.size,
+                "QuiescentPeriod (quiescent_start_time)": quiescent_times.size,
+                "ResponsePeriod (response_start_time)": response_period_times.size,
+                "RewardConsumptionPeriod (reward_consumption_start_time)": consumption_times.size,
+                "ItiPeriod (ITI_start_time)": iti_times.size,
                 "Response": len(response_payloads),
                 "TrialMetrics (side_bias)": len(metric_payloads),
             },
@@ -834,17 +920,25 @@ class TrialTableBuilder:
             outcome = self._parse_outcome(outcome_payload)
             # Pad with NaN/None when a stream is shorter than the trial count;
             # _check_aligned has already warned about any such mismatch.
-            start = float(start_times[i]) if i < start_times.size else np.nan
-            stop = float(stop_times[i]) if i < stop_times.size else np.nan
+            periods = self._trial_periods(
+                i,
+                quiescent_times=quiescent_times,
+                response_period_times=response_period_times,
+                consumption_times=consumption_times,
+                iti_times=iti_times,
+            )
             response = response_payloads[i] if i < len(response_payloads) else None
             side_bias = self._side_bias(metric_payloads[i] if i < len(metric_payloads) else None)
-            lickspout = self._sample_lickspout(lickspout_positions, start, stop)
+            lickspout = self._sample_lickspout(
+                lickspout_positions,
+                periods["quiescent_start_time"],
+                periods["ITI_start_time"],
+            )
 
             rows.append(
                 self._build_row(
                     outcome=outcome,
-                    start=start,
-                    stop=stop,
+                    periods=periods,
                     response=response,
                     side_bias=side_bias,
                     left_valve_open_time=left_valve_open_time,
