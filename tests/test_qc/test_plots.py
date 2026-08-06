@@ -2,6 +2,7 @@
 
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from dynamic_foraging_processing.qc.processed import plots as _plots
@@ -67,9 +68,68 @@ def test_plot_side_bias_full_inputs(tmp_path):
         autowater_right=np.array([0, 0, 0, 1, 0, 0]),
         manual_left_times=np.array([0.1, 3.6]),  # 0.1 -> -1, 3.6 -> trial index
         manual_right_times=np.array([5.6]),
+        anti_bias_left_water=np.array([False, False, True, False, False, False]),
+        anti_bias_right_water=np.array([False, False, False, False, False, True]),
+        anti_bias_lickspout_movement=np.array([0.0, 0.5, 0.0, 0.0, -0.3, 0.0]),
     )
     assert name == _plots.SIDE_BIAS_PLOT
     assert os.path.exists(tmp_path / name)
+
+
+def test_add_bias_plot_lickspout_markers_are_direction_coded():
+    """Rightward moves are red up-triangles above y=0, leftward blue down below."""
+    fig, ax = plt.subplots()
+    _plots._add_bias_plot(
+        ax,
+        np.array([0.1, -0.2, 0.3]),
+        # Trial 0 moves right, trial 2 moves left, trial 1 does not move.
+        anti_bias_lickspout_movement=np.array([0.5, 0.0, -0.4]),
+    )
+    markers = {
+        line.get_label(): line
+        for line in ax.get_lines()
+        if str(line.get_label()).startswith("Anti-bias lickspout move")
+    }
+    right = markers["Anti-bias lickspout move (R)"]
+    left = markers["Anti-bias lickspout move (L)"]
+    assert right.get_marker() == "^" and right.get_color() == "red"
+    assert left.get_marker() == "v" and left.get_color() == "blue"
+    # Only the moving trials are marked, each just off the zero-bias line.
+    assert list(right.get_xdata()) == [0]
+    assert list(right.get_ydata()) == [_plots._MOVE_MARKER_OFFSET]
+    assert list(left.get_xdata()) == [2]
+    assert list(left.get_ydata()) == [-_plots._MOVE_MARKER_OFFSET]
+    plt.close(fig)
+
+
+def test_moved_trials_ignores_missing_and_unchanged_axes():
+    """Only real per-trial changes count as moves; NaN and short arrays don't."""
+    moved = _plots._moved_trials(
+        [
+            None,
+            np.array([1.0]),  # too short to diff
+            np.array([2.0, 2.0, 2.5, 2.5]),  # change at trial 2
+            np.array([3.0, np.nan, 3.0, 4.0]),  # NaN ignored; change at trial 3
+        ]
+    )
+    assert moved.tolist() == [2, 3]
+
+
+def test_add_lickspout_position_plot_splits_automatic_and_manual_moves():
+    """Anti-bias trials tick as automatic; every other move ticks as manual."""
+    fig, ax = plt.subplots()
+    _plots._add_lickspout_position_plot(
+        ax,
+        np.array([0.0, 1.0, 1.0, 2.0]),  # moves at trials 1 and 3
+        None,
+        None,
+        None,
+        anti_bias_lickspout_movement=np.array([0.0, 0.5, 0.0, 0.0]),
+    )
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert "Automatic move" in labels
+    assert "Manual move" in labels
+    plt.close(fig)
 
 
 def test_plot_side_bias_minimal_inputs(tmp_path):

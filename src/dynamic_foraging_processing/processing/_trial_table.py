@@ -13,6 +13,9 @@ import pandas as pd
 from aind_behavior_dynamic_foraging.rig import AindDynamicForagingRig
 from aind_behavior_dynamic_foraging.task_logic import AindDynamicForagingTaskLogic
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import TrialGeneratorSpec
+from aind_behavior_dynamic_foraging.task_logic.trial_generators.block_based_trial_generator import (
+    BlockBasedTrialMetadata,
+)
 from aind_behavior_dynamic_foraging.task_logic.trial_models import (
     Trial,
     TrialMetrics,
@@ -429,6 +432,97 @@ class TrialTableBuilder:
         return int(trial.is_auto_reward_right is is_right)
 
     @staticmethod
+    def _bias_metadata(trial: Trial) -> BlockBasedTrialMetadata:
+        """Return the block-based extra metadata carrying the anti-bias flags.
+
+        The anti-bias flags (``is_bias_water_intervention``,
+        ``is_bias_stage_intervention``) live on ``trial.metadata.extra``. That
+        field is schema-typed ``Any``, so it deserializes off the stream as a
+        plain ``dict`` rather than a model; a ``BlockBasedTrialMetadata``
+        instance is also accepted. When metadata or extra is missing (e.g. an
+        older session, or a non-block-based generator), the model's all-``False``
+        default is returned so the anti-bias columns are simply inert.
+
+        Parameters
+        ----------
+        trial : Trial
+            The per-trial task-logic model.
+
+        Returns
+        -------
+        BlockBasedTrialMetadata
+            The parsed extra metadata, or an all-``False`` default when absent
+            or unrecognized.
+        """
+        metadata = trial.metadata
+        extra = metadata.extra if metadata is not None else None
+        if isinstance(extra, BlockBasedTrialMetadata):
+            return extra
+        if isinstance(extra, dict):
+            return BlockBasedTrialMetadata.model_validate(extra)
+        return BlockBasedTrialMetadata()
+
+    @staticmethod
+    def _anti_bias_water(
+        trial: Trial, bias_metadata: BlockBasedTrialMetadata, *, is_right: bool
+    ) -> bool:
+        """Return whether the anti-bias algorithm watered the requested side.
+
+        The anti-bias algorithm delivers its water intervention through the same
+        auto-response channel as ordinary autowater (``is_auto_reward_right``:
+        ``True`` right, ``False`` left), so the two are distinguished only by the
+        ``is_bias_water_intervention`` flag. This is ``True`` only when the trial
+        was a bias-water intervention *and* the auto-response was to the
+        requested side.
+
+        Parameters
+        ----------
+        trial : Trial
+            The per-trial task-logic model.
+        bias_metadata : BlockBasedTrialMetadata
+            The trial's extra metadata (see ``_bias_metadata``).
+        is_right : bool
+            ``True`` for the right port, ``False`` for the left port.
+
+        Returns
+        -------
+        bool
+            Whether an anti-bias water intervention targeted the requested side.
+        """
+        if not bias_metadata.is_bias_water_intervention:
+            return False
+        return trial.is_auto_reward_right is is_right
+
+    @staticmethod
+    def _anti_bias_lickspout_movement(
+        trial: Trial, bias_metadata: BlockBasedTrialMetadata
+    ) -> float:
+        """Return the anti-bias lickspout displacement (mm) for this trial.
+
+        The anti-bias algorithm's other intervention shifts the lickspouts
+        horizontally; the per-trial displacement is ``trial.lickspout_offset_delta``
+        (positive is rightward). Reported only when the trial is flagged as a
+        bias-stage intervention, so a stray offset from another source is not
+        attributed to the anti-bias algorithm; ``0.0`` otherwise.
+
+        Parameters
+        ----------
+        trial : Trial
+            The per-trial task-logic model.
+        bias_metadata : BlockBasedTrialMetadata
+            The trial's extra metadata (see ``_bias_metadata``).
+
+        Returns
+        -------
+        float
+            The signed displacement (mm), or ``0.0`` when there was no
+            lickspout intervention.
+        """
+        if not bias_metadata.is_bias_stage_intervention:
+            return 0.0
+        return trial.lickspout_offset_delta
+
+    @staticmethod
     def _block_reward_probability(trial: Trial, *, is_right: bool) -> t.Optional[float]:
         """Return the block reward probability for a side from the trial metadata.
 
@@ -753,6 +847,7 @@ class TrialTableBuilder:
         trial = outcome.trial
         is_right_choice = outcome.is_right_choice
         is_rewarded = bool(outcome.is_rewarded)
+        bias_metadata = self._bias_metadata(trial)
         start = periods["quiescent_start_time"]
         stop = periods["ITI_start_time"]
 
@@ -778,6 +873,9 @@ class TrialTableBuilder:
             delay_duration=trial.quiescence_period_duration,
             auto_waterL=self._auto_water(trial, is_right=False),
             auto_waterR=self._auto_water(trial, is_right=True),
+            anti_bias_left_water=self._anti_bias_water(trial, bias_metadata, is_right=False),
+            anti_bias_right_water=self._anti_bias_water(trial, bias_metadata, is_right=True),
+            anti_bias_lickspout_movement=self._anti_bias_lickspout_movement(trial, bias_metadata),
             **session,
             **lickspout,
         )

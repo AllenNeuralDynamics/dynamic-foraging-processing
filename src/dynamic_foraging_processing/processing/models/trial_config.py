@@ -183,6 +183,26 @@ class TrialConfig(BaseModel):
     auto_waterL: int = Field(default=0, description="Autowater given at Left")
     auto_waterR: int = Field(default=0, description="Autowater given at Right")
 
+    # --- anti_bias (interventions the anti-bias algorithm applies) ---
+    anti_bias_left_water: bool = Field(
+        default=False,
+        description=(
+            "Whether the anti-bias algorithm delivered a water intervention to the left lickport on this trial."
+        ),
+    )
+    anti_bias_right_water: bool = Field(
+        default=False,
+        description=(
+            "Whether the anti-bias algorithm delivered a water intervention to the right lickport on this trial."
+        ),
+    )
+    anti_bias_lickspout_movement: float = Field(
+        default=0.0,
+        description=(
+            "Horizontal distance (mm) the lickspouts were moved by the anti-bias algorithm on this trial (positive is rightward); 0 when no lickspout intervention occurred."
+        ),
+    )
+
     # --- lickspout_position (mapping's `lickspout_positions` -> these four components) ---
     lickspout_position_x: Optional[float] = Field(
         default=None,
