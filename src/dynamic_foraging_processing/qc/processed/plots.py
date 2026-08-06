@@ -22,6 +22,11 @@ from dynamic_foraging_processing.qc.processed.behavior import (
     lick_latency_by_side,
 )
 
+#: Vertical offset (in side-bias units) of the anti-bias lickspout-move markers
+#: from the zero-bias line: rightward moves sit this far above it, leftward moves
+#: this far below, so the pair reads as arrows straddling y=0.
+_MOVE_MARKER_OFFSET = 0.06
+
 
 def plot_lick_intervals(
     left_lick_times: np.ndarray, right_lick_times: np.ndarray, results_folder: str
@@ -160,8 +165,8 @@ def _add_bias_plot(
     The anti-bias algorithm pushes against a developing side bias, so its two
     interventions are drawn on top of the bias trace they respond to: water
     interventions as short ticks at the top (right port) and bottom (left
-    port), and lickspout movements as markers on the trace at the trials where
-    the spout was shifted.
+    port), and lickspout movements as triangles straddling the zero-bias line,
+    pointing (and coloured) in the direction the spout was moved.
     """
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Side Bias")
@@ -179,17 +184,30 @@ def _add_bias_plot(
     plotted = False
     if anti_bias_right_water is not None:
         right = np.where(np.asarray(anti_bias_right_water, dtype=bool))[0]
-        ax.vlines(right, 0.9, 1.0, color="red", linewidth=1, label="Anti-bias water (R)")
+        ax.vlines(right, 0.9, 1.0, color="darkred", linewidth=1, label="Anti-bias water (R)")
         plotted = True
     if anti_bias_left_water is not None:
         left = np.where(np.asarray(anti_bias_left_water, dtype=bool))[0]
-        ax.vlines(left, -1.0, -0.9, color="blue", linewidth=1, label="Anti-bias water (L)")
+        ax.vlines(left, -1.0, -0.9, color="darkblue", linewidth=1, label="Anti-bias water (L)")
         plotted = True
     if anti_bias_lickspout_movement is not None:
         move = np.asarray(anti_bias_lickspout_movement, dtype=float)
-        moved = np.where(move != 0)[0]
-        heights = bias[moved] if len(bias) else np.zeros(len(moved))
-        ax.plot(moved, heights, "g^", markersize=6, label="Anti-bias lickspout move")
+        # Direction-coded markers straddling the zero-bias line: a rightward move
+        # is a red up-triangle above it, a leftward move a blue down-triangle
+        # below it, matching the red/blue sides used elsewhere in the figure.
+        for indices, offset, marker, color, side in (
+            (np.where(move > 0)[0], _MOVE_MARKER_OFFSET, "^", "red", "R"),
+            (np.where(move < 0)[0], -_MOVE_MARKER_OFFSET, "v", "blue", "L"),
+        ):
+            ax.plot(
+                indices,
+                np.full(len(indices), offset),
+                marker=marker,
+                color=color,
+                linestyle="none",
+                markersize=6,
+                label=f"Anti-bias lickspout move ({side})",
+            )
         plotted = True
     if plotted:
         _legend_outside(ax)

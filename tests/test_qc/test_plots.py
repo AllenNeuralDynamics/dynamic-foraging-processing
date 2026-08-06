@@ -76,15 +76,29 @@ def test_plot_side_bias_full_inputs(tmp_path):
     assert os.path.exists(tmp_path / name)
 
 
-def test_add_bias_plot_movement_with_empty_bias():
-    """Lickspout markers fall back to y=0 when the bias trace is empty."""
+def test_add_bias_plot_lickspout_markers_are_direction_coded():
+    """Rightward moves are red up-triangles above y=0, leftward blue down below."""
     fig, ax = plt.subplots()
-    # Empty bias but a nonzero movement -> heights come from ``np.zeros``.
     _plots._add_bias_plot(
         ax,
-        np.array([]),
-        anti_bias_lickspout_movement=np.array([1.0, 0.0]),
+        np.array([0.1, -0.2, 0.3]),
+        # Trial 0 moves right, trial 2 moves left, trial 1 does not move.
+        anti_bias_lickspout_movement=np.array([0.5, 0.0, -0.4]),
     )
+    markers = {
+        line.get_label(): line
+        for line in ax.get_lines()
+        if str(line.get_label()).startswith("Anti-bias lickspout move")
+    }
+    right = markers["Anti-bias lickspout move (R)"]
+    left = markers["Anti-bias lickspout move (L)"]
+    assert right.get_marker() == "^" and right.get_color() == "red"
+    assert left.get_marker() == "v" and left.get_color() == "blue"
+    # Only the moving trials are marked, each just off the zero-bias line.
+    assert list(right.get_xdata()) == [0]
+    assert list(right.get_ydata()) == [_plots._MOVE_MARKER_OFFSET]
+    assert list(left.get_xdata()) == [2]
+    assert list(left.get_ydata()) == [-_plots._MOVE_MARKER_OFFSET]
     plt.close(fig)
 
 
