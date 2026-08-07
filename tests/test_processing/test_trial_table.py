@@ -23,6 +23,8 @@ from aind_behavior_services.task.distributions import (
     Scalar,
     ScalarDistributionParameter,
     TruncationParameters,
+    UniformDistribution,
+    UniformDistributionParameters,
 )
 
 from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
@@ -139,16 +141,28 @@ def _outcome(
     }
 
 
-def _task_logic(quiescent_scalar=True):
-    """Build a coupled-generator task logic with known distribution parameters."""
-    quiescent = (
-        Scalar(distribution_parameters=ScalarDistributionParameter(value=0.0))
-        if quiescent_scalar
-        else ExponentialDistribution(
-            distribution_parameters=ExponentialDistributionParameters(rate=1.0),
-            truncation_parameters=TruncationParameters(min=0.0, max=1.0),
+def _quiescent_distribution(kind):
+    """Build the quiescent-duration distribution for the requested family.
+
+    ``"uniform"`` deliberately also carries truncation parameters that differ
+    from its own bounds, so tests can pin down which pair is reported.
+    """
+    if kind == "scalar":
+        return Scalar(distribution_parameters=ScalarDistributionParameter(value=0.0))
+    if kind == "uniform":
+        return UniformDistribution(
+            distribution_parameters=UniformDistributionParameters(min=0.25, max=0.75),
+            truncation_parameters=TruncationParameters(min=9.0, max=99.0),
         )
+    return ExponentialDistribution(
+        distribution_parameters=ExponentialDistributionParameters(rate=1.0),
+        truncation_parameters=TruncationParameters(min=0.0, max=1.0),
     )
+
+
+def _task_logic(quiescent="scalar"):
+    """Build a coupled-generator task logic with known distribution parameters."""
+    quiescent = _quiescent_distribution(quiescent)
     spec = CoupledTrialGeneratorSpec(
         quiescent_duration=quiescent,
         inter_trial_interval_duration=ExponentialDistribution(
@@ -348,6 +362,9 @@ def test_build_full_dataset():
     assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
     assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
+    # Scalar has neither a scale nor truncation parameters -> null bounds.
+    assert pd.isna(first["delay_min"])
+    assert pd.isna(first["delay_max"])
     assert pd.isna(first["min_reward_each_block"])  # removed from generator schema
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
@@ -418,12 +435,28 @@ def test_build_exponential_quiescent_sets_delay_beta():
     """A non-scalar quiescent distribution populates delay beta/min/max."""
     behavior = _full_dataset().children["Behavior"]
     behavior.children["InputSchemas"].children["TaskLogic"] = _Stream(
-        _task_logic(quiescent_scalar=False)
+        _task_logic(quiescent="exponential")
     )
     table = TrialTableBuilder(_Node({"Behavior": behavior})).build()
     assert table.iloc[0]["delay_beta"] == pytest.approx(1.0)
     assert table.iloc[0]["delay_min"] == 0.0
     assert table.iloc[0]["delay_max"] == 1.0
+
+
+def test_build_uniform_quiescent_sets_delay_bounds_from_parameters():
+    """A uniform quiescent distribution reports its own bounds and no beta."""
+    behavior = _full_dataset().children["Behavior"]
+    behavior.children["InputSchemas"].children["TaskLogic"] = _Stream(
+        _task_logic(quiescent="uniform")
+    )
+    table = TrialTableBuilder(_Node({"Behavior": behavior})).build()
+    first = table.iloc[0]
+    # Uniform has no scale parameter, so beta stays null.
+    assert pd.isna(first["delay_beta"])
+    # The bounds come from the distribution parameters (0.25/0.75), not from the
+    # truncation parameters the fixture also sets (9.0/99.0).
+    assert first["delay_min"] == pytest.approx(0.25)
+    assert first["delay_max"] == pytest.approx(0.75)
 
 
 def test_build_warns_on_misaligned_streams(caplog):
