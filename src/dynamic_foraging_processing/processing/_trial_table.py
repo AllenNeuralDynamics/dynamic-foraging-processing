@@ -233,7 +233,9 @@ class TrialTableBuilder:
 
         ``beta`` is the scale of an exponential distribution (``1 / rate``); it
         is ``None`` for non-exponential families (e.g. the scalar quiescent
-        duration). ``min``/``max`` come from the truncation parameters when set.
+        duration). ``min``/``max`` come from the truncation parameters when set,
+        except for a uniform distribution, whose bounds are its own ``min`` and
+        ``max`` distribution parameters.
 
         Parameters
         ----------
@@ -247,11 +249,16 @@ class TrialTableBuilder:
         """
         beta: t.Optional[float] = None
         params = distribution.distribution_parameters
-        if params.family == DistributionFamily.EXPONENTIAL and params.rate:
-            beta = 1.0 / params.rate
         truncation = distribution.truncation_parameters
         minimum = truncation.min if truncation is not None else None
         maximum = truncation.max if truncation is not None else None
+        if params.family == DistributionFamily.EXPONENTIAL and params.rate:
+            beta = 1.0 / params.rate
+        elif params.family == DistributionFamily.UNIFORM:
+            # A uniform distribution carries its bounds in the distribution
+            # parameters rather than the truncation parameters.
+            minimum = params.min
+            maximum = params.max
         return beta, minimum, maximum
 
     @staticmethod
