@@ -348,7 +348,7 @@ def test_manual_water_times_reads_manual_annotations():
         "left_reward_delivery_time": _FakeSeries(
             np.array(["manual", "earned", "manual"]), np.array([0.1, 0.2, 0.3])
         ),
-        "right_reward_delivery_time": _FakeSeries(np.array(["automatic"]), np.array([0.5])),
+        "right_reward_delivery_time": _FakeSeries(np.array(["auto"]), np.array([0.5])),
     }
 
     left, right = Pipeline._manual_water_times(nwb_file)

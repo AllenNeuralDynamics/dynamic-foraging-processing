@@ -82,6 +82,14 @@ def _make_trial_outcome_frame() -> pd.DataFrame:
     )
 
 
+def _make_response_frame() -> pd.DataFrame:
+    """The per-trial ``Response`` events, aligned with the trial outcome frame."""
+    return pd.DataFrame(
+        {"data": [{"Item1": 0.1, "Item2": False}, {"Item1": 0.4, "Item2": True}]},
+        index=pd.Index([0.1, 0.4], name="time"),
+    )
+
+
 def _empty_manual_water_frame() -> pd.DataFrame:
     """Build an empty manual-water stream with the ``data`` side column."""
     return pd.DataFrame({"data": []}, index=pd.Index([], name="time"))
@@ -120,6 +128,7 @@ def _make_dataset(manual_water=None):
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "Response": _FakeStream(_make_response_frame()),
                             "GiveManualWaterRight": _FakeStream(manual_water),
                         }
                     ),
@@ -157,6 +166,15 @@ def test_get_reward_delivery_filters_to_write_messages():
     assert list(result.index) == [0.1, 0.3, 0.5]
 
 
+def test_get_responses_returns_stream():
+    """``get_responses`` returns the per-trial ``Response`` stream."""
+    builder = AcquisitionBuilder(loader=_make_loader())
+
+    result = builder.get_responses()
+
+    pd.testing.assert_frame_equal(result, _make_response_frame())
+
+
 def test_get_manual_water_times_returns_stream():
     """``get_manual_water_times`` returns the GiveManualWaterRight stream."""
     manual = pd.DataFrame({"data": [True]}, index=pd.Index([0.49], name="time"))
@@ -175,7 +193,10 @@ def test_get_manual_water_times_returns_empty_when_absent():
                 {
                     "HarpBehavior": _FakeNode({"OutputSet": _FakeStream(_make_output_set_frame())}),
                     "SoftwareEvents": _FakeNode(
-                        {"TrialOutcome": _FakeStream(_make_trial_outcome_frame())}
+                        {
+                            "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "Response": _FakeStream(_make_response_frame()),
+                        }
                     ),
                 }
             )
@@ -222,6 +243,7 @@ def test_get_lick_times_returns_empty_when_absent():
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "Response": _FakeStream(_make_response_frame()),
                             "GiveManualWaterRight": _FakeStream(_empty_manual_water_frame()),
                         }
                     ),
@@ -265,7 +287,7 @@ def test_build_acquisition_returns_populated_list():
     # the second is overridden to manual by the right-side manual-water event.
     assert isinstance(right_reward, AcquisitionSeries)
     np.testing.assert_array_equal(right_reward.timestamps, np.array([0.3, 0.5]))
-    np.testing.assert_array_equal(right_reward.data, np.array(["automatic", "manual"]))
+    np.testing.assert_array_equal(right_reward.data, np.array(["auto", "manual"]))
     assert right_reward.name == "right_reward_delivery_time"
     assert "right lick port" in right_reward.description
 
