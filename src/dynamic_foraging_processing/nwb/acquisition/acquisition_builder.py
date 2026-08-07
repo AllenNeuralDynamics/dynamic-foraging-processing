@@ -76,6 +76,17 @@ class AcquisitionBuilder:
             self.loader.dataset.at("Behavior").at("SoftwareEvents").at("TrialOutcome").load().data
         )
 
+    def get_responses(self) -> pd.DataFrame:
+        """Get the ``Response`` software-event stream.
+
+        Returns
+        -------
+        pandas.DataFrame
+            The ``Response`` stream under ``Behavior/SoftwareEvents``, indexed
+            by the timestamp at which the animal responded, one row per trial.
+        """
+        return self.loader.dataset.at("Behavior").at("SoftwareEvents").at("Response").load().data
+
     def get_manual_water_times(self) -> pd.DataFrame:
         """Get the manual-water software-event stream.
 
@@ -171,6 +182,7 @@ class AcquisitionBuilder:
         self,
         writes: pd.DataFrame,
         trial_outcomes: pd.DataFrame,
+        responses: pd.DataFrame,
         manual_water: pd.DataFrame,
         *,
         port_column: str,
@@ -182,7 +194,7 @@ class AcquisitionBuilder:
 
         Only valve-open events (``port_column`` is truthy) are reward
         deliveries; the ``data`` field annotates each as earned, manual, or
-        automatic via :func:`get_annotated_rewards`.
+        auto via :func:`get_annotated_rewards`.
 
         Parameters
         ----------
@@ -190,6 +202,9 @@ class AcquisitionBuilder:
             ``OutputSet`` ``WRITE`` messages indexed by timestamp.
         trial_outcomes : pandas.DataFrame
             The ``TrialOutcome`` stream, indexed by trial timestamp.
+        responses : pandas.DataFrame
+            The ``Response`` stream, indexed by the time the animal responded;
+            positionally aligned with ``trial_outcomes``.
         manual_water : pandas.DataFrame
             The ``GiveManualWaterRight`` stream; the ``data`` column selects the
             side (``True`` right, ``False`` left).
@@ -214,6 +229,7 @@ class AcquisitionBuilder:
         annotations = get_annotated_rewards(
             delivery_times,
             trial_outcomes,
+            responses.index.to_numpy(),
             manual_water_times,
         )
         return AcquisitionSeries(
@@ -223,7 +239,7 @@ class AcquisitionBuilder:
             unit="second",
             description=(
                 f"The reward delivery time of the {side_label} lick port. The data field "
-                "annotates whether the reward was earned, manual, or automatic"
+                "annotates whether the reward was earned, manual, or auto"
             ),
         )
 
@@ -250,6 +266,7 @@ class AcquisitionBuilder:
         """
         rewards = self.get_reward_delivery()
         trial_outcomes = self.get_trial_outcomes()
+        responses = self.get_responses()
         manual_water = self.get_manual_water_times()
 
         acquisition_streams = self.loader.get_all_raw_data()
@@ -273,6 +290,7 @@ class AcquisitionBuilder:
             self._reward_delivery_series(
                 rewards,
                 trial_outcomes,
+                responses,
                 manual_water,
                 port_column="SupplyPort0",
                 is_right=False,
@@ -284,6 +302,7 @@ class AcquisitionBuilder:
             self._reward_delivery_series(
                 rewards,
                 trial_outcomes,
+                responses,
                 manual_water,
                 port_column="SupplyPort1",
                 is_right=True,
