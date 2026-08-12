@@ -35,7 +35,7 @@ def get_annotated_rewards(
     trial_outcome_df: pd.DataFrame,
     manual_water_times: np.ndarray,
 ) -> np.ndarray:
-    """Annotate each reward delivery as ``earned``, ``automatic``, or ``manual``.
+    """Annotate each reward delivery as ``earned``, ``auto``, or ``manual``.
 
     Annotates the deliveries of a single lick port. Each delivery is classified
     as follows, with ``manual`` taking precedence because manual water is not
@@ -45,9 +45,12 @@ def get_annotated_rewards(
       ``GiveManualWater`` software event for this port. The software-event
       timestamps are correlated to the reward-delivery timestamps with
       :func:`find_closest_timestamps`.
-    - ``automatic`` -- otherwise, when the matching trial auto-responded
+    - ``auto`` -- otherwise, when the matching trial auto-responded
       (``is_auto_reward_right is not None``).
     - ``earned`` -- otherwise (no matching trial, or no auto-response).
+
+    Deliveries are matched to trials by the ``TrialOutcome`` software-event
+    timestamp: each delivery takes the annotation of the closest trial.
 
     Parameters
     ----------
@@ -64,7 +67,7 @@ def get_annotated_rewards(
     -------
     numpy.ndarray
         Array of the same shape as ``reward_delivery_times`` whose entries are
-        ``"earned"``, ``"automatic"``, or ``"manual"``.
+        ``"earned"``, ``"auto"``, or ``"manual"``.
     """
     reward_times = np.asarray(reward_delivery_times)
     if reward_times.size == 0:
@@ -83,9 +86,11 @@ def get_annotated_rewards(
         if trial is None or trial.is_auto_reward_right is None:
             annotated_rewards.append("earned")
         else:
-            annotated_rewards.append("automatic")
+            annotated_rewards.append("auto")
 
-    annotated_rewards = np.array(annotated_rewards)
+    # Object dtype, not the inferred fixed-width string dtype: a run of only "auto"
+    # and "earned" entries would be too narrow to hold "manual" and would truncate it.
+    annotated_rewards = np.array(annotated_rewards, dtype=object)
 
     # Manual water is independent of trials (multiple can occur within a trial) and
     # takes precedence, so annotate the manual deliveries directly. Correlate each

@@ -182,7 +182,7 @@ class AcquisitionBuilder:
 
         Only valve-open events (``port_column`` is truthy) are reward
         deliveries; the ``data`` field annotates each as earned, manual, or
-        automatic via :func:`get_annotated_rewards`.
+        auto via :func:`get_annotated_rewards`.
 
         Parameters
         ----------
@@ -223,7 +223,7 @@ class AcquisitionBuilder:
             unit="second",
             description=(
                 f"The reward delivery time of the {side_label} lick port. The data field "
-                "annotates whether the reward was earned, manual, or automatic"
+                "annotates whether the reward was earned, manual, or auto"
             ),
         )
 

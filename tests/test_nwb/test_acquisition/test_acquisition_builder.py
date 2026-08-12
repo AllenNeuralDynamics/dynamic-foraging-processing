@@ -175,7 +175,9 @@ def test_get_manual_water_times_returns_empty_when_absent():
                 {
                     "HarpBehavior": _FakeNode({"OutputSet": _FakeStream(_make_output_set_frame())}),
                     "SoftwareEvents": _FakeNode(
-                        {"TrialOutcome": _FakeStream(_make_trial_outcome_frame())}
+                        {
+                            "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                        }
                     ),
                 }
             )
@@ -265,7 +267,7 @@ def test_build_acquisition_returns_populated_list():
     # the second is overridden to manual by the right-side manual-water event.
     assert isinstance(right_reward, AcquisitionSeries)
     np.testing.assert_array_equal(right_reward.timestamps, np.array([0.3, 0.5]))
-    np.testing.assert_array_equal(right_reward.data, np.array(["automatic", "manual"]))
+    np.testing.assert_array_equal(right_reward.data, np.array(["auto", "manual"]))
     assert right_reward.name == "right_reward_delivery_time"
     assert "right lick port" in right_reward.description
 
