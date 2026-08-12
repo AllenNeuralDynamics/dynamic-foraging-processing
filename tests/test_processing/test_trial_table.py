@@ -662,6 +662,30 @@ def test_is_baited_forfeited_by_auto_response_on_same_side():
     assert TrialTableBuilder._is_baited(trial, is_right=True) is False
 
 
+def test_rewarded_history_is_earned_reward_only():
+    """Rewarded history is the choice side on earned trials and False otherwise."""
+    earned = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
+    ).trial
+    assert TrialTableBuilder._rewarded_history(earned, True, True, is_right=True) is True
+    assert TrialTableBuilder._rewarded_history(earned, True, True, is_right=False) is False
+    # An unrewarded trial is False on both sides.
+    assert TrialTableBuilder._rewarded_history(earned, False, True, is_right=True) is False
+    # An ignored trial (no choice) is False on both sides.
+    assert TrialTableBuilder._rewarded_history(earned, True, None, is_right=True) is False
+    assert TrialTableBuilder._rewarded_history(earned, True, None, is_right=False) is False
+
+
+def test_rewarded_history_false_on_every_auto_reward_trial():
+    """Autowater is not earned: an auto-reward trial is False on both sides."""
+    for auto in (True, False):
+        trial = TrialOutcome.model_validate(
+            _outcome(1.0, 1.0, is_right_choice=auto, is_rewarded=True, auto=auto)
+        ).trial
+        assert TrialTableBuilder._rewarded_history(trial, True, auto, is_right=True) is False
+        assert TrialTableBuilder._rewarded_history(trial, True, auto, is_right=False) is False
+
+
 def test_auto_water_encodes_side_from_auto_response():
     """A non-null auto response encodes ``1`` on its side and ``0`` on the other."""
     trial = TrialOutcome.model_validate(
