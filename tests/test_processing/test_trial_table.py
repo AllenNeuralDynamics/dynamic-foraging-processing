@@ -365,7 +365,8 @@ def test_build_full_dataset():
     # Scalar has neither a scale nor truncation parameters -> null bounds.
     assert pd.isna(first["delay_min"])
     assert pd.isna(first["delay_max"])
-    assert pd.isna(first["min_reward_each_block"])  # removed from generator schema
+    # No per-block reward minimum on this generator -> a floor of 0, not null.
+    assert first["min_reward_each_block"] == 0
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
     # Lickspout positions from AccumulatedSteps (microsteps * 0.00125 mm),
@@ -563,7 +564,8 @@ def test_session_columns_uncoupled_has_null_reward_sum():
     assert "ITI_beta" in columns
     # Coupled-only fields are absent / null for an uncoupled generator.
     assert columns["base_reward_probability_sum"] is None
-    assert "min_reward_each_block" not in columns
+    # No ``min_block_reward`` on this generator -> no per-block minimum (0).
+    assert columns["min_reward_each_block"] == 0
 
 
 # --------------------------------------------------------------------------- #

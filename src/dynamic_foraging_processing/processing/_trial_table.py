@@ -658,9 +658,9 @@ class TrialTableBuilder:
             delay_max=delay_max,
             base_reward_probability_sum=base_reward_sum,
         )
-        # ``min_block_reward`` is warmup-generator-only; main coupled generators omit it.
-        if hasattr(generator, "min_block_reward"):
-            columns["min_reward_each_block"] = generator.min_block_reward
+        # ``min_block_reward`` is warmup-generator-only; a generator that omits it
+        # enforces no per-block minimum, which is a floor of 0 rather than unknown.
+        columns["min_reward_each_block"] = getattr(generator, "min_block_reward", 0)
         return columns
 
     def _manipulator_mm_per_step(self, rig: AindDynamicForagingRig) -> t.Dict[str, float]:
