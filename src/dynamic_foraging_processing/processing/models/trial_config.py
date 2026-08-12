@@ -139,8 +139,11 @@ class TrialConfig(BaseModel):
     block_max: Optional[float] = Field(
         default=None, description="The maximum length allowed for each block"
     )
-    min_reward_each_block: Optional[float] = Field(
-        default=None, description="The minimum reward allowed for each block"
+    min_reward_each_block: float = Field(
+        default=0,
+        description=(
+            "The minimum reward allowed for each block; 0 when the generator enforces no per-block minimum (only the warmup generator does)"
+        ),
     )
 
     # --- delay_duration ---
