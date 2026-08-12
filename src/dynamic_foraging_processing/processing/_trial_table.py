@@ -233,7 +233,9 @@ class TrialTableBuilder:
 
         ``beta`` is the scale of an exponential distribution (``1 / rate``); it
         is ``None`` for non-exponential families (e.g. the scalar quiescent
-        duration). ``min``/``max`` come from the truncation parameters when set.
+        duration). ``min``/``max`` come from the truncation parameters when set,
+        except for a uniform distribution, whose bounds are its own ``min`` and
+        ``max`` distribution parameters.
 
         Parameters
         ----------
@@ -247,11 +249,16 @@ class TrialTableBuilder:
         """
         beta: t.Optional[float] = None
         params = distribution.distribution_parameters
-        if params.family == DistributionFamily.EXPONENTIAL and params.rate:
-            beta = 1.0 / params.rate
         truncation = distribution.truncation_parameters
         minimum = truncation.min if truncation is not None else None
         maximum = truncation.max if truncation is not None else None
+        if params.family == DistributionFamily.EXPONENTIAL and params.rate:
+            beta = 1.0 / params.rate
+        elif params.family == DistributionFamily.UNIFORM:
+            # A uniform distribution carries its bounds in the distribution
+            # parameters rather than the truncation parameters.
+            minimum = params.min
+            maximum = params.max
         return beta, minimum, maximum
 
     @staticmethod
@@ -332,17 +339,32 @@ class TrialTableBuilder:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _rewarded_history(
-        is_rewarded: bool, is_right_choice: t.Optional[bool], *, is_right: bool
+        trial: Trial,
+        is_rewarded: bool,
+        is_right_choice: t.Optional[bool],
+        *,
+        is_right: bool,
     ) -> bool:
-        """Return if mouse was rewarded based on choice.
+        """Return whether the mouse *earned* reward on the requested side.
 
-        A trial with no reward or an ignored trial (no choice) counts as not
-        rewarded on either side (``False``).
+        ``rewarded_history`` records earned reward only, i.e. water the animal
+        worked for. ``TrialOutcome.is_rewarded`` is ``True`` for any water
+        delivered on the trial, autowater included, so an autowater trial
+        (``trial.is_auto_reward_right is not None``) is ``False`` on *both*
+        sides here — its water is reported by ``auto_waterL``/``auto_waterR``
+        instead. This matches the ``earned``/``automatic`` split in
+        :func:`~dynamic_foraging_processing.utils.rewards.get_annotated_rewards`.
+
+        A trial with no reward or an ignored trial (no choice) likewise counts
+        as not rewarded on either side (``False``).
 
         Parameters
         ----------
+        trial : Trial
+            The per-trial task-logic model; ``is_auto_reward_right`` being set
+            (to either side) marks the trial as an autowater trial.
         is_rewarded : bool
-            Whether the trial delivered reward.
+            Whether the trial delivered reward (earned *or* auto).
         is_right_choice : bool or None
             ``True`` for a right choice, ``False`` for left, ``None`` for ignored.
         is_right : bool
@@ -351,10 +373,10 @@ class TrialTableBuilder:
         Returns
         -------
         bool
-            ``True`` only when the trial was rewarded and the choice was on the
-            requested side; ``False`` otherwise.
+            ``True`` only when the trial delivered reward with no autowater and
+            the choice was on the requested side; ``False`` otherwise.
         """
-        if is_right_choice is None:
+        if is_right_choice is None or trial.is_auto_reward_right is not None:
             return False
         return is_rewarded and (is_right_choice is is_right)
 
@@ -636,9 +658,9 @@ class TrialTableBuilder:
             delay_max=delay_max,
             base_reward_probability_sum=base_reward_sum,
         )
-        # ``min_block_reward`` is warmup-generator-only; main coupled generators omit it.
-        if hasattr(generator, "min_block_reward"):
-            columns["min_reward_each_block"] = generator.min_block_reward
+        # ``min_block_reward`` is warmup-generator-only; a generator that omits it
+        # enforces no per-block minimum, which is a floor of 0 rather than unknown.
+        columns["min_reward_each_block"] = getattr(generator, "min_block_reward", 0)
         return columns
 
     def _manipulator_mm_per_step(self, rig: AindDynamicForagingRig) -> t.Dict[str, float]:
@@ -855,8 +877,12 @@ class TrialTableBuilder:
             **periods,
             delay_start_time=start,
             animal_response=self._animal_response(response),
-            rewarded_historyL=self._rewarded_history(is_rewarded, is_right_choice, is_right=False),
-            rewarded_historyR=self._rewarded_history(is_rewarded, is_right_choice, is_right=True),
+            rewarded_historyL=self._rewarded_history(
+                trial, is_rewarded, is_right_choice, is_right=False
+            ),
+            rewarded_historyR=self._rewarded_history(
+                trial, is_rewarded, is_right_choice, is_right=True
+            ),
             goCue_start_time=self._closest_time_in_window(go_cue_times, start, stop),
             left_valve_open_time=left_valve_open_time,
             right_valve_open_time=right_valve_open_time,

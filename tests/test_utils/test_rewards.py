@@ -27,7 +27,7 @@ def _outcome_payload(auto=None) -> dict:
 
 
 def _trial_outcome_df(trial_times: np.ndarray, autos=None) -> pd.DataFrame:
-    """Build a trial outcome DataFrame indexed by ``trial_times``."""
+    """Build a trial outcome DataFrame with one row per entry of ``trial_times``."""
     autos = autos if autos is not None else [None] * len(trial_times)
     return pd.DataFrame(
         {"data": [_outcome_payload(auto) for auto in autos]},
@@ -45,14 +45,26 @@ def test_get_annotated_rewards_marks_default_trials_as_earned():
     np.testing.assert_array_equal(annotations, np.array(["earned", "earned", "earned"]))
 
 
-def test_get_annotated_rewards_marks_auto_response_trials_as_automatic():
-    """Trials with ``is_auto_reward_right`` set (either side) are ``automatic``."""
+def test_get_annotated_rewards_marks_auto_response_trials_as_auto():
+    """Trials with ``is_auto_reward_right`` set (either side) are ``auto``."""
     reward_times = np.array([0.15, 0.42])
     trial_outcome_df = _trial_outcome_df(np.array([0.1, 0.4]), autos=[True, False])
 
     annotations = get_annotated_rewards(reward_times, trial_outcome_df, np.array([]))
 
-    np.testing.assert_array_equal(annotations, np.array(["automatic", "automatic"]))
+    np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
+
+
+def test_get_annotated_rewards_matches_closest_trial_outcome_time():
+    """Each delivery takes the annotation of the closest ``TrialOutcome`` event."""
+    # Both deliveries sit nearest the second (auto) trial, so both are auto even
+    # though the first trial is earned.
+    reward_times = np.array([0.95, 1.05])
+    trial_outcome_df = _trial_outcome_df(np.array([0.1, 1.0]), autos=[None, True])
+
+    annotations = get_annotated_rewards(reward_times, trial_outcome_df, np.array([]))
+
+    np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
 def test_get_annotated_rewards_marks_manual_water_as_manual():
@@ -67,7 +79,7 @@ def test_get_annotated_rewards_marks_manual_water_as_manual():
     np.testing.assert_array_equal(annotations, np.array(["earned", "manual", "earned"]))
 
 
-def test_get_annotated_rewards_manual_takes_precedence_over_automatic():
+def test_get_annotated_rewards_manual_takes_precedence_over_auto():
     """A manual delivery is ``manual`` even when the trial has auto-response set."""
     reward_times = np.array([0.15, 0.42])
     trial_outcome_df = _trial_outcome_df(np.array([0.1, 0.4]), autos=[None, True])
@@ -99,7 +111,7 @@ def test_get_annotated_rewards_accepts_json_and_model_payloads():
 
     annotations = get_annotated_rewards(reward_times, trial_outcome_df, np.array([]))
 
-    np.testing.assert_array_equal(annotations, np.array(["automatic", "automatic"]))
+    np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
 def test_get_annotated_rewards_returns_ndarray():

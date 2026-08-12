@@ -69,10 +69,16 @@ class TrialConfig(BaseModel):
         description="The response of the animal. 0, left choice; 1, right choice; 2, no response",
     )
     rewarded_historyL: bool = Field(
-        default=False, description="The reward history of left lick port"
+        default=False,
+        description=(
+            "The earned reward history of the left lick port; False on autowater trials, whose water is reported by auto_waterL"
+        ),
     )
     rewarded_historyR: bool = Field(
-        default=False, description="The reward history of right lick port"
+        default=False,
+        description=(
+            "The earned reward history of the right lick port; False on autowater trials, whose water is reported by auto_waterR"
+        ),
     )
     delay_start_time: Optional[float] = Field(
         default=None,
@@ -133,8 +139,11 @@ class TrialConfig(BaseModel):
     block_max: Optional[float] = Field(
         default=None, description="The maximum length allowed for each block"
     )
-    min_reward_each_block: Optional[float] = Field(
-        default=None, description="The minimum reward allowed for each block"
+    min_reward_each_block: float = Field(
+        default=0,
+        description=(
+            "The minimum reward allowed for each block; 0 when the generator enforces no per-block minimum (only the warmup generator does)"
+        ),
     )
 
     # --- delay_duration ---

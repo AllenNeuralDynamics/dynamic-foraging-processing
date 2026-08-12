@@ -23,6 +23,8 @@ from aind_behavior_services.task.distributions import (
     Scalar,
     ScalarDistributionParameter,
     TruncationParameters,
+    UniformDistribution,
+    UniformDistributionParameters,
 )
 
 from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
@@ -139,16 +141,28 @@ def _outcome(
     }
 
 
-def _task_logic(quiescent_scalar=True):
-    """Build a coupled-generator task logic with known distribution parameters."""
-    quiescent = (
-        Scalar(distribution_parameters=ScalarDistributionParameter(value=0.0))
-        if quiescent_scalar
-        else ExponentialDistribution(
-            distribution_parameters=ExponentialDistributionParameters(rate=1.0),
-            truncation_parameters=TruncationParameters(min=0.0, max=1.0),
+def _quiescent_distribution(kind):
+    """Build the quiescent-duration distribution for the requested family.
+
+    ``"uniform"`` deliberately also carries truncation parameters that differ
+    from its own bounds, so tests can pin down which pair is reported.
+    """
+    if kind == "scalar":
+        return Scalar(distribution_parameters=ScalarDistributionParameter(value=0.0))
+    if kind == "uniform":
+        return UniformDistribution(
+            distribution_parameters=UniformDistributionParameters(min=0.25, max=0.75),
+            truncation_parameters=TruncationParameters(min=9.0, max=99.0),
         )
+    return ExponentialDistribution(
+        distribution_parameters=ExponentialDistributionParameters(rate=1.0),
+        truncation_parameters=TruncationParameters(min=0.0, max=1.0),
     )
+
+
+def _task_logic(quiescent="scalar"):
+    """Build a coupled-generator task logic with known distribution parameters."""
+    quiescent = _quiescent_distribution(quiescent)
     spec = CoupledTrialGeneratorSpec(
         quiescent_duration=quiescent,
         inter_trial_interval_duration=ExponentialDistribution(
@@ -348,7 +362,11 @@ def test_build_full_dataset():
     assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
     assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
-    assert pd.isna(first["min_reward_each_block"])  # removed from generator schema
+    # Scalar has neither a scale nor truncation parameters -> null bounds.
+    assert pd.isna(first["delay_min"])
+    assert pd.isna(first["delay_max"])
+    # No per-block reward minimum on this generator -> a floor of 0, not null.
+    assert first["min_reward_each_block"] == 0
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
     # Lickspout positions from AccumulatedSteps (microsteps * 0.00125 mm),
@@ -418,12 +436,28 @@ def test_build_exponential_quiescent_sets_delay_beta():
     """A non-scalar quiescent distribution populates delay beta/min/max."""
     behavior = _full_dataset().children["Behavior"]
     behavior.children["InputSchemas"].children["TaskLogic"] = _Stream(
-        _task_logic(quiescent_scalar=False)
+        _task_logic(quiescent="exponential")
     )
     table = TrialTableBuilder(_Node({"Behavior": behavior})).build()
     assert table.iloc[0]["delay_beta"] == pytest.approx(1.0)
     assert table.iloc[0]["delay_min"] == 0.0
     assert table.iloc[0]["delay_max"] == 1.0
+
+
+def test_build_uniform_quiescent_sets_delay_bounds_from_parameters():
+    """A uniform quiescent distribution reports its own bounds and no beta."""
+    behavior = _full_dataset().children["Behavior"]
+    behavior.children["InputSchemas"].children["TaskLogic"] = _Stream(
+        _task_logic(quiescent="uniform")
+    )
+    table = TrialTableBuilder(_Node({"Behavior": behavior})).build()
+    first = table.iloc[0]
+    # Uniform has no scale parameter, so beta stays null.
+    assert pd.isna(first["delay_beta"])
+    # The bounds come from the distribution parameters (0.25/0.75), not from the
+    # truncation parameters the fixture also sets (9.0/99.0).
+    assert first["delay_min"] == pytest.approx(0.25)
+    assert first["delay_max"] == pytest.approx(0.75)
 
 
 def test_build_warns_on_misaligned_streams(caplog):
@@ -530,7 +564,8 @@ def test_session_columns_uncoupled_has_null_reward_sum():
     assert "ITI_beta" in columns
     # Coupled-only fields are absent / null for an uncoupled generator.
     assert columns["base_reward_probability_sum"] is None
-    assert "min_reward_each_block" not in columns
+    # No ``min_block_reward`` on this generator -> no per-block minimum (0).
+    assert columns["min_reward_each_block"] == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -627,6 +662,30 @@ def test_is_baited_forfeited_by_auto_response_on_same_side():
     ).trial
     # Right is guaranteed (p=1) but auto-responded right -> bait collected.
     assert TrialTableBuilder._is_baited(trial, is_right=True) is False
+
+
+def test_rewarded_history_is_earned_reward_only():
+    """Rewarded history is the choice side on earned trials and False otherwise."""
+    earned = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
+    ).trial
+    assert TrialTableBuilder._rewarded_history(earned, True, True, is_right=True) is True
+    assert TrialTableBuilder._rewarded_history(earned, True, True, is_right=False) is False
+    # An unrewarded trial is False on both sides.
+    assert TrialTableBuilder._rewarded_history(earned, False, True, is_right=True) is False
+    # An ignored trial (no choice) is False on both sides.
+    assert TrialTableBuilder._rewarded_history(earned, True, None, is_right=True) is False
+    assert TrialTableBuilder._rewarded_history(earned, True, None, is_right=False) is False
+
+
+def test_rewarded_history_false_on_every_auto_reward_trial():
+    """Autowater is not earned: an auto-reward trial is False on both sides."""
+    for auto in (True, False):
+        trial = TrialOutcome.model_validate(
+            _outcome(1.0, 1.0, is_right_choice=auto, is_rewarded=True, auto=auto)
+        ).trial
+        assert TrialTableBuilder._rewarded_history(trial, True, auto, is_right=True) is False
+        assert TrialTableBuilder._rewarded_history(trial, True, auto, is_right=False) is False
 
 
 def test_auto_water_encodes_side_from_auto_response():
