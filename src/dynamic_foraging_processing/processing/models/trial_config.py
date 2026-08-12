@@ -69,10 +69,16 @@ class TrialConfig(BaseModel):
         description="The response of the animal. 0, left choice; 1, right choice; 2, no response",
     )
     rewarded_historyL: bool = Field(
-        default=False, description="The reward history of left lick port"
+        default=False,
+        description=(
+            "The earned reward history of the left lick port; False on autowater trials, whose water is reported by auto_waterL"
+        ),
     )
     rewarded_historyR: bool = Field(
-        default=False, description="The reward history of right lick port"
+        default=False,
+        description=(
+            "The earned reward history of the right lick port; False on autowater trials, whose water is reported by auto_waterR"
+        ),
     )
     delay_start_time: Optional[float] = Field(
         default=None,
