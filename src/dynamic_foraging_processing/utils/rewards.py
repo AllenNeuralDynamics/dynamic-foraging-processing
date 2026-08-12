@@ -33,7 +33,6 @@ def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
 def get_annotated_rewards(
     reward_delivery_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
-    response_times: np.ndarray,
     manual_water_times: np.ndarray,
 ) -> np.ndarray:
     """Annotate each reward delivery as ``earned``, ``auto``, or ``manual``.
@@ -50,22 +49,16 @@ def get_annotated_rewards(
       (``is_auto_reward_right is not None``).
     - ``earned`` -- otherwise (no matching trial, or no auto-response).
 
-    Deliveries are matched to trials by the ``Response`` software event, which
-    is emitted when the animal responds and so sits next to the delivery it
-    caused. The ``Response`` and ``TrialOutcome`` streams are emitted once per
-    trial and are positionally aligned, so the matched ``Response`` position
-    indexes the corresponding ``TrialOutcome`` row.
+    Deliveries are matched to trials by the ``TrialOutcome`` software-event
+    timestamp: each delivery takes the annotation of the closest trial.
 
     Parameters
     ----------
     reward_delivery_times : numpy.ndarray
         Hardware (harp) timestamps of this port's reward deliveries.
     trial_outcome_df : pandas.DataFrame
-        Trial outcome table with one row per trial; each row's ``data`` field
-        is a :class:`TrialOutcome` payload.
-    response_times : numpy.ndarray
-        Software-event timestamps of the per-trial ``Response`` events, in
-        trial order (one per row of ``trial_outcome_df``).
+        Trial outcome table indexed by trial timestamp; each row's ``data``
+        field is a :class:`TrialOutcome` payload.
     manual_water_times : numpy.ndarray
         Software-event timestamps of this port's manual water deliveries
         (``GiveManualWaterLeft`` / ``GiveManualWaterRight``).
@@ -75,26 +68,16 @@ def get_annotated_rewards(
     numpy.ndarray
         Array of the same shape as ``reward_delivery_times`` whose entries are
         ``"earned"``, ``"auto"``, or ``"manual"``.
-
-    Raises
-    ------
-    ValueError
-        If ``response_times`` and ``trial_outcome_df`` have different lengths,
-        i.e. the per-trial streams are misaligned.
     """
     reward_times = np.asarray(reward_delivery_times)
-    response_times = np.asarray(response_times)
-    if response_times.size != len(trial_outcome_df):
-        raise ValueError(
-            "Response and TrialOutcome streams are misaligned: "
-            f"{response_times.size} responses vs {len(trial_outcome_df)} trial outcomes."
-        )
     if reward_times.size == 0:
         return np.array([], dtype=object)
 
     # Annotate each delivery from its originating trial: query with reward_times so we
     # get one trial position per reward delivery.
-    trial_indices_in_reward_times = find_closest_timestamps(reward_times, response_times)
+    trial_indices_in_reward_times = find_closest_timestamps(
+        reward_times, trial_outcome_df.index.to_numpy()
+    )
 
     annotated_rewards = []
     for trial_index in trial_indices_in_reward_times:
