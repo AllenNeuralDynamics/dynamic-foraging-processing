@@ -442,14 +442,14 @@ class TrialTableBuilder:
         return trial.p_reward_left == 1 and auto in (None, True)
 
     @staticmethod
-    def _auto_water(trial: Trial, *, is_right: bool) -> int:
+    def _auto_water(trial: Trial, outcome: TrialOutcome, *, is_right: bool) -> int:
         """Encode autowater for a side from ``is_auto_reward_right``.
 
         Returns ``1`` if the auto response was to the requested side, else ``0``.
         No auto-response (``is_auto_reward_right`` is ``None``) counts as no
         autowater (``0``). ``is_right`` is ``True`` for right.
         """
-        if trial.is_auto_reward_right is None:
+        if trial.is_auto_reward_right is None or not outcome.is_rewarded:
             return 0
         return int(trial.is_auto_reward_right is is_right)
 
@@ -897,8 +897,8 @@ class TrialTableBuilder:
             reward_consumption_duration=trial.reward_consumption_duration,
             ITI_duration=trial.inter_trial_interval_duration,
             delay_duration=trial.quiescence_period_duration,
-            auto_waterL=self._auto_water(trial, is_right=False),
-            auto_waterR=self._auto_water(trial, is_right=True),
+            auto_waterL=self._auto_water(trial, outcome, is_right=False),
+            auto_waterR=self._auto_water(trial, outcome, is_right=True),
             anti_bias_left_water=self._anti_bias_water(trial, bias_metadata, is_right=False),
             anti_bias_right_water=self._anti_bias_water(trial, bias_metadata, is_right=True),
             anti_bias_lickspout_movement=self._anti_bias_lickspout_movement(trial, bias_metadata),
