@@ -30,13 +30,13 @@ def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
     return TrialOutcome.model_validate(payload)
 
 
-def get_annotated_rewards(
+def get_reward_deliveries(
     reward_delivery_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
     manual_water_times: np.ndarray,
     response_times: np.ndarray,
 ) -> t.Tuple[np.ndarray, np.ndarray]:
-    """Annotate each reward delivery as ``earned``, ``auto``, or ``manual``.
+    """Get one lick port's reward deliveries, each ``earned``, ``auto``, or ``manual``.
 
     Annotates the deliveries of a single lick port. Each delivery is classified
     as follows, with ``manual`` taking precedence because manual water is not

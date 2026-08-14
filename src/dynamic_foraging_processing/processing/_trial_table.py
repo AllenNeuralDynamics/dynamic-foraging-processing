@@ -353,7 +353,7 @@ class TrialTableBuilder:
         (``trial.is_auto_reward_right is not None``) is ``False`` on *both*
         sides here — its water is reported by ``auto_waterL``/``auto_waterR``
         instead. This matches the ``earned``/``automatic`` split in
-        :func:`~dynamic_foraging_processing.utils.rewards.get_annotated_rewards`.
+        :func:`~dynamic_foraging_processing.utils.rewards.get_reward_deliveries`.
 
         A trial with no reward or an ignored trial (no choice) likewise counts
         as not rewarded on either side (``False``).

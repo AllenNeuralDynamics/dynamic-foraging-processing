@@ -11,7 +11,7 @@ from dynamic_foraging_processing.nwb.acquisition.models import (
 )
 from dynamic_foraging_processing.nwb.utils import clean_for_nwb
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
-from dynamic_foraging_processing.utils.rewards import get_annotated_rewards
+from dynamic_foraging_processing.utils.rewards import get_reward_deliveries
 
 
 class LickSource(t.NamedTuple):
@@ -49,8 +49,8 @@ class AcquisitionBuilder:
         """
         self.loader = loader
 
-    def get_reward_delivery(self) -> pd.DataFrame:
-        """Get the reward delivery stream from the dataset.
+    def get_valve_writes(self) -> pd.DataFrame:
+        """Get the raw valve command stream.
 
         Returns
         -------
@@ -203,7 +203,7 @@ class AcquisitionBuilder:
 
         Only valve-open events (``port_column`` is truthy) are reward
         deliveries; the ``data`` field annotates each as earned, manual, or
-        auto via :func:`get_annotated_rewards`, which also drops the autowater
+        auto via :func:`get_reward_deliveries`, which also drops the autowater
         deliveries the animal never collected.
 
         Parameters
@@ -236,7 +236,7 @@ class AcquisitionBuilder:
         open_writes = writes[writes[port_column].fillna(False).astype(bool)]
         delivery_times = open_writes.index.to_numpy()
         manual_water_times = manual_water.index[manual_water["data"] == is_right].to_numpy()
-        delivery_times, annotations = get_annotated_rewards(
+        delivery_times, annotations = get_reward_deliveries(
             delivery_times,
             trial_outcomes,
             manual_water_times,
@@ -274,7 +274,7 @@ class AcquisitionBuilder:
         list of AcquisitionSeries or AcquisitionTable
             Acquisition entries to write to the NWB acquisition module.
         """
-        rewards = self.get_reward_delivery()
+        rewards = self.get_valve_writes()
         trial_outcomes = self.get_trial_outcomes()
         manual_water = self.get_manual_water_times()
         response_times = self.get_response_times()
