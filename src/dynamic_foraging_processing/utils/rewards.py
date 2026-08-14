@@ -50,12 +50,12 @@ def get_reward_deliveries(
       (``is_auto_reward_right is not None``).
     - ``earned`` -- otherwise (no matching trial, or no auto-response).
 
-    Deliveries the animal never received are dropped rather than annotated:
-    autowater is delivered *before* the response, so on an auto trial the animal
-    answered the other way the water goes uncollected and the trial reports
-    ``is_rewarded=False``. Manual water keeps its precedence and is never
-    dropped. The surviving timestamps are returned alongside their annotations
-    so the two stay aligned.
+    Deliveries matched to a trial reporting ``is_rewarded=False`` are dropped
+    rather than annotated: the water was not reward the animal received. In
+    practice these are all autowater, which is delivered *before* the response,
+    so on a trial the animal answered the other way it goes uncollected. Manual
+    water keeps its precedence and is never dropped. The surviving timestamps
+    are returned alongside their annotations so the two stay aligned.
 
     Deliveries are matched to trials by the ``Response`` software-event
     timestamp: each delivery takes the annotation of the trial whose response is
@@ -114,13 +114,13 @@ def get_reward_deliveries(
     trial_indices_in_reward_times = find_closest_timestamps(reward_times, response_times)
 
     annotated_rewards = []
-    is_unrewarded_auto = []
+    is_unrewarded = []
     for trial_index in trial_indices_in_reward_times:
         outcome = _parse_outcome(trial_outcome_df.iloc[trial_index]["data"])
         trial = outcome.trial if outcome is not None else None
         is_auto = trial is not None and trial.is_auto_reward_right is not None
         annotated_rewards.append("auto" if is_auto else "earned")
-        is_unrewarded_auto.append(is_auto and outcome is not None and not outcome.is_rewarded)
+        is_unrewarded.append(outcome is not None and not outcome.is_rewarded)
 
     # Object dtype, not the inferred fixed-width string dtype: a run of only "auto"
     # and "earned" entries would be too narrow to hold "manual" and would truncate it.
@@ -137,9 +137,9 @@ def get_reward_deliveries(
         manual_mask[manual_indices_in_reward_times] = True
         annotated_rewards[manual_mask] = "manual"
 
-    # Autowater is delivered before the response, so on a trial the animal answered the
-    # other way the water is never collected and the trial reports is_rewarded=False.
-    # Those deliveries are dropped: they are not reward the animal received. Manual
-    # water keeps its precedence and is never dropped.
-    keep = ~(np.array(is_unrewarded_auto, dtype=bool) & ~manual_mask)
+    # A delivery on a trial reporting is_rewarded=False is not reward the animal
+    # received, so it is dropped. In practice these are all autowater: it is delivered
+    # before the response, so on a trial the animal answered the other way the water is
+    # never collected. Manual water keeps its precedence and is never dropped.
+    keep = ~(np.array(is_unrewarded, dtype=bool) & ~manual_mask)
     return reward_times[keep], annotated_rewards[keep]

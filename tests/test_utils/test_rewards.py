@@ -107,8 +107,12 @@ def test_get_reward_deliveries_drops_uncollected_auto_water():
     np.testing.assert_array_equal(annotations, np.array(["earned", "auto"]))
 
 
-def test_get_reward_deliveries_keeps_unrewarded_non_auto_deliveries():
-    """A delivery on an unrewarded trial that is not autowater is kept."""
+def test_get_reward_deliveries_drops_any_delivery_on_an_unrewarded_trial():
+    """The drop rule is ``is_rewarded=False``, not autowater specifically.
+
+    Autowater is the only case seen in practice, but a delivery on any trial
+    reporting no reward is water the animal did not receive.
+    """
     reward_times = np.array([0.15])
     response_times = np.array([0.1])
     trial_outcome_df = _trial_outcome_df(np.array([1.1]), autos=[None], rewarded=[False])
@@ -117,8 +121,8 @@ def test_get_reward_deliveries_keeps_unrewarded_non_auto_deliveries():
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
-    np.testing.assert_array_equal(annotations, np.array(["earned"]))
+    assert times.size == 0
+    assert annotations.size == 0
 
 
 def test_get_reward_deliveries_marks_manual_water_as_manual():
