@@ -76,6 +76,26 @@ class AcquisitionBuilder:
             self.loader.dataset.at("Behavior").at("SoftwareEvents").at("TrialOutcome").load().data
         )
 
+    def get_response_times(self) -> np.ndarray:
+        """Get the per-trial ``Response`` software-event timestamps.
+
+        The event fires when the animal's choice is registered, within
+        milliseconds of the valve opening, so it anchors a reward delivery to
+        its trial. Only the event timestamp is used; the payload's ``Item1``
+        field nominally carries a response time but is unreliable (it can lag
+        the event by thousands of seconds), so it is ignored.
+
+        Returns
+        -------
+        numpy.ndarray
+            The ``Response`` event timestamps, positionally aligned with the
+            ``TrialOutcome`` stream.
+        """
+        responses = (
+            self.loader.dataset.at("Behavior").at("SoftwareEvents").at("Response").load().data
+        )
+        return responses.index.to_numpy()
+
     def get_manual_water_times(self) -> pd.DataFrame:
         """Get the manual-water software-event stream.
 
@@ -172,6 +192,7 @@ class AcquisitionBuilder:
         writes: pd.DataFrame,
         trial_outcomes: pd.DataFrame,
         manual_water: pd.DataFrame,
+        response_times: np.ndarray,
         *,
         port_column: str,
         is_right: bool,
@@ -193,6 +214,9 @@ class AcquisitionBuilder:
         manual_water : pandas.DataFrame
             The ``GiveManualWaterRight`` stream; the ``data`` column selects the
             side (``True`` right, ``False`` left).
+        response_times : numpy.ndarray
+            ``Response`` event timestamps, one per trial, used to match each
+            delivery to its trial.
         port_column : str
             Supply-port column for this side (``"SupplyPort0"`` left,
             ``"SupplyPort1"`` right).
@@ -215,6 +239,7 @@ class AcquisitionBuilder:
             delivery_times,
             trial_outcomes,
             manual_water_times,
+            response_times,
         )
         return AcquisitionSeries(
             name=name,
@@ -251,6 +276,7 @@ class AcquisitionBuilder:
         rewards = self.get_reward_delivery()
         trial_outcomes = self.get_trial_outcomes()
         manual_water = self.get_manual_water_times()
+        response_times = self.get_response_times()
 
         acquisition_streams = self.loader.get_all_raw_data()
         acqusition_streams_descriptions = self.loader.raw_data_stream_descriptions
@@ -274,6 +300,7 @@ class AcquisitionBuilder:
                 rewards,
                 trial_outcomes,
                 manual_water,
+                response_times,
                 port_column="SupplyPort0",
                 is_right=False,
                 name="left_reward_delivery_time",
@@ -285,6 +312,7 @@ class AcquisitionBuilder:
                 rewards,
                 trial_outcomes,
                 manual_water,
+                response_times,
                 port_column="SupplyPort1",
                 is_right=True,
                 name="right_reward_delivery_time",

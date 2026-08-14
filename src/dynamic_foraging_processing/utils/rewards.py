@@ -34,6 +34,7 @@ def get_annotated_rewards(
     reward_delivery_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
     manual_water_times: np.ndarray,
+    response_times: np.ndarray,
 ) -> np.ndarray:
     """Annotate each reward delivery as ``earned``, ``auto``, or ``manual``.
 
@@ -49,8 +50,17 @@ def get_annotated_rewards(
       (``is_auto_reward_right is not None``).
     - ``earned`` -- otherwise (no matching trial, or no auto-response).
 
-    Deliveries are matched to trials by the ``TrialOutcome`` software-event
-    timestamp: each delivery takes the annotation of the closest trial.
+    Deliveries are matched to trials by the ``Response`` software-event
+    timestamp: each delivery takes the annotation of the trial whose response is
+    closest. The response is used rather than the ``TrialOutcome`` timestamp
+    because ``TrialOutcome`` fires at the *end* of a trial, after the
+    reward-consumption and ITI periods, while the valve opens within
+    milliseconds of the response. Matching on trial end lets a delivery land
+    nearer the *previous* trial's outcome and inherit its
+    ``is_auto_reward_right``, flipping ``earned`` and ``auto``.
+
+    ``response_times`` is aligned to ``trial_outcome_df`` positionally: entry
+    ``i`` is the response of the trial in row ``i``.
 
     Parameters
     ----------
@@ -62,22 +72,36 @@ def get_annotated_rewards(
     manual_water_times : numpy.ndarray
         Software-event timestamps of this port's manual water deliveries
         (``GiveManualWaterLeft`` / ``GiveManualWaterRight``).
+    response_times : numpy.ndarray
+        ``Response`` software-event timestamps, one per trial, positionally
+        aligned with the rows of ``trial_outcome_df``.
 
     Returns
     -------
     numpy.ndarray
         Array of the same shape as ``reward_delivery_times`` whose entries are
         ``"earned"``, ``"auto"``, or ``"manual"``.
+
+    Raises
+    ------
+    ValueError
+        If ``response_times`` has a different length than ``trial_outcome_df``,
+        since the two are paired by position.
     """
+    response_times = np.asarray(response_times)
+    if response_times.size != len(trial_outcome_df):
+        raise ValueError(
+            f"response_times has {response_times.size} entries but there are "
+            f"{len(trial_outcome_df)} trials; the two are paired by position."
+        )
+
     reward_times = np.asarray(reward_delivery_times)
     if reward_times.size == 0:
         return np.array([], dtype=object)
 
     # Annotate each delivery from its originating trial: query with reward_times so we
     # get one trial position per reward delivery.
-    trial_indices_in_reward_times = find_closest_timestamps(
-        reward_times, trial_outcome_df.index.to_numpy()
-    )
+    trial_indices_in_reward_times = find_closest_timestamps(reward_times, response_times)
 
     annotated_rewards = []
     for trial_index in trial_indices_in_reward_times:
