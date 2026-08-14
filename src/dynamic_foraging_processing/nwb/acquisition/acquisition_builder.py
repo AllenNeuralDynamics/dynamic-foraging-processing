@@ -203,7 +203,8 @@ class AcquisitionBuilder:
 
         Only valve-open events (``port_column`` is truthy) are reward
         deliveries; the ``data`` field annotates each as earned, manual, or
-        auto via :func:`get_annotated_rewards`.
+        auto via :func:`get_annotated_rewards`, which also drops the autowater
+        deliveries the animal never collected.
 
         Parameters
         ----------
@@ -235,7 +236,7 @@ class AcquisitionBuilder:
         open_writes = writes[writes[port_column].fillna(False).astype(bool)]
         delivery_times = open_writes.index.to_numpy()
         manual_water_times = manual_water.index[manual_water["data"] == is_right].to_numpy()
-        annotations = get_annotated_rewards(
+        delivery_times, annotations = get_annotated_rewards(
             delivery_times,
             trial_outcomes,
             manual_water_times,
