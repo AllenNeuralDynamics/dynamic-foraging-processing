@@ -59,10 +59,11 @@ _DEFAULT_RIGHT_LICK = LickSource("HarpBehavior", "DigitalInputState", "DIPort1")
 #: ``TimeIntervals`` requires both, so they are derived here.
 _NWB_START_COLUMN = "quiescent_start_time"
 
-#: Columns NWB's required native ``stop_time`` is taken from, in order of
-#: preference: the end of the ITI, falling back to its start on the last trial
-#: of the session (where the ITI end is unknown).
-_NWB_STOP_COLUMNS = ("ITI_stop_time", "ITI_start_time")
+#: Trials-table column NWB's required native ``stop_time`` is taken from: the
+#: end of the ITI. This is ``NaN`` on the last trial of the session (whose ITI
+#: end is unknown) and the ``NaN`` is propagated rather than substituted, so an
+#: unknown trial end reads as unknown instead of as a shortened trial.
+_NWB_STOP_COLUMN = "ITI_stop_time"
 
 #: Source repository recorded in the ``processing.json`` data process.
 _CODE_URL = "https://github.com/AllenNeuralDynamics/dynamic-foraging-processing"
@@ -236,8 +237,9 @@ class Pipeline:
 
         The trials table has no trial start/stop columns of its own, so the
         trial's extent is taken from its period bounds: it starts with the
-        quiescent period and ends with the ITI, falling back to the ITI start on
-        the last trial of the session (whose ITI end is unknown).
+        quiescent period and ends with the ITI. The last trial of the session has
+        no ITI end, so its stop time is ``NaN`` — an unknown end is reported as
+        unknown rather than substituted with an earlier landmark.
 
         Parameters
         ----------
@@ -247,11 +249,10 @@ class Pipeline:
         Returns
         -------
         tuple of (float, float)
-            The trial start and stop time (seconds).
+            The trial start and stop time (seconds); the stop time is ``NaN``
+            where the ITI end is unknown.
         """
-        stops = [row[column] for column in _NWB_STOP_COLUMNS if pd.notnull(row[column])]
-        stop = stops[0] if stops else np.nan
-        return float(row[_NWB_START_COLUMN]), float(stop)
+        return float(row[_NWB_START_COLUMN]), float(row[_NWB_STOP_COLUMN])
 
     @classmethod
     def _add_trials(cls, nwb_file: pynwb.NWBFile, trials: pd.DataFrame) -> None:
@@ -265,7 +266,7 @@ class Pipeline:
         (named ``id``) is replicated as each trial's NWB ``id``. An empty table
         (or one missing the period columns the extent is derived from) is skipped.
         """
-        required = (_NWB_START_COLUMN, *_NWB_STOP_COLUMNS)
+        required = (_NWB_START_COLUMN, _NWB_STOP_COLUMN)
         if trials.empty or any(col not in trials.columns for col in required):
             return
         descriptions = TrialConfig.column_descriptions()
