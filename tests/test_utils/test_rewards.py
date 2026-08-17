@@ -65,6 +65,28 @@ def test_get_reward_deliveries_marks_auto_response_trials_as_auto():
     np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
+def test_get_reward_deliveries_marks_anti_bias_water_as_auto():
+    """Anti-bias water is autowater, so it annotates as ``auto``.
+
+    The anti-bias intervention is delivered through the same
+    ``is_auto_reward_right`` channel as scheduled autowater, so the annotation
+    does not distinguish them; ``anti_bias_left_water``/``anti_bias_right_water``
+    in the trials table mark which deliveries the algorithm drove.
+    """
+    reward_times = np.array([0.15])
+    response_times = np.array([0.1])
+    payload = _outcome_payload(True)
+    payload["trial"]["metadata"] = {"extra": {"is_bias_water_intervention": True}}
+    trial_outcome_df = pd.DataFrame({"data": [payload]}, index=pd.Index([1.1], name="time"))
+
+    times, annotations = get_reward_deliveries(
+        reward_times, trial_outcome_df, np.array([]), response_times
+    )
+
+    np.testing.assert_array_equal(times, reward_times)
+    np.testing.assert_array_equal(annotations, np.array(["auto"]))
+
+
 def test_get_reward_deliveries_matches_closest_response_time():
     """Each delivery takes the annotation of the trial whose response is closest.
 
@@ -85,11 +107,12 @@ def test_get_reward_deliveries_matches_closest_response_time():
     np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
-def test_get_reward_deliveries_drops_uncollected_auto_water():
+def test_get_reward_deliveries_drops_auto_water_on_unrewarded_trials():
     """Autowater on a trial reporting ``is_rewarded=False`` is dropped, not annotated.
 
-    The water is delivered before the response, so a trial the animal answered
-    the other way leaves it uncollected; it is not reward the animal received.
+    The water is delivered at the go cue and the trial then continues normally,
+    so a trial whose own choice did not pay out still carries the delivery. The
+    series is reward-keyed, so those deliveries are excluded.
     """
     reward_times = np.array([0.15, 0.42, 0.95])
     response_times = np.array([0.1, 0.4, 0.9])
@@ -110,8 +133,9 @@ def test_get_reward_deliveries_drops_uncollected_auto_water():
 def test_get_reward_deliveries_drops_any_delivery_on_an_unrewarded_trial():
     """The drop rule is ``is_rewarded=False``, not autowater specifically.
 
-    Autowater is the only case seen in practice, but a delivery on any trial
-    reporting no reward is water the animal did not receive.
+    Autowater is the only case seen in practice, but the condition is the trial's
+    reward outcome, so any delivery on a trial that did not pay out is excluded
+    regardless of what triggered it.
     """
     reward_times = np.array([0.15])
     response_times = np.array([0.1])
