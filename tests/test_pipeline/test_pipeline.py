@@ -297,7 +297,7 @@ def test_add_trials_derives_native_start_and_stop_from_periods():
     """NWB's native trial extent spans the quiescent start to the ITI end.
 
     The last trial has no ITI end (no following quiescent period), so its stop
-    time falls back to the ITI start.
+    time stays ``NaN`` rather than falling back to an earlier landmark.
     """
     nwb_file = MagicMock()
 
@@ -307,7 +307,8 @@ def test_add_trials_derives_native_start_and_stop_from_periods():
         (call.kwargs["start_time"], call.kwargs["stop_time"])
         for call in nwb_file.add_trial.call_args_list
     ]
-    assert extents == [(0.0, 1.0), (1.0, 1.4)]
+    assert extents[0] == (0.0, 1.0)
+    assert extents[1][0] == 1.0 and np.isnan(extents[1][1])
 
 
 def test_add_trials_skips_frame_without_period_columns():
