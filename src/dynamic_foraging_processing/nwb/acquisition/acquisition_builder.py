@@ -202,10 +202,10 @@ class AcquisitionBuilder:
         """Build one lick port's reward-delivery series with reward annotations.
 
         Only valve-open events (``port_column`` is truthy) are reward
-        deliveries; the ``data`` field annotates each as earned, manual, auto, or
-        anti-bias via :func:`get_reward_deliveries`, which also drops deliveries
-        on trials that did not pay out, so the series reports reward rather than
-        every valve opening.
+        deliveries; the ``data`` field annotates each as earned, manual, or auto
+        via :func:`get_reward_deliveries`, which also drops deliveries on trials
+        that did not pay out, so the series reports reward rather than every
+        valve opening.
 
         Parameters
         ----------
@@ -250,7 +250,7 @@ class AcquisitionBuilder:
             unit="second",
             description=(
                 f"The reward delivery time of the {side_label} lick port. The data field "
-                "annotates whether the reward was earned, manual, auto, or anti_bias"
+                "annotates whether the reward was earned, manual, or auto"
             ),
         )
 
