@@ -192,26 +192,13 @@ class TrialConfig(BaseModel):
     auto_waterL: int = Field(
         default=0,
         description=(
-            "Rewarded autowater given at Left: 1 only when the trial auto-triggered a reward to the left (is_auto_reward_right is False) AND the trial was rewarded (is_rewarded). Autowater on a trial that did not pay out is 0, so this column counts autowater that was reward and matches the left reward-delivery series. The anti-bias water intervention uses the same autowater channel and is included here; anti_bias_left_water reports it ungated."
+            "Scheduled autowater at Left: 1 when the trial's free water was scheduled autowater (trial.metadata.extra.is_autowater) and was directed left (is_auto_reward_right is False). is_auto_reward_right is only the delivery channel, so the mechanism comes from the metadata: free water driven by the anti-bias algorithm is 0 here and is reported by anti_bias_left_water instead. Records what the task did, so like the anti-bias columns it is NOT conditioned on is_rewarded; the reward-delivery series is reward-keyed and drops free water on trials that did not pay out, so this column can exceed that series' auto count."
         ),
     )
     auto_waterR: int = Field(
         default=0,
         description=(
-            "Rewarded autowater given at Right: 1 only when the trial auto-triggered a reward to the right (is_auto_reward_right is True) AND the trial was rewarded (is_rewarded). Autowater on a trial that did not pay out is 0, so this column counts autowater that was reward and matches the right reward-delivery series. The anti-bias water intervention uses the same autowater channel and is included here; anti_bias_right_water reports it ungated."
-        ),
-    )
-
-    auto_water_offeredL: int = Field(
-        default=0,
-        description=(
-            "Autowater offered at Left: 1 whenever the trial auto-triggered a reward to the left (is_auto_reward_right is False), whether or not the trial paid out. This is the legacy dynamic-foraging-task meaning of auto_waterL, kept so no delivery is lost from the trial table; auto_waterL is the reward-keyed subset that matches the reward-delivery series."
-        ),
-    )
-    auto_water_offeredR: int = Field(
-        default=0,
-        description=(
-            "Autowater offered at Right: 1 whenever the trial auto-triggered a reward to the right (is_auto_reward_right is True), whether or not the trial paid out. This is the legacy dynamic-foraging-task meaning of auto_waterR, kept so no delivery is lost from the trial table; auto_waterR is the reward-keyed subset that matches the reward-delivery series."
+            "Scheduled autowater at Right: 1 when the trial's free water was scheduled autowater (trial.metadata.extra.is_autowater) and was directed right (is_auto_reward_right is True). is_auto_reward_right is only the delivery channel, so the mechanism comes from the metadata: free water driven by the anti-bias algorithm is 0 here and is reported by anti_bias_right_water instead. Records what the task did, so like the anti-bias columns it is NOT conditioned on is_rewarded; the reward-delivery series is reward-keyed and drops free water on trials that did not pay out, so this column can exceed that series' auto count."
         ),
     )
 

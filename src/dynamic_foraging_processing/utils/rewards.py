@@ -7,6 +7,7 @@ import pandas as pd
 from aind_behavior_dynamic_foraging.task_logic.trial_models import Trial, TrialOutcome
 
 from dynamic_foraging_processing.utils.timestamps import find_closest_timestamps
+from dynamic_foraging_processing.utils.trial_metadata import get_bias_metadata
 
 
 def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
@@ -31,13 +32,18 @@ def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
 
 
 def _free_water_label(trial: t.Optional[Trial]) -> str:
-    """Classify a delivery's trial as ``auto`` or ``earned``.
+    """Classify a delivery's trial as ``anti_bias``, ``auto``, or ``earned``.
 
-    ``is_auto_reward_right`` triggers an immediate reward to one side; the
-    anti-bias water intervention is itself autowater delivered through that
-    channel, so any auto-triggered reward is ``auto``. This is the same condition
-    ``auto_waterL``/``auto_waterR`` use in the trials table, so the two agree
-    trial for trial.
+    ``is_auto_reward_right`` is only the delivery *channel* -- it says free water
+    was triggered and to which side, not what kind -- so the mechanism comes from
+    the block-based metadata: ``is_bias_water_intervention`` for an anti-bias
+    correction, ``is_autowater`` for scheduled autowater. These are the same
+    conditions ``anti_bias_left_water``/``anti_bias_right_water`` and
+    ``auto_waterL``/``auto_waterR`` use in the trials table, so the labels and the
+    columns classify each trial identically.
+
+    A trial with no free water, or free water the metadata flags as neither
+    mechanism, is ``earned``.
 
     Parameters
     ----------
@@ -48,11 +54,16 @@ def _free_water_label(trial: t.Optional[Trial]) -> str:
     Returns
     -------
     str
-        ``"auto"`` when the trial auto-triggered a reward, else ``"earned"``.
+        ``"anti_bias"``, ``"auto"``, or ``"earned"``.
     """
     if trial is None or trial.is_auto_reward_right is None:
         return "earned"
-    return "auto"
+    metadata = get_bias_metadata(trial)
+    if metadata.is_bias_water_intervention:
+        return "anti_bias"
+    if metadata.is_autowater:
+        return "auto"
+    return "earned"
 
 
 def get_reward_deliveries(
@@ -71,16 +82,17 @@ def get_reward_deliveries(
       ``GiveManualWater`` software event for this port. The software-event
       timestamps are correlated to the reward-delivery timestamps with
       :func:`find_closest_timestamps`.
-    - ``auto`` -- otherwise, when the trial auto-triggered a reward
-      (``is_auto_reward_right is not None``). The anti-bias water intervention is
-      autowater delivered through that same channel, so it is ``auto`` too; the
-      trials table's ``anti_bias_left_water``/``anti_bias_right_water`` mark
-      which of these the anti-bias algorithm drove.
+    - ``anti_bias`` -- otherwise, when the trial's free water came from the
+      anti-bias algorithm (``is_bias_water_intervention``).
+    - ``auto`` -- otherwise, when the trial's free water was scheduled autowater
+      (``is_autowater``).
     - ``earned`` -- otherwise: water the animal worked for.
 
-    The ``auto`` condition is the one ``auto_waterL``/``auto_waterR`` use in the
-    trials table, and the drop below matches those columns' ``is_rewarded`` gate,
-    so the ``auto`` count here equals the trials table's autowater count.
+    ``is_auto_reward_right`` is only the delivery *channel*, so the mechanism
+    behind free water comes from the block-based metadata (see
+    :func:`get_bias_metadata`) -- the same fields the trials table's
+    ``auto_waterL``/``auto_waterR`` and
+    ``anti_bias_left_water``/``anti_bias_right_water`` read.
 
     Deliveries on a trial reporting ``is_rewarded=False`` are dropped rather than
     annotated, so the series reports only water that counted as reward. In
@@ -127,7 +139,7 @@ def get_reward_deliveries(
         the deliveries on unrewarded trials.
     numpy.ndarray
         The matching annotations, one per retained timestamp, each ``"earned"``,
-        ``"auto"``, or ``"manual"``.
+        ``"auto"``, ``"anti_bias"``, or ``"manual"``.
 
     Raises
     ------
