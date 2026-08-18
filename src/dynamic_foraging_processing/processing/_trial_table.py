@@ -475,6 +475,34 @@ class TrialTableBuilder:
         return int(trial.is_auto_reward_right is is_right)
 
     @staticmethod
+    def _auto_water_offered(trial: Trial, *, is_right: bool) -> int:
+        """Return whether autowater was *offered* to the requested side.
+
+        The ungated counterpart of :meth:`_auto_water`: ``1`` whenever the trial
+        auto-triggered a reward to this side, whether or not the trial went on to
+        pay out. This is the legacy ``dynamic-foraging-task`` meaning of
+        ``auto_waterL``/``auto_waterR`` (its ``B_AutoWaterTrial``, which that GUI
+        also passes to foraging efficiency as ``autowater_offered``), kept so the
+        trial table still records every autowater delivery while ``auto_water*``
+        stays reward-keyed to match the reward-delivery series.
+
+        Parameters
+        ----------
+        trial : Trial
+            The per-trial task-logic model.
+        is_right : bool
+            ``True`` for the right port, ``False`` for the left port.
+
+        Returns
+        -------
+        int
+            ``1`` when autowater was offered to the requested side, else ``0``.
+        """
+        if trial.is_auto_reward_right is None:
+            return 0
+        return int(trial.is_auto_reward_right is is_right)
+
+    @staticmethod
     def _bias_metadata(trial: Trial) -> BlockBasedTrialMetadata:
         """Return the block-based extra metadata carrying the anti-bias flags.
 
@@ -507,13 +535,9 @@ class TrialTableBuilder:
 
     @staticmethod
     def _anti_bias_water(
-        trial: Trial,
-        outcome: TrialOutcome,
-        bias_metadata: BlockBasedTrialMetadata,
-        *,
-        is_right: bool,
+        trial: Trial, bias_metadata: BlockBasedTrialMetadata, *, is_right: bool
     ) -> bool:
-        """Return whether the anti-bias algorithm's water was rewarded on this side.
+        """Return whether the anti-bias algorithm watered the requested side.
 
         The anti-bias algorithm delivers its water intervention through the same
         auto-response channel as ordinary autowater (``is_auto_reward_right``:
@@ -522,18 +546,17 @@ class TrialTableBuilder:
         was a bias-water intervention *and* the auto-response was to the
         requested side.
 
-        Free water on a trial that did not pay out (``is_rewarded`` is ``False``)
-        is ``False``, matching :meth:`_auto_water` and the reward-keyed
-        reward-delivery series. The intervention still fired on those trials --
-        it is triggered at the go cue regardless of the animal's later choice --
-        so this column counts rewarded interventions, not every intervention.
+        This records what the *algorithm* did, so it is not gated on
+        ``is_rewarded``: the intervention fires at the go cue regardless of how
+        the animal's own choice later resolves. It is therefore not a subset of
+        ``auto_waterL``/``auto_waterR``, which count only rewarded autowater --
+        an intervention on a trial that did not pay out appears here and not
+        there.
 
         Parameters
         ----------
         trial : Trial
             The per-trial task-logic model.
-        outcome : TrialOutcome
-            The trial's outcome, read for ``is_rewarded``.
         bias_metadata : BlockBasedTrialMetadata
             The trial's extra metadata (see ``_bias_metadata``).
         is_right : bool
@@ -542,10 +565,9 @@ class TrialTableBuilder:
         Returns
         -------
         bool
-            Whether a rewarded anti-bias water intervention targeted the
-            requested side.
+            Whether an anti-bias water intervention targeted the requested side.
         """
-        if not bias_metadata.is_bias_water_intervention or not outcome.is_rewarded:
+        if not bias_metadata.is_bias_water_intervention:
             return False
         return trial.is_auto_reward_right is is_right
 
@@ -933,12 +955,10 @@ class TrialTableBuilder:
             delay_duration=trial.quiescence_period_duration,
             auto_waterL=self._auto_water(trial, outcome, is_right=False),
             auto_waterR=self._auto_water(trial, outcome, is_right=True),
-            anti_bias_left_water=self._anti_bias_water(
-                trial, outcome, bias_metadata, is_right=False
-            ),
-            anti_bias_right_water=self._anti_bias_water(
-                trial, outcome, bias_metadata, is_right=True
-            ),
+            auto_water_offeredL=self._auto_water_offered(trial, is_right=False),
+            auto_water_offeredR=self._auto_water_offered(trial, is_right=True),
+            anti_bias_left_water=self._anti_bias_water(trial, bias_metadata, is_right=False),
+            anti_bias_right_water=self._anti_bias_water(trial, bias_metadata, is_right=True),
             anti_bias_lickspout_movement=self._anti_bias_lickspout_movement(trial, bias_metadata),
             **session,
             **lickspout,

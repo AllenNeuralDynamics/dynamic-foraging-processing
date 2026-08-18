@@ -189,20 +189,43 @@ class TrialConfig(BaseModel):
     )
 
     # --- auto_waterL/R (autowater per-side; autoTrain curriculum fields out of scope) ---
-    auto_waterL: int = Field(default=0, description="Autowater given at Left")
-    auto_waterR: int = Field(default=0, description="Autowater given at Right")
+    auto_waterL: int = Field(
+        default=0,
+        description=(
+            "Rewarded autowater given at Left: 1 only when the trial auto-triggered a reward to the left (is_auto_reward_right is False) AND the trial was rewarded (is_rewarded). Autowater on a trial that did not pay out is 0, so this column counts autowater that was reward and matches the left reward-delivery series. The anti-bias water intervention uses the same autowater channel and is included here; anti_bias_left_water reports it ungated."
+        ),
+    )
+    auto_waterR: int = Field(
+        default=0,
+        description=(
+            "Rewarded autowater given at Right: 1 only when the trial auto-triggered a reward to the right (is_auto_reward_right is True) AND the trial was rewarded (is_rewarded). Autowater on a trial that did not pay out is 0, so this column counts autowater that was reward and matches the right reward-delivery series. The anti-bias water intervention uses the same autowater channel and is included here; anti_bias_right_water reports it ungated."
+        ),
+    )
+
+    auto_water_offeredL: int = Field(
+        default=0,
+        description=(
+            "Autowater offered at Left: 1 whenever the trial auto-triggered a reward to the left (is_auto_reward_right is False), whether or not the trial paid out. This is the legacy dynamic-foraging-task meaning of auto_waterL, kept so no delivery is lost from the trial table; auto_waterL is the reward-keyed subset that matches the reward-delivery series."
+        ),
+    )
+    auto_water_offeredR: int = Field(
+        default=0,
+        description=(
+            "Autowater offered at Right: 1 whenever the trial auto-triggered a reward to the right (is_auto_reward_right is True), whether or not the trial paid out. This is the legacy dynamic-foraging-task meaning of auto_waterR, kept so no delivery is lost from the trial table; auto_waterR is the reward-keyed subset that matches the reward-delivery series."
+        ),
+    )
 
     # --- anti_bias (interventions the anti-bias algorithm applies) ---
     anti_bias_left_water: bool = Field(
         default=False,
         description=(
-            "Whether the anti-bias algorithm delivered a water intervention to the left lickport on this trial."
+            "Whether the anti-bias algorithm delivered a water intervention to the left lickport on this trial. Records what the algorithm did, so unlike auto_waterL this is NOT conditioned on is_rewarded: the intervention fires at the go cue regardless of how the animal's own choice resolves. It can therefore be True where auto_waterL is 0."
         ),
     )
     anti_bias_right_water: bool = Field(
         default=False,
         description=(
-            "Whether the anti-bias algorithm delivered a water intervention to the right lickport on this trial."
+            "Whether the anti-bias algorithm delivered a water intervention to the right lickport on this trial. Records what the algorithm did, so unlike auto_waterR this is NOT conditioned on is_rewarded: the intervention fires at the go cue regardless of how the animal's own choice resolves. It can therefore be True where auto_waterR is 0."
         ),
     )
     anti_bias_lickspout_movement: float = Field(
