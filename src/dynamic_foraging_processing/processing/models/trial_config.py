@@ -189,20 +189,30 @@ class TrialConfig(BaseModel):
     )
 
     # --- auto_waterL/R (autowater per-side; autoTrain curriculum fields out of scope) ---
-    auto_waterL: int = Field(default=0, description="Autowater given at Left")
-    auto_waterR: int = Field(default=0, description="Autowater given at Right")
+    auto_waterL: int = Field(
+        default=0,
+        description=(
+            "Scheduled autowater at Left: 1 when the trial's free water was scheduled autowater (trial.metadata.extra.is_autowater) and was directed left (is_auto_reward_right is False). is_auto_reward_right is only the delivery channel, so the mechanism comes from the metadata: free water driven by the anti-bias algorithm is 0 here and is reported by anti_bias_left_water instead. Records what the task did, so like the anti-bias columns it is NOT conditioned on is_rewarded; the reward-delivery series is reward-keyed and drops free water on trials that did not pay out, so this column can exceed that series' auto count."
+        ),
+    )
+    auto_waterR: int = Field(
+        default=0,
+        description=(
+            "Scheduled autowater at Right: 1 when the trial's free water was scheduled autowater (trial.metadata.extra.is_autowater) and was directed right (is_auto_reward_right is True). is_auto_reward_right is only the delivery channel, so the mechanism comes from the metadata: free water driven by the anti-bias algorithm is 0 here and is reported by anti_bias_right_water instead. Records what the task did, so like the anti-bias columns it is NOT conditioned on is_rewarded; the reward-delivery series is reward-keyed and drops free water on trials that did not pay out, so this column can exceed that series' auto count."
+        ),
+    )
 
     # --- anti_bias (interventions the anti-bias algorithm applies) ---
     anti_bias_left_water: bool = Field(
         default=False,
         description=(
-            "Whether the anti-bias algorithm delivered a water intervention to the left lickport on this trial."
+            "Whether the anti-bias algorithm delivered a water intervention to the left lickport on this trial. Records what the algorithm did, so unlike auto_waterL this is NOT conditioned on is_rewarded: the intervention fires at the go cue regardless of how the animal's own choice resolves. It can therefore be True where auto_waterL is 0."
         ),
     )
     anti_bias_right_water: bool = Field(
         default=False,
         description=(
-            "Whether the anti-bias algorithm delivered a water intervention to the right lickport on this trial."
+            "Whether the anti-bias algorithm delivered a water intervention to the right lickport on this trial. Records what the algorithm did, so unlike auto_waterR this is NOT conditioned on is_rewarded: the intervention fires at the go cue regardless of how the animal's own choice resolves. It can therefore be True where auto_waterR is 0."
         ),
     )
     anti_bias_lickspout_movement: float = Field(
