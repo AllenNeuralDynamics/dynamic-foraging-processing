@@ -10,29 +10,45 @@ from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
 from dynamic_foraging_processing.utils.rewards import get_reward_deliveries
 
 
-def _outcome_payload(auto=None, is_rewarded: bool = True) -> dict:
-    """Return a serialized ``TrialOutcome`` payload with the given auto-response."""
+def _outcome_payload(auto=None, is_rewarded: bool = True, mechanism: str = "autowater") -> dict:
+    """Return a serialized ``TrialOutcome`` payload with the given auto-response.
+
+    ``mechanism`` names which free-water flag ``metadata.extra`` carries when
+    ``auto`` is set: ``"autowater"`` for scheduled autowater, ``"anti_bias"`` for
+    an anti-bias intervention, or ``None`` for neither (the mechanism is not
+    recorded, so the delivery cannot be attributed).
+    """
+    trial = {
+        "p_reward_left": 1.0,
+        "p_reward_right": 1.0,
+        "response_deadline_duration": 3.0,
+        "reward_consumption_duration": 1.0,
+        "quiescence_period_duration": 0.5,
+        "inter_trial_interval_duration": 4.0,
+        "is_auto_reward_right": auto,
+    }
+    if mechanism is not None:
+        trial["metadata"] = {
+            "extra": {
+                "is_autowater": mechanism == "autowater",
+                "is_bias_water_intervention": mechanism == "anti_bias",
+            }
+        }
     return {
-        "trial": {
-            "p_reward_left": 1.0,
-            "p_reward_right": 1.0,
-            "response_deadline_duration": 3.0,
-            "reward_consumption_duration": 1.0,
-            "quiescence_period_duration": 0.5,
-            "inter_trial_interval_duration": 4.0,
-            "is_auto_reward_right": auto,
-        },
+        "trial": trial,
         "is_right_choice": True,
         "is_rewarded": is_rewarded,
     }
 
 
-def _trial_outcome_df(trial_times: np.ndarray, autos=None, rewarded=None) -> pd.DataFrame:
+def _trial_outcome_df(
+    trial_times: np.ndarray, autos=None, rewarded=None, mechanism: str = "autowater"
+) -> pd.DataFrame:
     """Build a trial outcome DataFrame with one row per entry of ``trial_times``."""
     autos = autos if autos is not None else [None] * len(trial_times)
     rewarded = rewarded if rewarded is not None else [True] * len(trial_times)
     return pd.DataFrame(
-        {"data": [_outcome_payload(a, r) for a, r in zip(autos, rewarded)]},
+        {"data": [_outcome_payload(a, r, mechanism) for a, r in zip(autos, rewarded)]},
         index=pd.Index(trial_times, name="time"),
     )
 
@@ -65,19 +81,22 @@ def test_get_reward_deliveries_marks_auto_response_trials_as_auto():
     np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
-def test_get_reward_deliveries_marks_anti_bias_water_as_auto():
-    """Anti-bias water is autowater, so it annotates as ``auto``.
+@pytest.mark.parametrize("mechanism", ["autowater", "anti_bias", None])
+def test_get_reward_deliveries_marks_all_free_water_as_auto(mechanism):
+    """Every free-water delivery is ``auto``, whatever mechanism gave it.
 
-    The anti-bias intervention is delivered through the same
-    ``is_auto_reward_right`` channel as scheduled autowater, so the annotation
-    does not distinguish them; ``anti_bias_left_water``/``anti_bias_right_water``
-    in the trials table mark which deliveries the algorithm drove.
+    ``is_auto_reward_right`` is the delivery channel, shared by scheduled
+    autowater and the anti-bias intervention, and the series does not split them:
+    ``auto_waterL``/``auto_waterR`` and
+    ``anti_bias_left_water``/``anti_bias_right_water`` record the mechanism per
+    trial instead.
     """
     reward_times = np.array([0.15])
     response_times = np.array([0.1])
-    payload = _outcome_payload(True)
-    payload["trial"]["metadata"] = {"extra": {"is_bias_water_intervention": True}}
-    trial_outcome_df = pd.DataFrame({"data": [payload]}, index=pd.Index([1.1], name="time"))
+    trial_outcome_df = pd.DataFrame(
+        {"data": [_outcome_payload(True, mechanism=mechanism)]},
+        index=pd.Index([1.1], name="time"),
+    )
 
     times, annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times

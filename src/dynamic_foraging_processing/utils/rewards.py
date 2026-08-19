@@ -7,7 +7,6 @@ import pandas as pd
 from aind_behavior_dynamic_foraging.task_logic.trial_models import Trial, TrialOutcome
 
 from dynamic_foraging_processing.utils.timestamps import find_closest_timestamps
-from dynamic_foraging_processing.utils.trial_metadata import get_bias_metadata
 
 
 def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
@@ -32,18 +31,14 @@ def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
 
 
 def _free_water_label(trial: t.Optional[Trial]) -> str:
-    """Classify a delivery's trial as ``anti_bias``, ``auto``, or ``earned``.
+    """Classify a delivery's trial as ``auto`` (free water) or ``earned``.
 
-    ``is_auto_reward_right`` is only the delivery *channel* -- it says free water
-    was triggered and to which side, not what kind -- so the mechanism comes from
-    the block-based metadata: ``is_bias_water_intervention`` for an anti-bias
-    correction, ``is_autowater`` for scheduled autowater. These are the same
-    conditions ``anti_bias_left_water``/``anti_bias_right_water`` and
-    ``auto_waterL``/``auto_waterR`` use in the trials table, so the labels and the
-    columns classify each trial identically.
-
-    A trial with no free water, or free water the metadata flags as neither
-    mechanism, is ``earned``.
+    ``is_auto_reward_right`` triggers an immediate reward to one side, so any
+    trial with it set gave free water rather than water the animal worked for.
+    Scheduled autowater and the anti-bias water intervention share that channel
+    and are both ``auto`` here; which mechanism gave the water is recorded per
+    trial by ``auto_waterL``/``auto_waterR`` and
+    ``anti_bias_left_water``/``anti_bias_right_water`` in the trials table.
 
     Parameters
     ----------
@@ -54,16 +49,11 @@ def _free_water_label(trial: t.Optional[Trial]) -> str:
     Returns
     -------
     str
-        ``"anti_bias"``, ``"auto"``, or ``"earned"``.
+        ``"auto"`` when the trial delivered free water, else ``"earned"``.
     """
     if trial is None or trial.is_auto_reward_right is None:
         return "earned"
-    metadata = get_bias_metadata(trial)
-    if metadata.is_bias_water_intervention:
-        return "anti_bias"
-    if metadata.is_autowater:
-        return "auto"
-    return "earned"
+    return "auto"
 
 
 def get_reward_deliveries(
@@ -82,17 +72,13 @@ def get_reward_deliveries(
       ``GiveManualWater`` software event for this port. The software-event
       timestamps are correlated to the reward-delivery timestamps with
       :func:`find_closest_timestamps`.
-    - ``anti_bias`` -- otherwise, when the trial's free water came from the
-      anti-bias algorithm (``is_bias_water_intervention``).
-    - ``auto`` -- otherwise, when the trial's free water was scheduled autowater
-      (``is_autowater``).
+    - ``auto`` -- otherwise, when the trial delivered free water
+      (``is_auto_reward_right is not None``). Scheduled autowater and the
+      anti-bias water intervention are both delivered through that channel, so
+      both are ``auto`` here; which mechanism gave the water is recorded per
+      trial by the trials table's ``auto_waterL``/``auto_waterR`` and
+      ``anti_bias_left_water``/``anti_bias_right_water``.
     - ``earned`` -- otherwise: water the animal worked for.
-
-    ``is_auto_reward_right`` is only the delivery *channel*, so the mechanism
-    behind free water comes from the block-based metadata (see
-    :func:`get_bias_metadata`) -- the same fields the trials table's
-    ``auto_waterL``/``auto_waterR`` and
-    ``anti_bias_left_water``/``anti_bias_right_water`` read.
 
     Deliveries on a trial reporting ``is_rewarded=False`` are dropped rather than
     annotated, so the series reports only water that counted as reward. In
@@ -139,7 +125,7 @@ def get_reward_deliveries(
         the deliveries on unrewarded trials.
     numpy.ndarray
         The matching annotations, one per retained timestamp, each ``"earned"``,
-        ``"auto"``, ``"anti_bias"``, or ``"manual"``.
+        ``"auto"``, or ``"manual"``.
 
     Raises
     ------

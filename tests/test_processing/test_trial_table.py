@@ -96,6 +96,7 @@ def _outcome(
     reward_size_left=None,
     reward_size_right=None,
     lickspout_offset_delta=None,
+    is_autowater=None,
     is_bias_water_intervention=None,
     is_bias_stage_intervention=None,
 ):
@@ -106,9 +107,9 @@ def _outcome(
     probabilities stored under ``trial.metadata`` (the source of the
     ``reward_probability`` columns). ``reward_size_left`` / ``reward_size_right``
     override the default per-trial reward volumes (uL). ``lickspout_offset_delta``
-    sets the per-trial horizontal spout displacement (mm), and the
-    ``is_bias_*_intervention`` flags populate the anti-bias ``metadata.extra``
-    (``BlockBasedTrialMetadata``) block.
+    sets the per-trial horizontal spout displacement (mm), and ``is_autowater``
+    plus the ``is_bias_*_intervention`` flags populate the ``metadata.extra``
+    (``BlockBasedTrialMetadata``) block naming the free-water mechanism.
     """
     trial = {
         "p_reward_left": p_left,
@@ -128,9 +129,14 @@ def _outcome(
         }
     if block_p_left is not None or block_p_right is not None:
         trial["metadata"] = {"p_reward_left": block_p_left, "p_reward_right": block_p_right}
-    if is_bias_water_intervention is not None or is_bias_stage_intervention is not None:
+    if (
+        is_autowater is not None
+        or is_bias_water_intervention is not None
+        or is_bias_stage_intervention is not None
+    ):
         metadata = trial.setdefault("metadata", {})
         metadata["extra"] = {
+            "is_autowater": bool(is_autowater),
             "is_bias_water_intervention": bool(is_bias_water_intervention),
             "is_bias_stage_intervention": bool(is_bias_stage_intervention),
         }
@@ -689,59 +695,46 @@ def test_rewarded_history_false_on_every_auto_reward_trial():
 
 
 def test_auto_water_encodes_side_from_auto_response():
-    """A non-null auto response encodes ``1`` on its side and ``0`` on the other."""
-    outcome = TrialOutcome.model_validate(
-        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
-    )
-    assert TrialTableBuilder._auto_water(outcome.trial, outcome, is_right=True) == 1
-    assert TrialTableBuilder._auto_water(outcome.trial, outcome, is_right=False) == 0
-    # No auto-response counts as no autowater (0).
+    """Scheduled autowater encodes ``1`` on its side and ``0`` on the other."""
+    trial = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True, is_autowater=True)
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(trial)
+    assert TrialTableBuilder._auto_water(trial, meta, is_right=True) == 1
+    assert TrialTableBuilder._auto_water(trial, meta, is_right=False) == 0
+    # No free water at all counts as no autowater (0).
     no_auto = TrialOutcome.model_validate(
-        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None, is_autowater=True)
+    ).trial
+    assert (
+        TrialTableBuilder._auto_water(
+            no_auto, TrialTableBuilder._bias_metadata(no_auto), is_right=True
+        )
+        == 0
     )
-    assert TrialTableBuilder._auto_water(no_auto.trial, no_auto, is_right=True) == 0
 
 
-def test_auto_water_excludes_unrewarded_trials():
-    """Autowater on a trial that did not pay out is ``0``.
+def test_auto_water_includes_unrewarded_trials():
+    """Autowater on a trial that did not pay out still counts.
 
-    Free water fires at the go cue whether or not the animal's own choice later
-    pays out, so this keeps the column matching the reward-keyed reward-delivery
-    series, which drops those deliveries.
+    The column records what the task did, and free water fires at the go cue
+    regardless of how the animal's own choice resolves. The reward-delivery
+    series is reward-keyed and drops those deliveries, so this column can exceed
+    that series' ``auto`` count.
     """
     unrewarded = TrialOutcome.model_validate(
-        _outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False, auto=True)
-    )
-    assert TrialTableBuilder._auto_water(unrewarded.trial, unrewarded, is_right=True) == 0
+        _outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False, auto=True, is_autowater=True)
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(unrewarded)
+    assert TrialTableBuilder._auto_water(unrewarded, meta, is_right=True) == 1
 
 
-def test_auto_water_offered_is_ungated():
-    """``auto_water_offered*`` records every autowater, paid out or not.
+def test_auto_water_excludes_anti_bias_water():
+    """Anti-bias water is reported by ``anti_bias_*_water``, not ``auto_water*``.
 
-    This is the legacy ``dynamic-foraging-task`` meaning of ``auto_water*``, kept
-    so the trial table loses no delivery now that ``auto_water*`` is reward-keyed.
-    """
-    unrewarded = TrialOutcome.model_validate(
-        _outcome(1.0, 1.0, is_right_choice=False, is_rewarded=False, auto=True)
-    )
-    assert TrialTableBuilder._auto_water_offered(unrewarded.trial, is_right=True) == 1
-    assert TrialTableBuilder._auto_water_offered(unrewarded.trial, is_right=False) == 0
-    # The reward-keyed column is 0 on the very same trial.
-    assert TrialTableBuilder._auto_water(unrewarded.trial, unrewarded, is_right=True) == 0
-
-    # No autowater at all is 0 on both sides.
-    no_auto = TrialOutcome.model_validate(
-        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=None)
-    )
-    assert TrialTableBuilder._auto_water_offered(no_auto.trial, is_right=True) == 0
-
-
-def test_auto_water_counts_anti_bias_water():
-    """Anti-bias water is autowater delivered through the auto-response channel.
-
-    The anti-bias intervention shares ``is_auto_reward_right`` with scheduled
-    autowater, so it counts here as well; ``anti_bias_right_water`` marks which
-    of these the algorithm drove.
+    ``is_auto_reward_right`` is only the delivery channel, shared by scheduled
+    autowater and the anti-bias intervention, so the mechanism comes from the
+    metadata flags. The two columns are mutually exclusive.
     """
     bias_water = TrialOutcome.model_validate(
         _outcome(
@@ -752,8 +745,20 @@ def test_auto_water_counts_anti_bias_water():
             auto=True,
             is_bias_water_intervention=True,
         )
-    )
-    assert TrialTableBuilder._auto_water(bias_water.trial, bias_water, is_right=True) == 1
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(bias_water)
+    assert TrialTableBuilder._auto_water(bias_water, meta, is_right=True) == 0
+    assert TrialTableBuilder._anti_bias_water(bias_water, meta, is_right=True) is True
+
+
+def test_auto_water_excludes_free_water_with_no_mechanism_flag():
+    """Free water the metadata flags as neither mechanism is ``0`` on both columns."""
+    unflagged = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(unflagged)
+    assert TrialTableBuilder._auto_water(unflagged, meta, is_right=True) == 0
+    assert TrialTableBuilder._anti_bias_water(unflagged, meta, is_right=True) is False
 
 
 def test_bias_metadata_parses_dict_model_and_default():
@@ -822,9 +827,9 @@ def test_anti_bias_water_includes_unrewarded_trials():
     """An intervention on a trial that did not pay out still counts.
 
     The column records what the anti-bias algorithm did, and the intervention
-    fires at the go cue regardless of how the animal's own choice resolves. This
-    is deliberately *not* gated on ``is_rewarded``, so it is not a subset of
-    ``auto_waterL``/``auto_waterR``.
+    fires at the go cue regardless of how the animal's own choice resolves. The
+    reward-delivery series is reward-keyed and drops that delivery, so this
+    column can exceed the series' ``anti_bias`` count.
     """
     unrewarded = TrialOutcome.model_validate(
         _outcome(
@@ -835,11 +840,9 @@ def test_anti_bias_water_includes_unrewarded_trials():
             auto=True,
             is_bias_water_intervention=True,
         )
-    )
-    meta = TrialTableBuilder._bias_metadata(unrewarded.trial)
-    assert TrialTableBuilder._anti_bias_water(unrewarded.trial, meta, is_right=True) is True
-    # The same trial contributes no autowater, which *is* reward-gated.
-    assert TrialTableBuilder._auto_water(unrewarded.trial, unrewarded, is_right=True) == 0
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(unrewarded)
+    assert TrialTableBuilder._anti_bias_water(unrewarded, meta, is_right=True) is True
 
 
 def test_anti_bias_lickspout_movement_gated_on_stage_flag():

@@ -58,7 +58,11 @@ def _make_output_set_frame() -> pd.DataFrame:
 
 
 def _outcome_payload(auto) -> dict:
-    """Return a serialized ``TrialOutcome`` payload with the given auto-response."""
+    """Return a serialized ``TrialOutcome`` payload with the given auto-response.
+
+    Free water is flagged as scheduled autowater in ``metadata.extra`` so the
+    annotation can attribute it; the channel alone does not name the mechanism.
+    """
     return {
         "trial": {
             "p_reward_left": 1.0,
@@ -68,6 +72,7 @@ def _outcome_payload(auto) -> dict:
             "quiescence_period_duration": 0.5,
             "inter_trial_interval_duration": 4.0,
             "is_auto_reward_right": auto,
+            "metadata": {"extra": {"is_autowater": auto is not None}},
         },
         "is_right_choice": True,
         "is_rewarded": True,
