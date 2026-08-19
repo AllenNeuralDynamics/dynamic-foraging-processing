@@ -30,6 +30,42 @@ Earlier mapping used `Response.json` (`SoftwareEvents`) for lick times (where
 Lick times now come from the `Behavior/Lickometer` stream, and reward delivery
 times use the Harp valve open times.
 
+### Reward-delivery annotations
+
+Each reward-delivery timestamp carries a label in the series' `data` field:
+
+| Label | Meaning |
+| --- | --- |
+| `earned` | Water the animal worked for: the matched trial has no free water (`is_auto_reward_right` is `None`). |
+| `auto` | Free water: the matched trial has `is_auto_reward_right` set. Scheduled autowater and the anti-bias intervention share that channel and are **not** split here — `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` record the mechanism per trial. |
+| `manual` | The delivery is the closest valve opening to a `GiveManualWater` software event for this port. Takes precedence over the other labels, since manual water is not aligned to a go cue. |
+
+Two properties of this series are worth stating explicitly, because both differ
+from "every time the valve opened":
+
+**Deliveries are matched to trials by the `Response` timestamp**, not the
+`TrialOutcome` timestamp. `TrialOutcome` fires at the *end* of a trial, after the
+reward-consumption and ITI periods, so a delivery can sit nearer the *previous*
+trial's outcome and inherit its `is_auto_reward_right`. The valve opens within
+milliseconds of the response, so the response anchors each delivery to its own
+trial. Verified on `864253_2026-08-11_12-52-08`, `864253_2026-08-04_12-54-55`,
+and `864253_2026-08-10_13-09-30`: nearest-`Response` agrees with the trial whose
+`[quiescent_start_time, ITI_start_time)` window contains the delivery on all 859
+valve openings, and every `earned` delivery follows a lick on that same port
+(median 2.8 ms, max 32 ms).
+
+**The series is reward-keyed**: a delivery whose matched trial reports
+`is_rewarded=False` is dropped rather than annotated, so the retained count
+equals the metadata mapper's `sum(is_rewarded)` (248 / 298 / 288 on those three
+sessions, against 261 / 298 / 300 valve openings). Manual water is
+experimenter-driven, unrelated to the trial outcome, and is never dropped. Free
+water is triggered immediately at the go cue and the trial then continues
+normally, so `is_rewarded` reports the outcome of the animal's *own choice* — a
+separate event from the free water. The consequence is that free water delivered
+on a trial that did not pay out is real water the animal received and is **not**
+in this series; the trials table's ungated `auto_water*` /`anti_bias_*` columns
+still record it.
+
 ## Trials Table
 
 Columns are grouped by the raw source they map from.
@@ -61,9 +97,8 @@ Columns are grouped by the raw source they map from.
 
 | Trials column | Mapping |
 | --- | --- |
-| `auto_waterL` / `auto_waterR` | **Rewarded** autowater only: `1` when `is_auto_reward_right` points to that side **and** `is_rewarded` is `True`. `0` on the other side, when there was no auto-response (`None`), when the trial delivered autowater but did not pay out, or when the trial is missing. `is_auto_reward_right` is the delivery channel — it says free water was triggered and to which side, not what kind — and the anti-bias water intervention is autowater delivered through it, so anti-bias water counts here too. Note this is narrower than the legacy `dynamic-foraging-task` column of the same name, which was ungated ("Autowater given at Left", straight from `B_AutoWaterTrial`). |
-| `auto_water_offeredL` / `auto_water_offeredR` | Ungated autowater: `1` whenever `is_auto_reward_right` points to that side, whether or not the trial paid out. This is the legacy `dynamic-foraging-task` meaning of `auto_waterL` / `auto_waterR` (`B_AutoWaterTrial`, which that GUI also passes to foraging efficiency as `autowater_offered`), kept so the trial table records every autowater delivery. `auto_waterL` / `auto_waterR` are the reward-keyed subset. |
-| `anti_bias_left_water` / `anti_bias_right_water` | Boolean. `True` when the anti-bias algorithm delivered a water intervention to that side — i.e. `trial.metadata.extra.is_bias_water_intervention` is `True` **and** `is_auto_reward_right` points to that side (`False` → left, `True` → right). The anti-bias water uses the same auto-response channel as ordinary autowater, so the `is_bias_water_intervention` flag is what distinguishes it. `False` otherwise. Deliberately **not** gated on `is_rewarded`: these columns record what the anti-bias algorithm did, and the intervention fires at the go cue regardless of how the animal's own choice resolves, so they can be `True` where `auto_waterL` / `auto_waterR` is `0`. |
+| `auto_waterL` / `auto_waterR` | **Scheduled autowater only**: `1` when `trial.metadata.extra.is_autowater` is `True` **and** `is_auto_reward_right` points to that side. `0` otherwise, including when the trial's free water came from the anti-bias algorithm — that is reported by `anti_bias_left_water` / `anti_bias_right_water`. `is_auto_reward_right` is only the delivery *channel* (free water fired, and to which side); the mechanism comes from the metadata, so the two columns are mutually exclusive. Not gated on `is_rewarded`: the column records what the task did, and free water fires at the go cue regardless of how the animal's own choice resolves. Note this is narrower than the legacy `dynamic-foraging-task` column of the same name, which was the ungated channel ("Autowater given at Left", straight from `B_AutoWaterTrial`) and predates anti-bias water. |
+| `anti_bias_left_water` / `anti_bias_right_water` | Boolean. `True` when the anti-bias algorithm delivered a water intervention to that side — i.e. `trial.metadata.extra.is_bias_water_intervention` is `True` **and** `is_auto_reward_right` points to that side (`False` → left, `True` → right). The anti-bias water uses the same auto-response channel as scheduled autowater, so the `is_bias_water_intervention` flag is what distinguishes it and the two columns are mutually exclusive. `False` otherwise. Like `auto_water*`, **not** gated on `is_rewarded`: these columns record what the algorithm did, and the intervention fires at the go cue regardless of how the animal's own choice resolves. The reward-delivery series *is* reward-keyed, so this column can exceed the series' `auto` count. |
 | `anti_bias_lickspout_movement` | Signed horizontal displacement (mm, positive is rightward) the anti-bias algorithm moved the lickspouts on this trial: `trial.lickspout_offset_delta` when `trial.metadata.extra.is_bias_stage_intervention` is `True`, else `0.0`. |
 | `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_reward_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_reward_right` is `None` or `True`. |
 | `response_duration` | `response_deadline_duration`. |
@@ -71,7 +106,7 @@ Columns are grouped by the raw source they map from.
 | `reward_probabilityL` / `reward_probabilityR` | The **block** probability from `Trial -> metadata -> p_reward_left` / `p_reward_right`. The top-level `trial.p_reward_left` / `p_reward_right` is the per-trial probability, not the block probability, so it is not used here. `None` when the trial or its metadata is missing. |
 | `reward_size_left` | `Trial -> reward_size.left` — the reward volume (uL) at the left port. Defaults to `2.0` when not set on the trial. `None` when the trial is missing. |
 | `reward_size_right` | `Trial -> reward_size.right` — the reward volume (uL) at the right port. Defaults to `2.0` when not set on the trial. `None` when the trial is missing. |
-| `rewarded_historyL` / `rewarded_historyR` | **Earned** reward only: filter `is_rewarded == True`, then on `is_right_choice`. `False` on both sides when `is_auto_reward_right` is set (either side) — that trial's water is autowater and is reported by `auto_waterL` / `auto_waterR`. |
+| `rewarded_historyL` / `rewarded_historyR` | **Earned** reward only: filter `is_rewarded == True`, then on `is_right_choice`. `False` on both sides when `is_auto_reward_right` is set (either side) — that trial's water is free water, reported by `auto_waterL` / `auto_waterR` (scheduled autowater) or `anti_bias_left_water` / `anti_bias_right_water` (anti-bias intervention). This matches the `earned` / `auto` split in the reward-delivery series: per side, `rewarded_history*` equals that series' `earned` count exactly. |
 
 ### From `TrialGeneratorSpec.json` (`SoftwareEvents` stream)
 
@@ -192,7 +227,7 @@ These were mapped during exploration but are no longer in scope:
 | 2026-08-06 | Confirmed and documented that the legacy `delay_*` columns describe the acquisition software's **quiescence period**: `delay_start_time` is the `QuiescentPeriod` timestamp (always equal to the new `quiescent_start_time`) and `delay_duration` / `delay_beta` / `delay_min` / `delay_max` summarize `quiescence_period_duration`. `delay_duration` is the *configured* duration — each lick restarts the quiescent period, so the realized `quiescent_stop_time - quiescent_start_time` can be longer. Column descriptions updated accordingly. |
 | 2026-08-12 | `rewarded_historyL` / `rewarded_historyR` now record **earned** reward only: an auto-reward trial (`is_auto_reward_right` set to either side) is `False` on *both* sides, since `TrialOutcome.is_rewarded` is `True` for autowater too and that water is already reported by `auto_waterL` / `auto_waterR`. This matches the `earned` / `automatic` split used for the NWB reward-delivery annotations. |
 | 2026-08-12 | `min_reward_each_block` is now `0` rather than `NULL` when the trial generator exposes no `min_block_reward` — no per-block minimum is a floor of zero, not an unknown. The column is non-nullable (`float`, default `0`). |
-| 2026-08-17 | Reward-delivery annotations now match each delivery to its trial by the `Response` software-event timestamp rather than the `TrialOutcome` timestamp. `TrialOutcome` fires at the *end* of a trial (after the reward-consumption and ITI periods), so a delivery could land nearer the *previous* trial's outcome and inherit its `is_auto_reward_right`, flipping `earned` and `auto`. The valve opens within milliseconds of the response, so the response anchors the delivery to its own trial. |
-| 2026-08-17 | `auto_waterL` / `auto_waterR` are now gated on `is_rewarded`: autowater on a trial that did not pay out is `0`. Free water is triggered immediately at the go cue and the trial then "continues normally", so `is_rewarded` reports the outcome of the animal's own choice — a separate event from the autowater. Gating keeps these columns equal to the `auto` count in the reward-delivery series, which drops the same deliveries, and makes the retained delivery total equal the metadata mapper's `sum(is_rewarded)`. This is narrower than the legacy ungated column of the same name. |
-| 2026-08-17 | `anti_bias_left_water` / `anti_bias_right_water` are explicitly **not** gated on `is_rewarded`, unlike `auto_water*`: they record what the anti-bias algorithm did, and the intervention fires regardless of the trial's outcome. They are therefore no longer a subset of `auto_water*` — an intervention on a trial that did not pay out appears in the anti-bias column and not in the autowater column. |
-| 2026-08-17 | Added `auto_water_offeredL` / `auto_water_offeredR`: autowater ungated by `is_rewarded`, i.e. the legacy `dynamic-foraging-task` meaning of `auto_waterL` / `auto_waterR` (`B_AutoWaterTrial`). With `auto_water*` now reward-keyed to match the reward-delivery series, these keep every autowater delivery recorded in the trial table, so nothing is lost: `auto_water_offered* - auto_water*` is the autowater delivered on trials that did not pay out. |
+| 2026-08-17 | Reward-delivery annotations now match each delivery to its trial by the `Response` software-event timestamp rather than the `TrialOutcome` timestamp. `TrialOutcome` fires at the *end* of a trial (after the reward-consumption and ITI periods), so a delivery could land nearer the *previous* trial's outcome and inherit its `is_auto_reward_right`, flipping `earned` and `auto`. The valve opens within milliseconds of the response, so the response anchors the delivery to its own trial. Verified 0-mismatch against trial-window containment on 859 valve openings across three sessions. |
+| 2026-08-17 | The reward-delivery series is now reward-keyed: a delivery whose matched trial reports `is_rewarded=False` is dropped rather than annotated (manual water exempt), so the retained count equals the metadata mapper's `sum(is_rewarded)`. Free water fires at the go cue and the trial then continues normally, so `is_rewarded` describes the animal's own choice, not the free water — meaning free water on an unrewarded trial is real water the animal received and is excluded from this series. The trials table's `auto_water*` / `anti_bias_*` columns remain ungated and still record it. |
+| 2026-08-17 | `auto_waterL` / `auto_waterR` now read `trial.metadata.extra.is_autowater` rather than the `is_auto_reward_right` channel, making them **scheduled autowater only** and mutually exclusive with `anti_bias_left_water` / `anti_bias_right_water`. `is_auto_reward_right` says free water fired and on which side but not what kind; the mechanism is in the metadata. Neither column is gated on `is_rewarded`, since both record what the task did. This is narrower than the legacy `dynamic-foraging-task` column of the same name, which was the ungated channel and predates anti-bias water. |
+| 2026-08-17 | The reward-delivery labels stay `earned` / `auto` / `manual`: free water is `auto` whatever mechanism produced it, so the series does not split scheduled autowater from anti-bias water. That split lives in the trials table. Consequence: the series' `auto` count tracks the channel while `auto_waterL` / `auto_waterR` track `is_autowater`, so the two are not expected to be equal. |
