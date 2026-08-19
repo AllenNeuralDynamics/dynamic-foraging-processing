@@ -18,6 +18,9 @@ from contraqctor import qc
 #: timezone-aware datetimes).
 SEATTLE_TZ = ZoneInfo("America/Los_Angeles")
 
+#: Decimal places metric values are rounded to when converted for serialization.
+VALUE_DECIMALS = 3
+
 #: Map ``contraqctor`` test statuses onto schema statuses. Warnings become
 #: ``PENDING`` (needs review); skips count as passing.
 STATUS_CONVERTER: t.Dict[qc.Status, Status] = {
@@ -81,21 +84,38 @@ def bool_to_status(
 def to_builtin(value: t.Any) -> t.Any:
     """Convert numpy scalars/arrays to JSON-serializable Python builtins.
 
+    Recurses into containers: a numpy scalar nested inside a dict, list, tuple,
+    or set is converted too. Test results carry whole dicts of numpy values, and
+    pydantic refuses to serialize any numpy type that survives.
+
+    Floats are rounded to ``VALUE_DECIMALS`` decimal places — a metric reporting
+    ``float32`` sensor readings otherwise writes out its full binary expansion
+    (``39.563472747802734``), which is noise rather than precision.
+
     Parameters
     ----------
     value : Any
-        A value that may be a numpy scalar or array.
+        A value that may be a numpy scalar or array, or a container holding
+        them at any depth.
 
     Returns
     -------
     Any
-        The equivalent Python builtin (``list`` for arrays, ``item()`` for
-        scalars), or ``value`` unchanged when it is not a numpy type.
+        The equivalent Python builtin (``list`` for arrays and other sequences,
+        rounded ``float`` for floating-point values, dicts rebuilt with
+        converted keys and values), or ``value`` unchanged when it is neither a
+        numpy type, a float, nor a container.
     """
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return to_builtin(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return to_builtin(value.item())
+    if isinstance(value, float):
+        return round(value, VALUE_DECIMALS)
+    if isinstance(value, t.Mapping):
+        return {to_builtin(key): to_builtin(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [to_builtin(item) for item in value]
     return value
 
 
