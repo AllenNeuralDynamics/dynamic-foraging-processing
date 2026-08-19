@@ -56,6 +56,32 @@ def test_to_builtin_converts_numpy_types():
     assert _schema.to_builtin("text") == "text"
 
 
+def test_to_builtin_recurses_into_containers():
+    """Numpy values nested in dicts/sequences are converted too."""
+    nested = {
+        "scalar": np.float32(1.5),
+        "array": np.array([1, 2]),
+        "rows": [(np.int64(3), {"deep": np.float32(0.25)})],
+    }
+    converted = _schema.to_builtin(nested)
+    assert converted == {"scalar": 1.5, "array": [1, 2], "rows": [[3, {"deep": 0.25}]]}
+    assert isinstance(converted["scalar"], float)
+    assert isinstance(converted["rows"][0][0], int)
+    assert isinstance(converted["rows"][0][1]["deep"], float)
+    assert _schema.to_builtin({np.int64(1)}) == [1]
+    assert _schema.to_builtin(frozenset({np.int64(2)})) == [2]
+    assert list(_schema.to_builtin({np.int64(4): "v"})) == [4]
+
+
+def test_to_builtin_rounds_floats():
+    """Floats are rounded to three decimals, at any depth; ints are untouched."""
+    assert _schema.to_builtin(np.float32(39.563472747802734)) == 39.563
+    assert _schema.to_builtin(1.23456) == 1.235
+    assert _schema.to_builtin(np.array([1.23456, 2.0])) == [1.235, 2.0]
+    assert _schema.to_builtin({"mean": np.float32(26.0916690826416)}) == {"mean": 26.092}
+    assert _schema.to_builtin(np.int64(123456)) == 123456
+
+
 def test_make_metric_defaults_and_overrides():
     """``make_metric`` stamps modality/stage and defaults tags to ``{}``."""
     status = _schema.bool_to_status(True)
