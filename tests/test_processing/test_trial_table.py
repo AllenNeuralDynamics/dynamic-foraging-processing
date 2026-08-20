@@ -261,6 +261,8 @@ def _full_dataset():
                 )
             ),
             "TrialMetrics": _Stream(_events([10.2, 20.2], [{"bias": 0.3}, {"bias": None}])),
+            # Closes the last trial's ITI, which has no following QuiescentPeriod.
+            "EndSession": _Stream(_events([30.0], [None])),
         }
     )
     behavior = _Node(
@@ -323,13 +325,14 @@ def test_build_full_dataset():
     first, second = table.iloc[0], table.iloc[1]
 
     # Period bounds: each period ends where the next one starts, and the ITI
-    # ends at the next trial's quiescent period (NaN on the last trial).
+    # ends at the next trial's quiescent period — or, on the last trial, at the
+    # EndSession timestamp.
     assert first["quiescent_start_time"] == 10.0 and first["quiescent_stop_time"] == 11.0
     assert first["response_start_time"] == 11.0 and first["response_stop_time"] == 12.0
     assert first["reward_consumption_start_time"] == 12.0
     assert first["reward_consumption_stop_time"] == 15.0
     assert first["ITI_start_time"] == 15.0 and first["ITI_stop_time"] == 20.0
-    assert second["ITI_start_time"] == 25.0 and np.isnan(second["ITI_stop_time"])
+    assert second["ITI_start_time"] == 25.0 and second["ITI_stop_time"] == 30.0
     # delay_start_time is the legacy name for the quiescent period start.
     assert first["delay_start_time"] == first["quiescent_start_time"] == 10.0
 
@@ -477,6 +480,46 @@ def test_build_raises_on_misaligned_streams_when_configured():
     """Misaligned per-trial streams raise ``ValueError`` when ``raise_on_error`` is True."""
     with pytest.raises(ValueError, match="misaligned"):
         TrialTableBuilder(_misaligned_dataset(), raise_on_error=True).build()
+
+
+# --------------------------------------------------------------------------- #
+# ITI_stop_time on the last trial — the EndSession timestamp
+# --------------------------------------------------------------------------- #
+def test_build_last_iti_stop_is_nan_without_end_session():
+    """Without an ``EndSession`` stream the last trial's ITI end stays unknown."""
+    dataset = _full_dataset()
+    del dataset.children["Behavior"].children["SoftwareEvents"].children["EndSession"]
+
+    table = TrialTableBuilder(dataset).build()
+
+    # Earlier trials are unaffected; only the last one lacks a closing event.
+    assert table.iloc[0]["ITI_stop_time"] == 20.0
+    assert np.isnan(table.iloc[1]["ITI_stop_time"])
+
+
+def test_build_last_iti_stop_is_nan_when_end_session_is_empty():
+    """An ``EndSession`` stream carrying no events leaves the last ITI end unknown."""
+    dataset = _full_dataset()
+    dataset.children["Behavior"].children["SoftwareEvents"].children["EndSession"] = _Stream(
+        _events([], [])
+    )
+
+    table = TrialTableBuilder(dataset).build()
+
+    assert np.isnan(table.iloc[1]["ITI_stop_time"])
+
+
+def test_build_end_session_does_not_close_a_mid_session_gap():
+    """Only the last trial falls back to ``EndSession``.
+
+    A short ``QuiescentPeriod`` stream leaves an earlier trial without a closing
+    event too, but attributing the session end to it would invent a trial
+    spanning the rest of the session, so it stays ``NaN``.
+    """
+    table = TrialTableBuilder(_misaligned_dataset()).build()
+
+    assert np.isnan(table.iloc[0]["ITI_stop_time"])
+    assert table.iloc[1]["ITI_stop_time"] == 30.0
 
 
 # --------------------------------------------------------------------------- #
