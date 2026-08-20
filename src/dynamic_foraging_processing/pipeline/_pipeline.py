@@ -60,9 +60,10 @@ _DEFAULT_RIGHT_LICK = LickSource("HarpBehavior", "DigitalInputState", "DIPort1")
 _NWB_START_COLUMN = "quiescent_start_time"
 
 #: Trials-table column NWB's required native ``stop_time`` is taken from: the
-#: end of the ITI. This is ``NaN`` on the last trial of the session (whose ITI
-#: end is unknown) and the ``NaN`` is propagated rather than substituted, so an
-#: unknown trial end reads as unknown instead of as a shortened trial.
+#: end of the ITI, which on the last trial of the session is the ``EndSession``
+#: timestamp. It is ``NaN`` only when that stream is unavailable, and the ``NaN``
+#: is propagated rather than substituted, so an unknown trial end reads as
+#: unknown instead of as a shortened trial.
 _NWB_STOP_COLUMN = "ITI_stop_time"
 
 #: Source repository recorded in the ``processing.json`` data process.
@@ -238,8 +239,10 @@ class Pipeline:
         The trials table has no trial start/stop columns of its own, so the
         trial's extent is taken from its period bounds: it starts with the
         quiescent period and ends with the ITI. The last trial of the session has
-        no ITI end, so its stop time is ``NaN`` — an unknown end is reported as
-        unknown rather than substituted with an earlier landmark.
+        no following quiescent period, so its ITI — and therefore its stop time —
+        ends at the ``EndSession`` timestamp. Should that be unavailable the stop
+        time is ``NaN``: an unknown end is reported as unknown rather than
+        substituted with an earlier landmark.
 
         Parameters
         ----------

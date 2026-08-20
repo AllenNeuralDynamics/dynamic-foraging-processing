@@ -131,6 +131,28 @@ class TrialTableBuilder:
             return np.empty(0)
         return df.sort_index().index.to_numpy(dtype=float)
 
+    @classmethod
+    def _session_end_time(cls, end_session: t.Optional[pd.DataFrame]) -> float:
+        """Return the session's end timestamp from the ``EndSession`` stream.
+
+        The stream carries a single event marking the end of the session; its
+        timestamp closes the last trial's ITI, which has no following
+        ``QuiescentPeriod`` event to end it.
+
+        Parameters
+        ----------
+        end_session : pandas.DataFrame or None
+            The ``EndSession`` software-event stream's data.
+
+        Returns
+        -------
+        float
+            The end-of-session timestamp, or ``NaN`` when the stream is absent
+            or empty. The last event is used if more than one is present.
+        """
+        times = cls._event_times(end_session)
+        return float(times[-1]) if times.size else np.nan
+
     @staticmethod
     def _time_at(times: np.ndarray, index: int) -> float:
         """Return ``times[index]``, or ``NaN`` when the stream is that much shorter.
@@ -832,6 +854,7 @@ class TrialTableBuilder:
         response_period_times: np.ndarray,
         consumption_times: np.ndarray,
         iti_times: np.ndarray,
+        session_end_time: float = np.nan,
     ) -> t.Dict[str, float]:
         """Return the start and stop time of every task period for one trial.
 
@@ -839,7 +862,7 @@ class TrialTableBuilder:
         back-to-back — quiescent, response, reward consumption, ITI, then the
         next trial's quiescent — so every period's stop time is the following
         period's start time. The last trial's ITI has no following quiescent
-        event, so its stop time is ``NaN``.
+        event, so it is closed by ``session_end_time`` instead.
 
         Parameters
         ----------
@@ -848,6 +871,10 @@ class TrialTableBuilder:
         quiescent_times, response_period_times, consumption_times, iti_times : numpy.ndarray
             Per-trial timestamps of the ``QuiescentPeriod``, ``ResponsePeriod``,
             ``RewardConsumptionPeriod``, and ``ItiPeriod`` streams.
+        session_end_time : float, optional
+            Fallback ``ITI_stop_time`` for a trial with no following
+            ``QuiescentPeriod`` event — the ``EndSession`` timestamp, passed only
+            for the last trial. Defaults to ``NaN``, leaving the stop time unset.
 
         Returns
         -------
@@ -858,6 +885,9 @@ class TrialTableBuilder:
         response_start = cls._time_at(response_period_times, index)
         consumption_start = cls._time_at(consumption_times, index)
         iti_start = cls._time_at(iti_times, index)
+        iti_stop = cls._time_at(quiescent_times, index + 1)
+        if np.isnan(iti_stop):
+            iti_stop = session_end_time
         return {
             "quiescent_start_time": cls._time_at(quiescent_times, index),
             "quiescent_stop_time": response_start,
@@ -866,7 +896,7 @@ class TrialTableBuilder:
             "reward_consumption_start_time": consumption_start,
             "reward_consumption_stop_time": iti_start,
             "ITI_start_time": iti_start,
-            "ITI_stop_time": cls._time_at(quiescent_times, index + 1),
+            "ITI_stop_time": iti_stop,
         }
 
     def _build_row(
@@ -977,7 +1007,9 @@ class TrialTableBuilder:
         rather than silently misaligned rows.
 
         Each period event marks the start of its period, so the periods' stop
-        times come from the next event in sequence (see ``_trial_periods``).
+        times come from the next event in sequence (see ``_trial_periods``). The
+        last trial's ITI has no following event, so it is closed by the
+        ``EndSession`` timestamp.
 
         Hardware streams are handled per their nature: the go cue is an event
         each trial selects within its ``[quiescent_start_time, ITI_start_time)``
@@ -1003,6 +1035,7 @@ class TrialTableBuilder:
         iti = self._load("Behavior", "SoftwareEvents", "ItiPeriod")
         responses = self._load("Behavior", "SoftwareEvents", "Response")
         metrics = self._load("Behavior", "SoftwareEvents", "TrialMetrics")
+        end_session = self._load("Behavior", "SoftwareEvents", "EndSession")
 
         pulse_supply_left = self._load("Behavior", "HarpBehavior", "PulseSupplyPort0")
         pulse_supply_right = self._load("Behavior", "HarpBehavior", "PulseSupplyPort1")
@@ -1019,6 +1052,9 @@ class TrialTableBuilder:
         iti_times = self._event_times(iti)
         response_payloads = self._event_payloads(responses)
         metric_payloads = self._event_payloads(metrics)
+
+        # Closes the last trial's ITI, which has no following QuiescentPeriod.
+        session_end_time = self._session_end_time(end_session)
 
         # Guard the positional alignment before we pair streams by index.
         n_trials = len(outcome_payloads)
@@ -1072,6 +1108,9 @@ class TrialTableBuilder:
                 response_period_times=response_period_times,
                 consumption_times=consumption_times,
                 iti_times=iti_times,
+                # Only the last trial's ITI is closed by the session end; an
+                # earlier gap means a short stream, which _check_aligned reports.
+                session_end_time=session_end_time if i == n_trials - 1 else np.nan,
             )
             response = response_payloads[i] if i < len(response_payloads) else None
             side_bias = self._side_bias(metric_payloads[i] if i < len(metric_payloads) else None)
