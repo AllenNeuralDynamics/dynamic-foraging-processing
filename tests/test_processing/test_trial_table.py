@@ -367,6 +367,9 @@ def test_build_full_dataset():
     assert first["ITI_beta"] == pytest.approx(5.0)
     assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
+    # Only block_max takes the floor adjustment: the configured 20/60 truncation
+    # yields a longest realizable block of 59 trials.
+    assert first["block_min"] == 20.0 and first["block_max"] == 59.0
     assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
     # Scalar has neither a scale nor truncation parameters -> null bounds.
     assert pd.isna(first["delay_min"])
