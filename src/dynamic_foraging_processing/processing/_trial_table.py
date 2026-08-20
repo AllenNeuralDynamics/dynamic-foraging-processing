@@ -657,6 +657,9 @@ class TrialTableBuilder:
             return columns
 
         block_beta, block_min, block_max = self._distribution_stats(generator.block_length)
+        # Account for the floor applied upstream.
+        if block_max is not None:
+            block_max -= 1
         iti_beta, iti_min, iti_max = self._distribution_stats(
             generator.inter_trial_interval_duration
         )

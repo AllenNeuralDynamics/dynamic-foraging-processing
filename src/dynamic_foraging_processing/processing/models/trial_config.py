@@ -137,7 +137,10 @@ class TrialConfig(BaseModel):
         default=None, description="The minimum length allowed for each block"
     )
     block_max: Optional[float] = Field(
-        default=None, description="The maximum length allowed for each block"
+        default=None,
+        description=(
+            "The maximum length allowed for each block; one below the configured maximum, which accounts for the floor applied upstream"
+        ),
     )
     min_reward_each_block: float = Field(
         default=0,
