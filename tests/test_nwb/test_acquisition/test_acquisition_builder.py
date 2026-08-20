@@ -58,7 +58,11 @@ def _make_output_set_frame() -> pd.DataFrame:
 
 
 def _outcome_payload(auto) -> dict:
-    """Return a serialized ``TrialOutcome`` payload with the given auto-response."""
+    """Return a serialized ``TrialOutcome`` payload with the given auto-response.
+
+    Free water is flagged as scheduled autowater in ``metadata.extra`` so the
+    annotation can attribute it; the channel alone does not name the mechanism.
+    """
     return {
         "trial": {
             "p_reward_left": 1.0,
@@ -68,6 +72,7 @@ def _outcome_payload(auto) -> dict:
             "quiescence_period_duration": 0.5,
             "inter_trial_interval_duration": 4.0,
             "is_auto_reward_right": auto,
+            "metadata": {"extra": {"is_autowater": auto is not None}},
         },
         "is_right_choice": True,
         "is_rewarded": True,
@@ -79,6 +84,14 @@ def _make_trial_outcome_frame() -> pd.DataFrame:
     return pd.DataFrame(
         {"data": [_outcome_payload(None), _outcome_payload(True)]},
         index=pd.Index([0.1, 0.4], name="time"),
+    )
+
+
+def _make_response_frame() -> pd.DataFrame:
+    """One ``Response`` event per trial, just before each trial's outcome."""
+    return pd.DataFrame(
+        {"data": [{"Item1": 0.05, "Item2": False}, {"Item1": 0.35, "Item2": True}]},
+        index=pd.Index([0.05, 0.35], name="time"),
     )
 
 
@@ -120,6 +133,7 @@ def _make_dataset(manual_water=None):
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "Response": _FakeStream(_make_response_frame()),
                             "GiveManualWaterRight": _FakeStream(manual_water),
                         }
                     ),
@@ -147,11 +161,11 @@ def test_init_stores_loader():
     assert builder.loader is loader
 
 
-def test_get_reward_delivery_filters_to_write_messages():
+def test_get_valve_writes_filters_to_write_messages():
     """Only ``MessageType == 'WRITE'`` rows are returned."""
     builder = AcquisitionBuilder(loader=_make_loader())
 
-    result = builder.get_reward_delivery()
+    result = builder.get_valve_writes()
 
     assert list(result["MessageType"]) == ["WRITE", "WRITE", "WRITE"]
     assert list(result.index) == [0.1, 0.3, 0.5]
@@ -177,6 +191,7 @@ def test_get_manual_water_times_returns_empty_when_absent():
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "Response": _FakeStream(_make_response_frame()),
                         }
                     ),
                 }
@@ -224,6 +239,7 @@ def test_get_lick_times_returns_empty_when_absent():
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
+                            "Response": _FakeStream(_make_response_frame()),
                             "GiveManualWaterRight": _FakeStream(_empty_manual_water_frame()),
                         }
                     ),

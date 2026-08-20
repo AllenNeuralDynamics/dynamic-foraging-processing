@@ -4,7 +4,7 @@ import typing as t
 
 import numpy as np
 import pandas as pd
-from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
+from aind_behavior_dynamic_foraging.task_logic.trial_models import Trial, TrialOutcome
 
 from dynamic_foraging_processing.utils.timestamps import find_closest_timestamps
 
@@ -30,12 +30,39 @@ def _parse_outcome(payload: t.Any) -> t.Optional[TrialOutcome]:
     return TrialOutcome.model_validate(payload)
 
 
-def get_annotated_rewards(
+def _free_water_label(trial: t.Optional[Trial]) -> str:
+    """Classify a delivery's trial as ``auto`` (free water) or ``earned``.
+
+    ``is_auto_reward_right`` triggers an immediate reward to one side, so any
+    trial with it set gave free water rather than water the animal worked for.
+    Scheduled autowater and the anti-bias water intervention share that channel
+    and are both ``auto`` here; which mechanism gave the water is recorded per
+    trial by ``auto_waterL``/``auto_waterR`` and
+    ``anti_bias_left_water``/``anti_bias_right_water`` in the trials table.
+
+    Parameters
+    ----------
+    trial : Trial or None
+        The per-trial task-logic model, or ``None`` when the outcome payload was
+        missing.
+
+    Returns
+    -------
+    str
+        ``"auto"`` when the trial delivered free water, else ``"earned"``.
+    """
+    if trial is None or trial.is_auto_reward_right is None:
+        return "earned"
+    return "auto"
+
+
+def get_reward_deliveries(
     reward_delivery_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
     manual_water_times: np.ndarray,
-) -> np.ndarray:
-    """Annotate each reward delivery as ``earned``, ``auto``, or ``manual``.
+    response_times: np.ndarray,
+) -> t.Tuple[np.ndarray, np.ndarray]:
+    """Get one lick port's reward deliveries, classified by how the water was given.
 
     Annotates the deliveries of a single lick port. Each delivery is classified
     as follows, with ``manual`` taking precedence because manual water is not
@@ -45,12 +72,37 @@ def get_annotated_rewards(
       ``GiveManualWater`` software event for this port. The software-event
       timestamps are correlated to the reward-delivery timestamps with
       :func:`find_closest_timestamps`.
-    - ``auto`` -- otherwise, when the matching trial auto-responded
-      (``is_auto_reward_right is not None``).
-    - ``earned`` -- otherwise (no matching trial, or no auto-response).
+    - ``auto`` -- otherwise, when the trial delivered free water
+      (``is_auto_reward_right is not None``). Scheduled autowater and the
+      anti-bias water intervention are both delivered through that channel, so
+      both are ``auto`` here; which mechanism gave the water is recorded per
+      trial by the trials table's ``auto_waterL``/``auto_waterR`` and
+      ``anti_bias_left_water``/``anti_bias_right_water``.
+    - ``earned`` -- otherwise: water the animal worked for.
 
-    Deliveries are matched to trials by the ``TrialOutcome`` software-event
-    timestamp: each delivery takes the annotation of the closest trial.
+    Deliveries on a trial reporting ``is_rewarded=False`` are dropped rather than
+    annotated, so the series reports only water that counted as reward. In
+    practice these are all free water: it is triggered immediately at the go cue
+    and the trial then continues normally, so a trial whose own choice did not
+    pay out still carries the delivery. Manual water is experimenter-driven and
+    is never dropped. The surviving timestamps are returned alongside their
+    annotations so the two stay aligned.
+
+    Note this makes the series reward-keyed rather than a complete record of the
+    hardware's valve openings: free water delivered on an unrewarded trial is
+    real water the animal received, and it is excluded here.
+
+    Deliveries are matched to trials by the ``Response`` software-event
+    timestamp: each delivery takes the annotation of the trial whose response is
+    closest. The response is used rather than the ``TrialOutcome`` timestamp
+    because ``TrialOutcome`` fires at the *end* of a trial, after the
+    reward-consumption and ITI periods, while the valve opens within
+    milliseconds of the response. Matching on trial end lets a delivery land
+    nearer the *previous* trial's outcome and inherit its
+    ``is_auto_reward_right``, flipping ``earned`` and ``auto``.
+
+    ``response_times`` is aligned to ``trial_outcome_df`` positionally: entry
+    ``i`` is the response of the trial in row ``i``.
 
     Parameters
     ----------
@@ -62,31 +114,46 @@ def get_annotated_rewards(
     manual_water_times : numpy.ndarray
         Software-event timestamps of this port's manual water deliveries
         (``GiveManualWaterLeft`` / ``GiveManualWaterRight``).
+    response_times : numpy.ndarray
+        ``Response`` software-event timestamps, one per trial, positionally
+        aligned with the rows of ``trial_outcome_df``.
 
     Returns
     -------
     numpy.ndarray
-        Array of the same shape as ``reward_delivery_times`` whose entries are
-        ``"earned"``, ``"auto"``, or ``"manual"``.
+        The retained reward-delivery timestamps: ``reward_delivery_times`` less
+        the deliveries on unrewarded trials.
+    numpy.ndarray
+        The matching annotations, one per retained timestamp, each ``"earned"``,
+        ``"auto"``, or ``"manual"``.
+
+    Raises
+    ------
+    ValueError
+        If ``response_times`` has a different length than ``trial_outcome_df``,
+        since the two are paired by position.
     """
+    response_times = np.asarray(response_times)
+    if response_times.size != len(trial_outcome_df):
+        raise ValueError(
+            f"response_times has {response_times.size} entries but there are "
+            f"{len(trial_outcome_df)} trials; the two are paired by position."
+        )
+
     reward_times = np.asarray(reward_delivery_times)
     if reward_times.size == 0:
-        return np.array([], dtype=object)
+        return reward_times, np.array([], dtype=object)
 
     # Annotate each delivery from its originating trial: query with reward_times so we
     # get one trial position per reward delivery.
-    trial_indices_in_reward_times = find_closest_timestamps(
-        reward_times, trial_outcome_df.index.to_numpy()
-    )
+    trial_indices_in_reward_times = find_closest_timestamps(reward_times, response_times)
 
     annotated_rewards = []
+    is_unrewarded = []
     for trial_index in trial_indices_in_reward_times:
         outcome = _parse_outcome(trial_outcome_df.iloc[trial_index]["data"])
-        trial = outcome.trial if outcome is not None else None
-        if trial is None or trial.is_auto_reward_right is None:
-            annotated_rewards.append("earned")
-        else:
-            annotated_rewards.append("auto")
+        annotated_rewards.append(_free_water_label(outcome.trial if outcome is not None else None))
+        is_unrewarded.append(outcome is not None and not outcome.is_rewarded)
 
     # Object dtype, not the inferred fixed-width string dtype: a run of only "auto"
     # and "earned" entries would be too narrow to hold "manual" and would truncate it.
@@ -97,8 +164,14 @@ def get_annotated_rewards(
     # manual-water software event to its closest reward delivery; the returned
     # positions index into reward_times, i.e. the deliveries that are manual.
     manual_water_times = np.asarray(manual_water_times)
+    manual_mask = np.zeros(reward_times.size, dtype=bool)
     if manual_water_times.size:
         manual_indices_in_reward_times = find_closest_timestamps(manual_water_times, reward_times)
-        annotated_rewards[manual_indices_in_reward_times] = "manual"
+        manual_mask[manual_indices_in_reward_times] = True
+        annotated_rewards[manual_mask] = "manual"
 
-    return annotated_rewards
+    # Downstream analysis is keyed on reward, so a delivery whose trial did not pay out
+    # is excluded. Manual water is experimenter-driven, unrelated to the trial's
+    # outcome, and keeps its delivery.
+    keep = ~(np.array(is_unrewarded, dtype=bool) & ~manual_mask)
+    return reward_times[keep], annotated_rewards[keep]
