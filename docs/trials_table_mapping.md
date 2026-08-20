@@ -150,14 +150,14 @@ durations track the configured ones (reward consumption ≈
 | `reward_consumption_start_time` | `RewardConsumptionPeriod` `timestamp`. |
 | `reward_consumption_stop_time` | `ItiPeriod` `timestamp`. |
 | `ITI_start_time` | `ItiPeriod` `timestamp`. |
-| `ITI_stop_time` | The **next** trial's `QuiescentPeriod` `timestamp`; `NaN` on the last trial of the session. |
+| `ITI_stop_time` | The **next** trial's `QuiescentPeriod` `timestamp`. The last trial has no following quiescent period, so it takes the `EndSession` `timestamp`; `NaN` if that stream is unavailable. |
 | `delay_start_time` | `QuiescentPeriod` `timestamp` — the legacy name for `quiescent_start_time` (see the note below). |
 
 There are no `start_time` / `stop_time` trial columns. NWB's `TimeIntervals`
 requires a native `start_time` / `stop_time` per trial, so the pipeline derives
 the trial extent when writing: `start_time` is `quiescent_start_time` and
-`stop_time` is `ITI_stop_time`, falling back to `ITI_start_time` on the last
-trial.
+`stop_time` is `ITI_stop_time` — which on the last trial is the `EndSession`
+timestamp.
 
 > **`delay` means `quiescent`.** The legacy `delay_*` columns describe the
 > acquisition software's *quiescence period* — the lick-free interval preceding
