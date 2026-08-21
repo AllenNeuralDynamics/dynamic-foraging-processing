@@ -37,8 +37,8 @@ def _make_pipeline() -> Pipeline:
 def _trials_frame() -> pd.DataFrame:
     """Two-trial table with the period columns plus one modeled, one unmodeled column.
 
-    The second trial's ``ITI_stop_time`` is ``NaN``, as it is for the last trial
-    of a session.
+    The second trial's ``ITI_stop_time`` is ``NaN``, as it is on the last trial
+    of a session whose ``EndSession`` stream was unavailable.
     """
     return pd.DataFrame(
         {
@@ -296,8 +296,8 @@ def test_add_trials_populates_columns_and_rows():
 def test_add_trials_derives_native_start_and_stop_from_periods():
     """NWB's native trial extent spans the quiescent start to the ITI end.
 
-    The last trial has no ITI end (no following quiescent period), so its stop
-    time falls back to the ITI start.
+    An unknown ITI end (no following quiescent period and no ``EndSession``
+    timestamp) stays ``NaN`` rather than falling back to an earlier landmark.
     """
     nwb_file = MagicMock()
 
@@ -307,7 +307,8 @@ def test_add_trials_derives_native_start_and_stop_from_periods():
         (call.kwargs["start_time"], call.kwargs["stop_time"])
         for call in nwb_file.add_trial.call_args_list
     ]
-    assert extents == [(0.0, 1.0), (1.0, 1.4)]
+    assert extents[0] == (0.0, 1.0)
+    assert extents[1][0] == 1.0 and np.isnan(extents[1][1])
 
 
 def test_add_trials_skips_frame_without_period_columns():
