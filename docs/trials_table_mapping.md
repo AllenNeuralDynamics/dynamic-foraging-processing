@@ -74,7 +74,7 @@ Columns are grouped by the raw source they map from.
 
 | Trials column | Source field |
 | --- | --- |
-| `ITI_beta`, `ITI_min`, `ITI_max`, `ITI_duration` | `inter_trial_interval_duration` |
+| `ITI_beta`, `ITI_min`, `ITI_max`, `ITI_duration` | `inter_trial_interval_duration`. `ITI_min` is the distribution's scaling `offset` (the sampled value is shifted by it, so the offset is the shortest possible ITI) rather than the truncation minimum. |
 | `block_beta`, `block_duration`, `block_min`, `block_max` | `block_length`. `block_max` is one below the configured maximum, which accounts for the floor applied upstream. |
 | `delay_beta`, `delay_duration`, `delay_min`, `delay_max` | `quiescent_duration_key` (scalar distribution, so no beta/min/max) |
 
@@ -232,3 +232,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-08-17 | `auto_waterL` / `auto_waterR` now read `trial.metadata.extra.is_autowater` rather than the `is_auto_reward_right` channel, making them **scheduled autowater only** and mutually exclusive with `anti_bias_left_water` / `anti_bias_right_water`. `is_auto_reward_right` says free water fired and on which side but not what kind; the mechanism is in the metadata. Neither column is gated on `is_rewarded`, since both record what the task did. This is narrower than the legacy `dynamic-foraging-task` column of the same name, which was the ungated channel and predates anti-bias water. |
 | 2026-08-17 | The reward-delivery labels stay `earned` / `auto` / `manual`: free water is `auto` whatever mechanism produced it, so the series does not split scheduled autowater from anti-bias water. That split lives in the trials table. Consequence: the series' `auto` count tracks the channel while `auto_waterL` / `auto_waterR` track `is_autowater`, so the two are not expected to be equal. |
 | 2026-08-20 | `block_max` is now one below `block_length`'s configured maximum, which accounts for the floor applied upstream: a block is a whole number of trials, so the configured bound is never itself reachable. `block_min`, `block_beta`, and the `ITI_*` / `delay_*` bounds are unchanged — those durations are continuous and take no such adjustment. |
+| 2026-08-20 | `ITI_min` now reports `inter_trial_interval_duration`'s scaling `offset` instead of its truncation minimum: the sampled ITI is shifted by the offset, so the offset is the shortest ITI the generator can produce. Falls back to the truncation minimum when no scaling parameters are configured. |
