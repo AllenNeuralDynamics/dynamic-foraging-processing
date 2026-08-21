@@ -22,6 +22,7 @@ from aind_behavior_services.task.distributions import (
     ExponentialDistributionParameters,
     Scalar,
     ScalarDistributionParameter,
+    ScalingParameters,
     TruncationParameters,
     UniformDistribution,
     UniformDistributionParameters,
@@ -174,6 +175,7 @@ def _task_logic(quiescent="scalar"):
         inter_trial_interval_duration=ExponentialDistribution(
             distribution_parameters=ExponentialDistributionParameters(rate=0.2),
             truncation_parameters=TruncationParameters(min=1.0, max=10.0),
+            scaling_parameters=ScalingParameters(offset=0.5),
         ),
         block_length=ExponentialDistribution(
             distribution_parameters=ExponentialDistributionParameters(rate=0.05),
@@ -365,7 +367,8 @@ def test_build_full_dataset():
 
     # Session-level distribution summaries.
     assert first["ITI_beta"] == pytest.approx(5.0)
-    assert first["ITI_min"] == 1.0 and first["ITI_max"] == 10.0
+    # ``ITI_min`` comes from the scaling offset, not the truncation minimum.
+    assert first["ITI_min"] == 0.5 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
     # Only block_max takes the floor adjustment: the configured 20/60 truncation
     # yields a longest realizable block of 59 trials.
