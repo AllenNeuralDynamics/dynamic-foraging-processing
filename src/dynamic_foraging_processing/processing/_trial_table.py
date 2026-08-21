@@ -663,6 +663,11 @@ class TrialTableBuilder:
         iti_beta, iti_min, iti_max = self._distribution_stats(
             generator.inter_trial_interval_duration
         )
+
+        # use the distribution offset as the min for iti min
+        iti_scaling = generator.inter_trial_interval_duration.scaling_parameters
+        if iti_scaling is not None and iti_scaling.offset is not None:
+            iti_min = iti_scaling.offset
         delay_beta, delay_min, delay_max = self._distribution_stats(generator.quiescent_duration)
 
         # Coupled generators normalize both sides to a fixed reward-probability
