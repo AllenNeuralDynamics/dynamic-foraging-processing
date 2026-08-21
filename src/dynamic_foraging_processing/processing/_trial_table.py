@@ -382,31 +382,19 @@ class TrialTableBuilder:
         return is_rewarded and (is_right_choice is is_right)
 
     @staticmethod
-    def _is_baited(trial: Trial, *, is_right: bool) -> bool:
+    def _is_baited(bias_metadata: BlockBasedTrialMetadata, *, is_right: bool) -> bool:
         """Return whether the requested lickport is baited on this trial.
 
-        A port is "baited" when reward is guaranteed there (its reward
-        probability is ``1``) *and* the trial was not auto-responded to *that
-        same* port.
-
-        ``is_auto_reward_right`` encodes the auto-response: ``True`` means the
-        trial was auto-responded to the right, ``False`` to the left, and
-        ``None`` means there was no auto-response.
-
-        In plain English, for the right port the conditions are:
-
-        * ``p_reward_right == 1`` — reward is certain on the right, and
-        * the trial was *not* auto-responded to the right
-          (``is_auto_reward_right`` is ``None`` or ``False``).
-
-        The left port is the mirror image (``p_reward_left == 1`` and not
-        auto-responded to the left, i.e. ``is_auto_reward_right`` is ``None``
-        or ``True``).
+        The bait state is reported directly by the acquisition software as
+        ``is_left_baited`` / ``is_right_baited`` on the trial's extra metadata,
+        so it is read rather than re-derived from the reward probability and the
+        auto-response channel. A trial whose metadata does not carry the flags
+        falls back to the model's ``False`` default (see ``_bias_metadata``).
 
         Parameters
         ----------
-        trial : Trial
-            The per-trial task-logic model.
+        bias_metadata : BlockBasedTrialMetadata
+            The trial's extra metadata (see ``_bias_metadata``).
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
 
@@ -414,33 +402,10 @@ class TrialTableBuilder:
         -------
         bool
             Whether the requested side is baited.
-
-        Examples
-        --------
-        Right port guaranteed reward, no auto-response → baited:
-
-        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_reward_right=None)
-        >>> TrialTableBuilder._is_baited(trial, is_right=True)
-        True
-
-        Same trial, but auto-responded to the right collects (forfeits) the bait:
-
-        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_reward_right=True)
-        >>> TrialTableBuilder._is_baited(trial, is_right=True)
-        False
-
-        Left port without guaranteed reward → not baited:
-
-        >>> trial = Trial(p_reward_right=1, p_reward_left=0, is_auto_reward_right=None)
-        >>> TrialTableBuilder._is_baited(trial, is_right=False)
-        False
         """
-        auto = trial.is_auto_reward_right
         if is_right:
-            # Right stays baited unless the animal was auto-responded right.
-            return trial.p_reward_right == 1 and auto in (None, False)
-        # Left stays baited unless the animal was auto-responded left.
-        return trial.p_reward_left == 1 and auto in (None, True)
+            return bias_metadata.is_right_baited
+        return bias_metadata.is_left_baited
 
     @staticmethod
     def _auto_water(trial: Trial, bias_metadata: BlockBasedTrialMetadata, *, is_right: bool) -> int:
@@ -657,6 +622,9 @@ class TrialTableBuilder:
             return columns
 
         block_beta, block_min, block_max = self._distribution_stats(generator.block_length)
+        # Account for the floor applied upstream.
+        if block_max is not None:
+            block_max -= 1
         iti_beta, iti_min, iti_max = self._distribution_stats(
             generator.inter_trial_interval_duration
         )
@@ -908,8 +876,8 @@ class TrialTableBuilder:
             goCue_start_time=self._closest_time_in_window(go_cue_times, start, stop),
             left_valve_open_time=left_valve_open_time,
             right_valve_open_time=right_valve_open_time,
-            bait_left=self._is_baited(trial, is_right=False),
-            bait_right=self._is_baited(trial, is_right=True),
+            bait_left=self._is_baited(bias_metadata, is_right=False),
+            bait_right=self._is_baited(bias_metadata, is_right=True),
             reward_probabilityL=self._block_reward_probability(trial, is_right=False),
             reward_probabilityR=self._block_reward_probability(trial, is_right=True),
             reward_size_left=trial.reward_size.left,
