@@ -100,6 +100,8 @@ def _outcome(
     is_autowater=None,
     is_bias_water_intervention=None,
     is_bias_stage_intervention=None,
+    is_left_baited=None,
+    is_right_baited=None,
 ):
     """Build a serialized ``TrialOutcome`` payload (dict, as delivered by the reader).
 
@@ -111,6 +113,8 @@ def _outcome(
     sets the per-trial horizontal spout displacement (mm), and ``is_autowater``
     plus the ``is_bias_*_intervention`` flags populate the ``metadata.extra``
     (``BlockBasedTrialMetadata``) block naming the free-water mechanism.
+    ``is_left_baited`` / ``is_right_baited`` set the per-side bait flags in that
+    same block (the source of the ``bait_*`` columns).
     """
     trial = {
         "p_reward_left": p_left,
@@ -134,12 +138,16 @@ def _outcome(
         is_autowater is not None
         or is_bias_water_intervention is not None
         or is_bias_stage_intervention is not None
+        or is_left_baited is not None
+        or is_right_baited is not None
     ):
         metadata = trial.setdefault("metadata", {})
         metadata["extra"] = {
             "is_autowater": bool(is_autowater),
             "is_bias_water_intervention": bool(is_bias_water_intervention),
             "is_bias_stage_intervention": bool(is_bias_stage_intervention),
+            "is_left_baited": bool(is_left_baited),
+            "is_right_baited": bool(is_right_baited),
         }
     return {
         "trial": trial,
@@ -246,6 +254,7 @@ def _full_dataset():
                             block_p_right=0.1,
                             reward_size_left=2.0,
                             reward_size_right=4.0,
+                            is_left_baited=True,
                         ),
                         _outcome(0.5, 0.5, is_right_choice=None, is_rewarded=False),
                     ],
@@ -263,6 +272,8 @@ def _full_dataset():
                 )
             ),
             "TrialMetrics": _Stream(_events([10.2, 20.2], [{"bias": 0.3}, {"bias": None}])),
+            # Closes the last trial's ITI, which has no following QuiescentPeriod.
+            "EndSession": _Stream(_events([30.0], [None])),
         }
     )
     behavior = _Node(
@@ -325,13 +336,14 @@ def test_build_full_dataset():
     first, second = table.iloc[0], table.iloc[1]
 
     # Period bounds: each period ends where the next one starts, and the ITI
-    # ends at the next trial's quiescent period (NaN on the last trial).
+    # ends at the next trial's quiescent period — or, on the last trial, at the
+    # EndSession timestamp.
     assert first["quiescent_start_time"] == 10.0 and first["quiescent_stop_time"] == 11.0
     assert first["response_start_time"] == 11.0 and first["response_stop_time"] == 12.0
     assert first["reward_consumption_start_time"] == 12.0
     assert first["reward_consumption_stop_time"] == 15.0
     assert first["ITI_start_time"] == 15.0 and first["ITI_stop_time"] == 20.0
-    assert second["ITI_start_time"] == 25.0 and np.isnan(second["ITI_stop_time"])
+    assert second["ITI_start_time"] == 25.0 and second["ITI_stop_time"] == 30.0
     # delay_start_time is the legacy name for the quiescent period start.
     assert first["delay_start_time"] == first["quiescent_start_time"] == 10.0
 
@@ -353,9 +365,12 @@ def test_build_full_dataset():
     assert bool(second["rewarded_historyL"]) is False
     assert bool(second["rewarded_historyR"]) is False
 
-    # Bait derived from the per-trial p_reward and auto-response.
+    # Bait read from the acquisition metadata's per-side flags.
     assert bool(first["bait_left"]) is True
     assert bool(first["bait_right"]) is False
+    # The second trial carries no extra metadata -> not baited on either side.
+    assert bool(second["bait_left"]) is False
+    assert bool(second["bait_right"]) is False
 
     # reward_probability columns are the block probability from trial.metadata,
     # not the top-level per-trial p_reward (1.0 / 0.2 here).
@@ -483,6 +498,46 @@ def test_build_raises_on_misaligned_streams_when_configured():
     """Misaligned per-trial streams raise ``ValueError`` when ``raise_on_error`` is True."""
     with pytest.raises(ValueError, match="misaligned"):
         TrialTableBuilder(_misaligned_dataset(), raise_on_error=True).build()
+
+
+# --------------------------------------------------------------------------- #
+# ITI_stop_time on the last trial — the EndSession timestamp
+# --------------------------------------------------------------------------- #
+def test_build_last_iti_stop_is_nan_without_end_session():
+    """Without an ``EndSession`` stream the last trial's ITI end stays unknown."""
+    dataset = _full_dataset()
+    del dataset.children["Behavior"].children["SoftwareEvents"].children["EndSession"]
+
+    table = TrialTableBuilder(dataset).build()
+
+    # Earlier trials are unaffected; only the last one lacks a closing event.
+    assert table.iloc[0]["ITI_stop_time"] == 20.0
+    assert np.isnan(table.iloc[1]["ITI_stop_time"])
+
+
+def test_build_last_iti_stop_is_nan_when_end_session_is_empty():
+    """An ``EndSession`` stream carrying no events leaves the last ITI end unknown."""
+    dataset = _full_dataset()
+    dataset.children["Behavior"].children["SoftwareEvents"].children["EndSession"] = _Stream(
+        _events([], [])
+    )
+
+    table = TrialTableBuilder(dataset).build()
+
+    assert np.isnan(table.iloc[1]["ITI_stop_time"])
+
+
+def test_build_end_session_does_not_close_a_mid_session_gap():
+    """Only the last trial falls back to ``EndSession``.
+
+    A short ``QuiescentPeriod`` stream leaves an earlier trial without a closing
+    event too, but attributing the session end to it would invent a trial
+    spanning the rest of the session, so it stays ``NaN``.
+    """
+    table = TrialTableBuilder(_misaligned_dataset()).build()
+
+    assert np.isnan(table.iloc[0]["ITI_stop_time"])
+    assert table.iloc[1]["ITI_stop_time"] == 30.0
 
 
 # --------------------------------------------------------------------------- #
@@ -667,13 +722,33 @@ def test_animal_response_encoding():
     assert TrialTableBuilder._animal_response({"Item1": 1.0}) == 2
 
 
-def test_is_baited_forfeited_by_auto_response_on_same_side():
-    """A side with guaranteed reward stays baited unless auto-responded to that side."""
+def test_is_baited_reads_the_per_side_metadata_flags():
+    """Bait comes from the metadata flags, independent of p_reward and auto-response."""
     trial = TrialOutcome.model_validate(
-        _outcome(0.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True)
+        _outcome(
+            0.0,
+            1.0,
+            is_right_choice=True,
+            is_rewarded=True,
+            auto=True,
+            is_left_baited=True,
+            is_right_baited=False,
+        )
     ).trial
-    # Right is guaranteed (p=1) but auto-responded right -> bait collected.
-    assert TrialTableBuilder._is_baited(trial, is_right=True) is False
+    metadata = TrialTableBuilder._bias_metadata(trial)
+    # Right has p_reward 1 but the software reports it unbaited; left is the mirror.
+    assert TrialTableBuilder._is_baited(metadata, is_right=True) is False
+    assert TrialTableBuilder._is_baited(metadata, is_right=False) is True
+
+
+def test_is_baited_defaults_to_false_without_metadata():
+    """A trial carrying no extra metadata is reported as unbaited on both sides."""
+    trial = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True)
+    ).trial
+    metadata = TrialTableBuilder._bias_metadata(trial)
+    assert TrialTableBuilder._is_baited(metadata, is_right=True) is False
+    assert TrialTableBuilder._is_baited(metadata, is_right=False) is False
 
 
 def test_rewarded_history_is_earned_reward_only():

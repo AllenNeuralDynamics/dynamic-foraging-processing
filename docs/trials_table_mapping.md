@@ -100,7 +100,7 @@ Columns are grouped by the raw source they map from.
 | `auto_waterL` / `auto_waterR` | **Scheduled autowater only**: `1` when `trial.metadata.extra.is_autowater` is `True` **and** `is_auto_reward_right` points to that side. `0` otherwise, including when the trial's free water came from the anti-bias algorithm — that is reported by `anti_bias_left_water` / `anti_bias_right_water`. `is_auto_reward_right` is only the delivery *channel* (free water fired, and to which side); the mechanism comes from the metadata, so the two columns are mutually exclusive. Not gated on `is_rewarded`: the column records what the task did, and free water fires at the go cue regardless of how the animal's own choice resolves. Note this is narrower than the legacy `dynamic-foraging-task` column of the same name, which was the ungated channel ("Autowater given at Left", straight from `B_AutoWaterTrial`) and predates anti-bias water. |
 | `anti_bias_left_water` / `anti_bias_right_water` | Boolean. `True` when the anti-bias algorithm delivered a water intervention to that side — i.e. `trial.metadata.extra.is_bias_water_intervention` is `True` **and** `is_auto_reward_right` points to that side (`False` → left, `True` → right). The anti-bias water uses the same auto-response channel as scheduled autowater, so the `is_bias_water_intervention` flag is what distinguishes it and the two columns are mutually exclusive. `False` otherwise. Like `auto_water*`, **not** gated on `is_rewarded`: these columns record what the algorithm did, and the intervention fires at the go cue regardless of how the animal's own choice resolves. The reward-delivery series *is* reward-keyed, so this column can exceed the series' `auto` count. |
 | `anti_bias_lickspout_movement` | Signed horizontal displacement (mm, positive is rightward) the anti-bias algorithm moved the lickspouts on this trial: `trial.lickspout_offset_delta` when `trial.metadata.extra.is_bias_stage_intervention` is `True`, else `0.0`. |
-| `bait_left` / `bait_right` | Boolean. `bait_right` is `True` if `p_reward_right == 1` and `is_auto_reward_right` is `None` or `False`. `bait_left` is `True` if `p_reward_left == 1` and `is_auto_reward_right` is `None` or `True`. |
+| `bait_left` / `bait_right` | Boolean, read straight from `trial.metadata.extra.is_left_baited` / `is_right_baited` — the bait state the acquisition software reports for each port. `False` when the trial carries no extra metadata. |
 | `response_duration` | `response_deadline_duration`. |
 | `reward_consumption_duration` | `Trial -> reward_consumption_duration`. |
 | `reward_probabilityL` / `reward_probabilityR` | The **block** probability from `Trial -> metadata -> p_reward_left` / `p_reward_right`. The top-level `trial.p_reward_left` / `p_reward_right` is the per-trial probability, not the block probability, so it is not used here. `None` when the trial or its metadata is missing. |
@@ -150,14 +150,14 @@ durations track the configured ones (reward consumption ≈
 | `reward_consumption_start_time` | `RewardConsumptionPeriod` `timestamp`. |
 | `reward_consumption_stop_time` | `ItiPeriod` `timestamp`. |
 | `ITI_start_time` | `ItiPeriod` `timestamp`. |
-| `ITI_stop_time` | The **next** trial's `QuiescentPeriod` `timestamp`; `NaN` on the last trial of the session. |
+| `ITI_stop_time` | The **next** trial's `QuiescentPeriod` `timestamp`. The last trial has no following quiescent period, so it takes the `EndSession` `timestamp`; `NaN` if that stream is unavailable. |
 | `delay_start_time` | `QuiescentPeriod` `timestamp` — the legacy name for `quiescent_start_time` (see the note below). |
 
 There are no `start_time` / `stop_time` trial columns. NWB's `TimeIntervals`
 requires a native `start_time` / `stop_time` per trial, so the pipeline derives
 the trial extent when writing: `start_time` is `quiescent_start_time` and
-`stop_time` is `ITI_stop_time`, falling back to `ITI_start_time` on the last
-trial.
+`stop_time` is `ITI_stop_time` — which on the last trial is the `EndSession`
+timestamp.
 
 > **`delay` means `quiescent`.** The legacy `delay_*` columns describe the
 > acquisition software's *quiescence period* — the lick-free interval preceding
@@ -233,3 +233,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-08-17 | The reward-delivery labels stay `earned` / `auto` / `manual`: free water is `auto` whatever mechanism produced it, so the series does not split scheduled autowater from anti-bias water. That split lives in the trials table. Consequence: the series' `auto` count tracks the channel while `auto_waterL` / `auto_waterR` track `is_autowater`, so the two are not expected to be equal. |
 | 2026-08-20 | `block_max` is now one below `block_length`'s configured maximum, which accounts for the floor applied upstream: a block is a whole number of trials, so the configured bound is never itself reachable. `block_min`, `block_beta`, and the `ITI_*` / `delay_*` bounds are unchanged — those durations are continuous and take no such adjustment. |
 | 2026-08-20 | `ITI_min` now reports `inter_trial_interval_duration`'s scaling `offset` instead of its truncation minimum: the sampled ITI is shifted by the offset, so the offset is the shortest ITI the generator can produce. Falls back to the truncation minimum when no scaling parameters are configured. |
+| 2026-08-20 | `bait_left` / `bait_right` now read `trial.metadata.extra.is_left_baited` / `is_right_baited` from the acquisition software instead of being re-derived from `p_reward_left` / `p_reward_right` and the `is_auto_reward_right` channel. The software is the authority on bait state, so the two can disagree — notably a port with `p_reward == 1` is no longer assumed baited. `False` when the trial carries no extra metadata. |
