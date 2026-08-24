@@ -58,7 +58,7 @@ class TrialConfig(BaseModel):
     )
     ITI_stop_time: float = Field(
         description=(
-            "End time of the inter-trial interval, i.e. the start of the next trial's quiescent period (the following QuiescentPeriod timestamp); NaN on the last trial of the session."
+            "End time of the inter-trial interval, i.e. the start of the next trial's quiescent period (the following QuiescentPeriod timestamp). The last trial of the session has no following quiescent period, so it ends at the EndSession timestamp; NaN if that stream is unavailable."
         ),
     )
 
@@ -137,7 +137,10 @@ class TrialConfig(BaseModel):
         default=None, description="The minimum length allowed for each block"
     )
     block_max: Optional[float] = Field(
-        default=None, description="The maximum length allowed for each block"
+        default=None,
+        description=(
+            "The maximum length allowed for each block; one below the configured maximum, which accounts for the floor applied upstream"
+        ),
     )
     min_reward_each_block: float = Field(
         default=0,
