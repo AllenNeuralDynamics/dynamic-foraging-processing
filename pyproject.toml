@@ -14,7 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3"
 ]
 readme = "README.md"
-version = "0.3.2"
+version = "0.3.5"
 
 dependencies = [
     "aind-behavior-dynamic-foraging[data] @ git+https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git@10cec2d64f0770405d5fcee40ec01a88d288a6b0",
