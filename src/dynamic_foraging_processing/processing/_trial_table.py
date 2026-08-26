@@ -260,6 +260,20 @@ class TrialTableBuilder:
         except for a uniform distribution, whose bounds are its own ``min`` and
         ``max`` distribution parameters.
 
+        The optional ``scaling_parameters`` apply ``value * scale + offset`` to
+        each sample, so they are folded into all three values. Two details
+        decide where each one lands:
+
+        * The truncation bounds are applied *after* scaling (per the schema), so
+          they are already in output units and are **not** re-transformed. The
+          offset does raise the support floor of an exponential, though — its
+          samples start at ``0``, hence at ``offset`` once shifted — so the
+          reported minimum is whichever of the two constraints binds. This is
+          what makes a configured offset visible when the truncation minimum is
+          left at its ``0`` default.
+        * A uniform's bounds live in the distribution parameters, which *are*
+          pre-scaling, so they take the full transform.
+
         Parameters
         ----------
         distribution : Distribution
@@ -273,15 +287,20 @@ class TrialTableBuilder:
         beta: t.Optional[float] = None
         params = distribution.distribution_parameters
         truncation = distribution.truncation_parameters
+        scaling = distribution.scaling_parameters
+        scale = scaling.scale if scaling is not None else 1.0
+        offset = scaling.offset if scaling is not None else 0.0
         minimum = truncation.min if truncation is not None else None
         maximum = truncation.max if truncation is not None else None
         if params.family == DistributionFamily.EXPONENTIAL and params.rate:
-            beta = 1.0 / params.rate
+            beta = scale / params.rate
+            # An exponential's support starts at the offset once shifted.
+            minimum = offset if minimum is None else max(minimum, offset)
         elif params.family == DistributionFamily.UNIFORM:
             # A uniform distribution carries its bounds in the distribution
             # parameters rather than the truncation parameters.
-            minimum = params.min
-            maximum = params.max
+            minimum = params.min * scale + offset
+            maximum = params.max * scale + offset
         return beta, minimum, maximum
 
     @staticmethod
@@ -650,11 +669,6 @@ class TrialTableBuilder:
         iti_beta, iti_min, iti_max = self._distribution_stats(
             generator.inter_trial_interval_duration
         )
-
-        # use the distribution offset as the min for iti min
-        iti_scaling = generator.inter_trial_interval_duration.scaling_parameters
-        if iti_scaling is not None and iti_scaling.offset is not None:
-            iti_min = iti_scaling.offset
         delay_beta, delay_min, delay_max = self._distribution_stats(generator.quiescent_duration)
 
         # Coupled generators normalize both sides to a fixed reward-probability
