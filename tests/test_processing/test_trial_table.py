@@ -182,7 +182,9 @@ def _task_logic(quiescent="scalar"):
         quiescent_duration=quiescent,
         inter_trial_interval_duration=ExponentialDistribution(
             distribution_parameters=ExponentialDistributionParameters(rate=0.2),
-            truncation_parameters=TruncationParameters(min=1.0, max=10.0),
+            # The truncation minimum is left at its 0 default, so the scaling
+            # offset is what bounds the shortest realizable ITI.
+            truncation_parameters=TruncationParameters(min=0.0, max=10.0),
             scaling_parameters=ScalingParameters(offset=0.5),
         ),
         block_length=ExponentialDistribution(
@@ -485,6 +487,63 @@ def test_build_uniform_quiescent_sets_delay_bounds_from_parameters():
     # truncation parameters the fixture also sets (9.0/99.0).
     assert first["delay_min"] == pytest.approx(0.25)
     assert first["delay_max"] == pytest.approx(0.75)
+
+
+def test_distribution_stats_exponential_minimum_takes_the_binding_constraint():
+    """The reported minimum is the tighter of the truncation floor and the offset."""
+
+    def stats(trunc_min, offset):
+        """Summarize a truncated, offset exponential distribution."""
+        return TrialTableBuilder._distribution_stats(
+            ExponentialDistribution(
+                distribution_parameters=ExponentialDistributionParameters(rate=0.5),
+                truncation_parameters=TruncationParameters(min=trunc_min, max=10.0),
+                scaling_parameters=ScalingParameters(offset=offset),
+            )
+        )
+
+    # Offset above the truncation floor: the shifted support is what binds.
+    assert stats(0.0, 1.5)[1] == pytest.approx(1.5)
+    # Offset below it: truncation still excludes everything under its own minimum,
+    # so the offset is not reachable. The truncation bounds are applied after
+    # scaling, so they are already in output units and take no further shift.
+    assert stats(2.0, 0.5)[1] == pytest.approx(2.0)
+    # No scaling parameters at all -> the truncation floor, unchanged.
+    assert TrialTableBuilder._distribution_stats(
+        ExponentialDistribution(
+            distribution_parameters=ExponentialDistributionParameters(rate=0.5),
+            truncation_parameters=TruncationParameters(min=2.0, max=10.0),
+        )
+    )[1] == pytest.approx(2.0)
+    # Scaling without truncation: the offset alone is the floor.
+    assert TrialTableBuilder._distribution_stats(
+        ExponentialDistribution(
+            distribution_parameters=ExponentialDistributionParameters(rate=0.5),
+            scaling_parameters=ScalingParameters(offset=0.75),
+        )
+    )[1] == pytest.approx(0.75)
+
+
+def test_distribution_stats_folds_scale_into_beta_and_uniform_bounds():
+    """``scale`` multiplies an exponential's beta and transforms uniform bounds."""
+    beta, _, _ = TrialTableBuilder._distribution_stats(
+        ExponentialDistribution(
+            distribution_parameters=ExponentialDistributionParameters(rate=0.5),
+            scaling_parameters=ScalingParameters(scale=3.0),
+        )
+    )
+    # beta is 1 / rate = 2.0 in the base distribution's units, scaled by 3.
+    assert beta == pytest.approx(6.0)
+    # A uniform's bounds are distribution parameters, which are pre-scaling and
+    # so take the full ``value * scale + offset`` transform.
+    _, minimum, maximum = TrialTableBuilder._distribution_stats(
+        UniformDistribution(
+            distribution_parameters=UniformDistributionParameters(min=1.0, max=2.0),
+            scaling_parameters=ScalingParameters(scale=2.0, offset=0.5),
+        )
+    )
+    assert minimum == pytest.approx(2.5)
+    assert maximum == pytest.approx(4.5)
 
 
 def test_build_warns_on_misaligned_streams(caplog):
