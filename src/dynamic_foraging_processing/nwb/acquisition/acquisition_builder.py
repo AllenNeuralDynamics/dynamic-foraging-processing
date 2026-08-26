@@ -203,9 +203,8 @@ class AcquisitionBuilder:
 
         Only valve-open events (``port_column`` is truthy) are reward
         deliveries; the ``data`` field annotates each as earned, manual, or auto
-        via :func:`get_reward_deliveries`, which also drops deliveries on trials
-        that did not pay out, so the series reports reward rather than every
-        valve opening.
+        via :func:`get_reward_deliveries`. Every valve opening is reported, so
+        the series is a complete record of the water delivered at this port.
 
         Parameters
         ----------
@@ -237,7 +236,7 @@ class AcquisitionBuilder:
         open_writes = writes[writes[port_column].fillna(False).astype(bool)]
         delivery_times = open_writes.index.to_numpy()
         manual_water_times = manual_water.index[manual_water["data"] == is_right].to_numpy()
-        delivery_times, annotations = get_reward_deliveries(
+        annotations = get_reward_deliveries(
             delivery_times,
             trial_outcomes,
             manual_water_times,
