@@ -61,8 +61,8 @@ def get_reward_deliveries(
     trial_outcome_df: pd.DataFrame,
     manual_water_times: np.ndarray,
     response_times: np.ndarray,
-) -> t.Tuple[np.ndarray, np.ndarray]:
-    """Get one lick port's reward deliveries, classified by how the water was given.
+) -> np.ndarray:
+    """Classify one lick port's reward deliveries by how the water was given.
 
     Annotates the deliveries of a single lick port. Each delivery is classified
     as follows, with ``manual`` taking precedence because manual water is not
@@ -80,17 +80,14 @@ def get_reward_deliveries(
       ``anti_bias_left_water``/``anti_bias_right_water``.
     - ``earned`` -- otherwise: water the animal worked for.
 
-    Deliveries on a trial reporting ``is_rewarded=False`` are dropped rather than
-    annotated, so the series reports only water that counted as reward. In
-    practice these are all free water: it is triggered immediately at the go cue
-    and the trial then continues normally, so a trial whose own choice did not
-    pay out still carries the delivery. Manual water is experimenter-driven and
-    is never dropped. The surviving timestamps are returned alongside their
-    annotations so the two stay aligned.
-
-    Note this makes the series reward-keyed rather than a complete record of the
-    hardware's valve openings: free water delivered on an unrewarded trial is
-    real water the animal received, and it is excluded here.
+    Every valve opening is annotated and none is filtered out, so the series is a
+    complete record of the water this port delivered. In particular a trial
+    reporting ``is_rewarded=False`` keeps its delivery: free water is triggered
+    immediately at the go cue and the trial then continues normally, so
+    ``is_rewarded`` reports the outcome of the animal's *own choice* -- a
+    separate event from the water being classified here. A trial can therefore
+    contribute an ``auto`` delivery on the side the task watered and an
+    ``earned`` delivery on the side the animal chose.
 
     Deliveries are matched to trials by the ``Response`` software-event
     timestamp: each delivery takes the annotation of the trial whose response is
@@ -121,11 +118,8 @@ def get_reward_deliveries(
     Returns
     -------
     numpy.ndarray
-        The retained reward-delivery timestamps: ``reward_delivery_times`` less
-        the deliveries on unrewarded trials.
-    numpy.ndarray
-        The matching annotations, one per retained timestamp, each ``"earned"``,
-        ``"auto"``, or ``"manual"``.
+        Array of the same shape as ``reward_delivery_times`` whose entries are
+        ``"earned"``, ``"auto"``, or ``"manual"``.
 
     Raises
     ------
@@ -142,18 +136,16 @@ def get_reward_deliveries(
 
     reward_times = np.asarray(reward_delivery_times)
     if reward_times.size == 0:
-        return reward_times, np.array([], dtype=object)
+        return np.array([], dtype=object)
 
     # Annotate each delivery from its originating trial: query with reward_times so we
     # get one trial position per reward delivery.
     trial_indices_in_reward_times = find_closest_timestamps(reward_times, response_times)
 
     annotated_rewards = []
-    is_unrewarded = []
     for trial_index in trial_indices_in_reward_times:
         outcome = _parse_outcome(trial_outcome_df.iloc[trial_index]["data"])
         annotated_rewards.append(_free_water_label(outcome.trial if outcome is not None else None))
-        is_unrewarded.append(outcome is not None and not outcome.is_rewarded)
 
     # Object dtype, not the inferred fixed-width string dtype: a run of only "auto"
     # and "earned" entries would be too narrow to hold "manual" and would truncate it.
@@ -164,14 +156,8 @@ def get_reward_deliveries(
     # manual-water software event to its closest reward delivery; the returned
     # positions index into reward_times, i.e. the deliveries that are manual.
     manual_water_times = np.asarray(manual_water_times)
-    manual_mask = np.zeros(reward_times.size, dtype=bool)
     if manual_water_times.size:
         manual_indices_in_reward_times = find_closest_timestamps(manual_water_times, reward_times)
-        manual_mask[manual_indices_in_reward_times] = True
-        annotated_rewards[manual_mask] = "manual"
+        annotated_rewards[manual_indices_in_reward_times] = "manual"
 
-    # Downstream analysis is keyed on reward, so a delivery whose trial did not pay out
-    # is excluded. Manual water is experimenter-driven, unrelated to the trial's
-    # outcome, and keeps its delivery.
-    keep = ~(np.array(is_unrewarded, dtype=bool) & ~manual_mask)
-    return reward_times[keep], annotated_rewards[keep]
+    return annotated_rewards

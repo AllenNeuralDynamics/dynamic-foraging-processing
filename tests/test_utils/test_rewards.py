@@ -15,8 +15,8 @@ def _outcome_payload(auto=None, is_rewarded: bool = True, mechanism: str = "auto
 
     ``mechanism`` names which free-water flag ``metadata.extra`` carries when
     ``auto`` is set: ``"autowater"`` for scheduled autowater, ``"anti_bias"`` for
-    an anti-bias intervention, or ``None`` for neither (the mechanism is not
-    recorded, so the delivery cannot be attributed).
+    an anti-bias intervention, or ``None`` for neither. The annotation labels all
+    free water ``auto`` regardless, so this only matters to the trials table.
     """
     trial = {
         "p_reward_left": 1.0,
@@ -59,11 +59,10 @@ def test_get_reward_deliveries_marks_default_trials_as_earned():
     response_times = np.array([0.1, 0.4, 0.9])
     trial_outcome_df = _trial_outcome_df(np.array([1.1, 1.4, 1.9]))
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["earned", "earned", "earned"]))
 
 
@@ -73,11 +72,10 @@ def test_get_reward_deliveries_marks_auto_response_trials_as_auto():
     response_times = np.array([0.1, 0.4])
     trial_outcome_df = _trial_outcome_df(np.array([1.1, 1.4]), autos=[True, False])
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
@@ -98,11 +96,10 @@ def test_get_reward_deliveries_marks_all_free_water_as_auto(mechanism):
         index=pd.Index([1.1], name="time"),
     )
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["auto"]))
 
 
@@ -118,20 +115,19 @@ def test_get_reward_deliveries_matches_closest_response_time():
     # Outcome events fire at the end of each trial, far from the deliveries.
     trial_outcome_df = _trial_outcome_df(np.array([0.9, 5.0]), autos=[None, True])
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
-def test_get_reward_deliveries_drops_auto_water_on_unrewarded_trials():
-    """Autowater on a trial reporting ``is_rewarded=False`` is dropped, not annotated.
+def test_get_reward_deliveries_keeps_deliveries_on_unrewarded_trials():
+    """A delivery on a trial reporting ``is_rewarded=False`` is still annotated.
 
-    The water is delivered at the go cue and the trial then continues normally,
-    so a trial whose own choice did not pay out still carries the delivery. The
-    series is reward-keyed, so those deliveries are excluded.
+    Free water fires at the go cue and the trial then continues normally, so
+    ``is_rewarded`` describes the animal's own choice rather than the water. The
+    series records every valve opening, so nothing is filtered out.
     """
     reward_times = np.array([0.15, 0.42, 0.95])
     response_times = np.array([0.1, 0.4, 0.9])
@@ -141,31 +137,34 @@ def test_get_reward_deliveries_drops_auto_water_on_unrewarded_trials():
         rewarded=[True, False, True],
     )
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, np.array([0.15, 0.95]))
-    np.testing.assert_array_equal(annotations, np.array(["earned", "auto"]))
+    np.testing.assert_array_equal(annotations, np.array(["earned", "auto", "auto"]))
 
 
-def test_get_reward_deliveries_drops_any_delivery_on_an_unrewarded_trial():
-    """The drop rule is ``is_rewarded=False``, not autowater specifically.
+def test_get_reward_deliveries_labels_both_sides_of_a_split_trial():
+    """One trial can water the task's side and the animal's side independently.
 
-    Autowater is the only case seen in practice, but the condition is the trial's
-    reward outcome, so any delivery on a trial that did not pay out is excluded
-    regardless of what triggered it.
+    When free water goes to one port and the animal earns reward at the other,
+    the trial contributes an ``auto`` delivery and an ``earned`` delivery. The
+    label follows the matched trial, so both deliveries on that trial read
+    ``auto`` from this port's perspective; the sides are separate series.
     """
-    reward_times = np.array([0.15])
+    trial_outcome_df = _trial_outcome_df(np.array([1.1]), autos=[False], rewarded=[True])
     response_times = np.array([0.1])
-    trial_outcome_df = _trial_outcome_df(np.array([1.1]), autos=[None], rewarded=[False])
 
-    times, annotations = get_reward_deliveries(
-        reward_times, trial_outcome_df, np.array([]), response_times
+    # This port saw one opening on that trial; the trial gave free water.
+    annotations = get_reward_deliveries(
+        np.array([0.15]), trial_outcome_df, np.array([]), response_times
     )
+    np.testing.assert_array_equal(annotations, np.array(["auto"]))
 
-    assert times.size == 0
-    assert annotations.size == 0
+    # A trial with no free water at all yields ``earned`` on whichever port opened.
+    earned_only = _trial_outcome_df(np.array([1.1]), autos=[None], rewarded=[True])
+    annotations = get_reward_deliveries(np.array([0.15]), earned_only, np.array([]), response_times)
+    np.testing.assert_array_equal(annotations, np.array(["earned"]))
 
 
 def test_get_reward_deliveries_marks_manual_water_as_manual():
@@ -176,11 +175,10 @@ def test_get_reward_deliveries_marks_manual_water_as_manual():
     # Software event near the second delivery (0.42).
     manual_water_times = np.array([0.43])
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, manual_water_times, response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["earned", "manual", "earned"]))
 
 
@@ -191,41 +189,22 @@ def test_get_reward_deliveries_manual_takes_precedence_over_auto():
     trial_outcome_df = _trial_outcome_df(np.array([1.1, 1.4]), autos=[None, True])
     manual_water_times = np.array([0.42])
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, manual_water_times, response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
-    np.testing.assert_array_equal(annotations, np.array(["earned", "manual"]))
-
-
-def test_get_reward_deliveries_manual_water_survives_the_auto_drop():
-    """Manual water on an unrewarded auto trial is kept, not dropped."""
-    reward_times = np.array([0.15, 0.42])
-    response_times = np.array([0.1, 0.4])
-    trial_outcome_df = _trial_outcome_df(
-        np.array([1.1, 1.4]), autos=[None, True], rewarded=[True, False]
-    )
-    manual_water_times = np.array([0.42])
-
-    times, annotations = get_reward_deliveries(
-        reward_times, trial_outcome_df, manual_water_times, response_times
-    )
-
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["earned", "manual"]))
 
 
 def test_get_reward_deliveries_empty_deliveries_returns_empty():
-    """No reward deliveries yields empty timestamp and annotation arrays."""
+    """No reward deliveries yields an empty annotation array."""
     trial_outcome_df = _trial_outcome_df(np.array([0.0]))
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         np.array([]), trial_outcome_df, np.array([]), np.array([0.0])
     )
 
     assert isinstance(annotations, np.ndarray)
-    assert times.size == 0
     assert annotations.size == 0
 
 
@@ -239,11 +218,10 @@ def test_get_reward_deliveries_accepts_json_and_model_payloads():
         index=pd.Index([1.1, 1.4], name="time"),
     )
 
-    times, annotations = get_reward_deliveries(
+    annotations = get_reward_deliveries(
         reward_times, trial_outcome_df, np.array([]), response_times
     )
 
-    np.testing.assert_array_equal(times, reward_times)
     np.testing.assert_array_equal(annotations, np.array(["auto", "auto"]))
 
 
@@ -255,13 +233,14 @@ def test_get_reward_deliveries_rejects_misaligned_response_times():
         get_reward_deliveries(np.array([0.15]), trial_outcome_df, np.array([]), np.array([0.1]))
 
 
-def test_get_reward_deliveries_returns_ndarray():
-    """Both return values are :class:`numpy.ndarray`."""
-    trial_outcome_df = _trial_outcome_df(np.array([1.0]))
+def test_get_reward_deliveries_returns_one_annotation_per_delivery():
+    """The result is a :class:`numpy.ndarray` aligned with the input deliveries."""
+    trial_outcome_df = _trial_outcome_df(np.array([1.0, 1.5]))
+    reward_times = np.array([0.1, 0.2, 0.6])
 
-    times, annotations = get_reward_deliveries(
-        np.array([0.1]), trial_outcome_df, np.array([]), np.array([0.0])
+    annotations = get_reward_deliveries(
+        reward_times, trial_outcome_df, np.array([]), np.array([0.0, 0.5])
     )
 
-    assert isinstance(times, np.ndarray)
     assert isinstance(annotations, np.ndarray)
+    assert annotations.shape == reward_times.shape
