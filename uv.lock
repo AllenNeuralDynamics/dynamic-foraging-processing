@@ -847,7 +847,7 @@ wheels = [
 
 [[package]]
 name = "dynamic-foraging-processing"
-version = "0.3.6"
+version = "0.3.7"
 source = { editable = "." }
 dependencies = [
     { name = "aind-behavior-dynamic-foraging", extra = ["data"] },
