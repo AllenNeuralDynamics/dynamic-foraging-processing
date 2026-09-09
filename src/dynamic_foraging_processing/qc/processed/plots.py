@@ -333,7 +333,12 @@ def _add_behavior_plot(
     manual_right_times: t.Optional[np.ndarray],
     go_cue_times: t.Optional[np.ndarray],
 ) -> None:
-    """Draw the per-trial behavior raster (choices, rewards, water)."""
+    """Draw the per-trial behavior raster (choices, rewards, water).
+
+    Each water type gets its own row per side: manual water is not autowater, so
+    sharing a band with it (as an earlier version did) made the two
+    indistinguishable and left manual deliveries reading as mislabeled autowater.
+    """
     choices = np.asarray(animal_response)
     ax.vlines(np.where(choices == 1)[0], 0.8, 1, linewidth=1, color="gray", label="Choice")
     ax.vlines(np.where(choices == 0)[0], 0, 0.2, linewidth=1, color="gray")
@@ -345,24 +350,6 @@ def _add_behavior_plot(
     if rewarded_right is not None:
         right_rewards = np.where(np.asarray(rewarded_right))[0]
         ax.vlines(right_rewards, 1, 1.2, linewidth=1, color="black")
-
-    if manual_right_times is not None and go_cue_times is not None:
-        ax.vlines(
-            _time_to_trial_index(go_cue_times, manual_right_times),
-            1.2,
-            1.4,
-            linewidth=1,
-            color="blue",
-            label="Manual Water",
-        )
-    if manual_left_times is not None and go_cue_times is not None:
-        ax.vlines(
-            _time_to_trial_index(go_cue_times, manual_left_times),
-            -0.4,
-            -0.2,
-            linewidth=1,
-            color="blue",
-        )
 
     if autowater_right is not None:
         ax.vlines(
@@ -382,12 +369,39 @@ def _add_behavior_plot(
             color="cyan",
         )
 
-    ax.set_ylim([-0.4, 1.4])
+    # Manual water sits outside the autowater rows and is dashed, so it reads as
+    # distinct from the solid earned and auto ticks even where colour alone is
+    # hard to judge. It is labelled only when the session actually has
+    # deliveries, so the legend never claims manual water for a session that had
+    # none.
+    manual_label: t.Optional[str] = "Manual Water"
+    for times, bottom, top in (
+        (manual_right_times, 1.4, 1.6),
+        (manual_left_times, -0.6, -0.4),
+    ):
+        if times is None or go_cue_times is None:
+            continue
+        trial_indices = _time_to_trial_index(go_cue_times, times)
+        if not trial_indices:
+            continue
+        ax.vlines(
+            trial_indices,
+            bottom,
+            top,
+            linewidth=1,
+            color="blue",
+            linestyles="dashed",
+            label=manual_label,
+        )
+        manual_label = None
+
+    ax.set_ylim([-0.6, 1.6])
     ax.set_xlim([0, len(choices)])
     ax.set_xlabel("Trial #")
     ax.set_yticks(
-        [-0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3],
+        [-0.5, -0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3, 1.5],
         labels=[
+            "L Manual Water",
             "L Auto Water",
             "L Reward",
             "L Choice",
@@ -395,8 +409,10 @@ def _add_behavior_plot(
             "R Choice",
             "R Reward",
             "R Auto Water",
+            "R Manual Water",
         ],
     )
+    _legend_outside(ax)
 
 
 def _add_reward_probabilities(
