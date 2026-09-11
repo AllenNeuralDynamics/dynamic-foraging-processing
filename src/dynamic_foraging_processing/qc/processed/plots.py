@@ -27,6 +27,11 @@ from dynamic_foraging_processing.qc.processed.behavior import (
 #: this far below, so the pair reads as arrows straddling y=0.
 _MOVE_MARKER_OFFSET = 0.06
 
+#: Left edge of every trial-indexed x-axis. Padded below trial 0 so events on the
+#: first trial (e.g. manual water given at the start of a session) are drawn clear
+#: of the y-axis spine instead of being hidden behind it.
+_TRIAL_AXIS_LEFT = -1
+
 
 def plot_lick_intervals(
     left_lick_times: np.ndarray, right_lick_times: np.ndarray, results_folder: str
@@ -179,7 +184,7 @@ def _add_bias_plot(
     trials = np.arange(len(bias))
     ax.plot(trials, bias, "k", linewidth=2)
     if len(bias):
-        ax.set_xlim([0, len(bias)])
+        ax.set_xlim([_TRIAL_AXIS_LEFT, len(bias)])
 
     plotted = False
     if anti_bias_right_water is not None:
@@ -396,7 +401,7 @@ def _add_behavior_plot(
         manual_label = None
 
     ax.set_ylim([-0.6, 1.6])
-    ax.set_xlim([0, len(choices)])
+    ax.set_xlim([_TRIAL_AXIS_LEFT, len(choices)])
     ax.set_xlabel("Trial #")
     ax.set_yticks(
         [-0.5, -0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3, 1.5],
@@ -527,11 +532,11 @@ def plot_side_bias(
 
     # Align the x-axis across every panel so trials line up vertically. The
     # panels are all indexed by trial, but some auto-scale (adding margins) while
-    # others set [0, N]; pin them all to a common [0, n_trials].
+    # others set their own limits; pin them all to a common range.
     n_trials = max(len(np.asarray(side_bias)), len(np.asarray(animal_response)))
     if n_trials:
         for axis in ax:
-            axis.set_xlim([0, n_trials])
+            axis.set_xlim([_TRIAL_AXIS_LEFT, n_trials])
 
     fig.savefig(Path(results_folder) / SIDE_BIAS_PLOT, dpi=300, bbox_inches="tight")
     plt.close(fig)
