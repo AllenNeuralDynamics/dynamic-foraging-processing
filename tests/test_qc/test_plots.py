@@ -132,6 +132,50 @@ def test_add_lickspout_position_plot_splits_automatic_and_manual_moves():
     plt.close(fig)
 
 
+def test_add_behavior_plot_gives_manual_water_its_own_rows():
+    """Manual water sits on its own rows, outside the autowater bands."""
+    fig, ax = plt.subplots()
+    _plots._add_behavior_plot(
+        ax,
+        np.array([0, 1, 0, 1]),
+        rewarded_left=None,
+        rewarded_right=None,
+        autowater_left=np.array([1, 0, 0, 0]),
+        autowater_right=np.array([0, 0, 0, 1]),
+        manual_left_times=np.array([1.6]),
+        manual_right_times=np.array([2.6]),
+        go_cue_times=np.array([0.5, 1.5, 2.5, 3.5]),
+    )
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    # A single "Manual Water" entry covers both sides.
+    assert labels.count("Manual Water") == 1
+    assert "Auto Water" in labels
+    tick_labels = [text.get_text() for text in ax.get_yticklabels()]
+    assert "L Manual Water" in tick_labels and "R Manual Water" in tick_labels
+    # The manual rows are outside the autowater bands, so the two never overlap.
+    assert ax.get_ylim() == (-0.6, 1.6)
+    plt.close(fig)
+
+
+def test_add_behavior_plot_omits_manual_water_legend_when_absent():
+    """A session with no manual deliveries gets no manual-water legend entry."""
+    fig, ax = plt.subplots()
+    _plots._add_behavior_plot(
+        ax,
+        np.array([0, 1]),
+        rewarded_left=None,
+        rewarded_right=None,
+        autowater_left=None,
+        autowater_right=None,
+        manual_left_times=np.array([]),
+        manual_right_times=np.array([]),
+        go_cue_times=np.array([0.5, 1.5]),
+    )
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert "Manual Water" not in labels
+    plt.close(fig)
+
+
 def test_plot_side_bias_minimal_inputs(tmp_path):
     """With only choices supplied, the optional panels are skipped cleanly."""
     name = _plots.plot_side_bias(np.array([]), np.array([]), str(tmp_path))
