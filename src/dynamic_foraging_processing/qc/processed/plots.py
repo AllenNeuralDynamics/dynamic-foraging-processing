@@ -27,6 +27,11 @@ from dynamic_foraging_processing.qc.processed.behavior import (
 #: this far below, so the pair reads as arrows straddling y=0.
 _MOVE_MARKER_OFFSET = 0.06
 
+#: Left edge of every trial-indexed x-axis. Padded below trial 0 so events on the
+#: first trial (e.g. manual water given at the start of a session) are drawn clear
+#: of the y-axis spine instead of being hidden behind it.
+_TRIAL_AXIS_LEFT = -1
+
 
 def plot_lick_intervals(
     left_lick_times: np.ndarray, right_lick_times: np.ndarray, results_folder: str
@@ -179,7 +184,7 @@ def _add_bias_plot(
     trials = np.arange(len(bias))
     ax.plot(trials, bias, "k", linewidth=2)
     if len(bias):
-        ax.set_xlim([0, len(bias)])
+        ax.set_xlim([_TRIAL_AXIS_LEFT, len(bias)])
 
     plotted = False
     if anti_bias_right_water is not None:
@@ -333,7 +338,12 @@ def _add_behavior_plot(
     manual_right_times: t.Optional[np.ndarray],
     go_cue_times: t.Optional[np.ndarray],
 ) -> None:
-    """Draw the per-trial behavior raster (choices, rewards, water)."""
+    """Draw the per-trial behavior raster (choices, rewards, water).
+
+    Each water type gets its own row per side: manual water is not autowater, so
+    sharing a band with it (as an earlier version did) made the two
+    indistinguishable and left manual deliveries reading as mislabeled autowater.
+    """
     choices = np.asarray(animal_response)
     ax.vlines(np.where(choices == 1)[0], 0.8, 1, linewidth=1, color="gray", label="Choice")
     ax.vlines(np.where(choices == 0)[0], 0, 0.2, linewidth=1, color="gray")
@@ -345,24 +355,6 @@ def _add_behavior_plot(
     if rewarded_right is not None:
         right_rewards = np.where(np.asarray(rewarded_right))[0]
         ax.vlines(right_rewards, 1, 1.2, linewidth=1, color="black")
-
-    if manual_right_times is not None and go_cue_times is not None:
-        ax.vlines(
-            _time_to_trial_index(go_cue_times, manual_right_times),
-            1.2,
-            1.4,
-            linewidth=1,
-            color="blue",
-            label="Manual Water",
-        )
-    if manual_left_times is not None and go_cue_times is not None:
-        ax.vlines(
-            _time_to_trial_index(go_cue_times, manual_left_times),
-            -0.4,
-            -0.2,
-            linewidth=1,
-            color="blue",
-        )
 
     if autowater_right is not None:
         ax.vlines(
@@ -382,12 +374,39 @@ def _add_behavior_plot(
             color="cyan",
         )
 
-    ax.set_ylim([-0.4, 1.4])
-    ax.set_xlim([0, len(choices)])
+    # Manual water sits outside the autowater rows and is dashed, so it reads as
+    # distinct from the solid earned and auto ticks even where colour alone is
+    # hard to judge. It is labelled only when the session actually has
+    # deliveries, so the legend never claims manual water for a session that had
+    # none.
+    manual_label: t.Optional[str] = "Manual Water"
+    for times, bottom, top in (
+        (manual_right_times, 1.4, 1.6),
+        (manual_left_times, -0.6, -0.4),
+    ):
+        if times is None or go_cue_times is None:
+            continue
+        trial_indices = _time_to_trial_index(go_cue_times, times)
+        if not trial_indices:
+            continue
+        ax.vlines(
+            trial_indices,
+            bottom,
+            top,
+            linewidth=1,
+            color="blue",
+            linestyles="dashed",
+            label=manual_label,
+        )
+        manual_label = None
+
+    ax.set_ylim([-0.6, 1.6])
+    ax.set_xlim([_TRIAL_AXIS_LEFT, len(choices)])
     ax.set_xlabel("Trial #")
     ax.set_yticks(
-        [-0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3],
+        [-0.5, -0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3, 1.5],
         labels=[
+            "L Manual Water",
             "L Auto Water",
             "L Reward",
             "L Choice",
@@ -395,8 +414,10 @@ def _add_behavior_plot(
             "R Choice",
             "R Reward",
             "R Auto Water",
+            "R Manual Water",
         ],
     )
+    _legend_outside(ax)
 
 
 def _add_reward_probabilities(
@@ -511,11 +532,11 @@ def plot_side_bias(
 
     # Align the x-axis across every panel so trials line up vertically. The
     # panels are all indexed by trial, but some auto-scale (adding margins) while
-    # others set [0, N]; pin them all to a common [0, n_trials].
+    # others set their own limits; pin them all to a common range.
     n_trials = max(len(np.asarray(side_bias)), len(np.asarray(animal_response)))
     if n_trials:
         for axis in ax:
-            axis.set_xlim([0, n_trials])
+            axis.set_xlim([_TRIAL_AXIS_LEFT, n_trials])
 
     fig.savefig(Path(results_folder) / SIDE_BIAS_PLOT, dpi=300, bbox_inches="tight")
     plt.close(fig)
