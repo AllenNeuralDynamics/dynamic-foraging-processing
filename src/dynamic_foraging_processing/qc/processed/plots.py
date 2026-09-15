@@ -21,6 +21,13 @@ from dynamic_foraging_processing.qc.processed.behavior import (
     SIDE_BIAS_PLOT,
     lick_latency_by_side,
 )
+from dynamic_foraging_processing.utils.rewards import ManualWaterTimes
+
+#: Line styles separating the two kinds of experimenter water. Both rows are
+#: broken lines so neither is confused with the solid earned/auto ticks, and the
+#: two differ from each other so the rows stay distinguishable in grayscale.
+_MANUAL_STYLE = "dashed"
+_MANUAL_GO_CUE_STYLE = "dotted"
 
 #: Vertical offset (in side-bias units) of the anti-bias lickspout-move markers
 #: from the zero-bias line: rightward moves sit this far above it, leftward moves
@@ -334,8 +341,8 @@ def _add_behavior_plot(
     rewarded_right: t.Optional[np.ndarray],
     autowater_left: t.Optional[np.ndarray],
     autowater_right: t.Optional[np.ndarray],
-    manual_left_times: t.Optional[np.ndarray],
-    manual_right_times: t.Optional[np.ndarray],
+    manual_left: ManualWaterTimes,
+    manual_right: ManualWaterTimes,
     go_cue_times: t.Optional[np.ndarray],
 ) -> None:
     """Draw the per-trial behavior raster (choices, rewards, water).
@@ -343,6 +350,11 @@ def _add_behavior_plot(
     Each water type gets its own row per side: manual water is not autowater, so
     sharing a band with it (as an earlier version did) made the two
     indistinguishable and left manual deliveries reading as mislabeled autowater.
+
+    For the same reason the two kinds of experimenter water get separate rows.
+    Go-cue-aligned manual water fires at the go cue exactly as task-scheduled
+    autowater does, so plotting it on the manual row (or on the autowater row)
+    would hide which of the two gave the water.
     """
     choices = np.asarray(animal_response)
     ax.vlines(np.where(choices == 1)[0], 0.8, 1, linewidth=1, color="gray", label="Choice")
@@ -374,17 +386,24 @@ def _add_behavior_plot(
             color="cyan",
         )
 
-    # Manual water sits outside the autowater rows and is dashed, so it reads as
-    # distinct from the solid earned and auto ticks even where colour alone is
-    # hard to judge. It is labelled only when the session actually has
-    # deliveries, so the legend never claims manual water for a session that had
-    # none.
-    manual_label: t.Optional[str] = "Manual Water"
-    for times, bottom, top in (
-        (manual_right_times, 1.4, 1.6),
-        (manual_left_times, -0.6, -0.4),
+    # Experimenter water sits outside the autowater rows and is drawn with broken
+    # lines, so it reads as distinct from the solid earned and auto ticks even
+    # where colour alone is hard to judge. The two kinds are told apart by dash
+    # pattern as well as by row. Each kind is labelled only when the session
+    # actually has deliveries of it, so the legend never claims water the session
+    # never got; labels are popped so a kind appears at most once across the two
+    # sides.
+    remaining_labels = {
+        _MANUAL_STYLE: "Manual Water",
+        _MANUAL_GO_CUE_STYLE: "Manual Water (go cue aligned)",
+    }
+    for times, bottom, top, linestyle in (
+        (manual_right.go_cue_aligned, 1.6, 1.8, _MANUAL_GO_CUE_STYLE),
+        (manual_right.unaligned, 1.4, 1.6, _MANUAL_STYLE),
+        (manual_left.unaligned, -0.6, -0.4, _MANUAL_STYLE),
+        (manual_left.go_cue_aligned, -0.8, -0.6, _MANUAL_GO_CUE_STYLE),
     ):
-        if times is None or go_cue_times is None:
+        if go_cue_times is None:
             continue
         trial_indices = _time_to_trial_index(go_cue_times, times)
         if not trial_indices:
@@ -395,17 +414,17 @@ def _add_behavior_plot(
             top,
             linewidth=1,
             color="blue",
-            linestyles="dashed",
-            label=manual_label,
+            linestyles=linestyle,
+            label=remaining_labels.pop(linestyle, None),
         )
-        manual_label = None
 
-    ax.set_ylim([-0.6, 1.6])
+    ax.set_ylim([-0.8, 1.8])
     ax.set_xlim([_TRIAL_AXIS_LEFT, len(choices)])
     ax.set_xlabel("Trial #")
     ax.set_yticks(
-        [-0.5, -0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3, 1.5],
+        [-0.7, -0.5, -0.3, -0.1, 0.1, 0.5, 0.9, 1.1, 1.3, 1.5, 1.7],
         labels=[
+            "L Manual Water (go cue)",
             "L Manual Water",
             "L Auto Water",
             "L Reward",
@@ -415,6 +434,7 @@ def _add_behavior_plot(
             "R Reward",
             "R Auto Water",
             "R Manual Water",
+            "R Manual Water (go cue)",
         ],
     )
     _legend_outside(ax)
@@ -451,8 +471,8 @@ def plot_side_bias(
     go_cue_times: t.Optional[np.ndarray] = None,
     autowater_left: t.Optional[np.ndarray] = None,
     autowater_right: t.Optional[np.ndarray] = None,
-    manual_left_times: t.Optional[np.ndarray] = None,
-    manual_right_times: t.Optional[np.ndarray] = None,
+    manual_left: ManualWaterTimes = ManualWaterTimes(),
+    manual_right: ManualWaterTimes = ManualWaterTimes(),
     anti_bias_left_water: t.Optional[np.ndarray] = None,
     anti_bias_right_water: t.Optional[np.ndarray] = None,
     anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
@@ -477,11 +497,12 @@ def plot_side_bias(
     reward_probability_left, reward_probability_right : numpy.ndarray, optional
         Per-trial reward probabilities.
     go_cue_times : numpy.ndarray, optional
-        Go-cue timestamps (s), used to map manual-water times to trials.
+        Go-cue timestamps (s), used to map experimenter-water times to trials.
     autowater_left, autowater_right : numpy.ndarray, optional
         Per-trial autowater indicator arrays.
-    manual_left_times, manual_right_times : numpy.ndarray, optional
-        Manual-water delivery timestamps (s).
+    manual_left, manual_right : ManualWaterTimes, optional
+        Left/right experimenter-water delivery timestamps (s), split into
+        ``unaligned`` and ``go_cue_aligned``; each gets its own raster row.
     anti_bias_left_water, anti_bias_right_water : numpy.ndarray, optional
         Boolean per-trial arrays flagging anti-bias water interventions on each
         side; overlaid on the side-bias trace.
@@ -524,8 +545,8 @@ def plot_side_bias(
         rewarded_right,
         autowater_left,
         autowater_right,
-        manual_left_times,
-        manual_right_times,
+        manual_left,
+        manual_right,
         go_cue_times,
     )
     _add_reward_probabilities(ax[3], reward_probability_left, reward_probability_right)
