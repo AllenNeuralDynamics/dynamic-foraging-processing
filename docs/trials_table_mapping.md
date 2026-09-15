@@ -39,7 +39,7 @@ Each reward-delivery timestamp carries a label in the series' `data` field:
 | `earned` | Water the animal worked for: the matched trial has no free water (`is_auto_reward_right` is `None`). |
 | `auto` | Free water: the matched trial has `is_auto_reward_right` set. Scheduled autowater and the anti-bias intervention share that channel and are **not** split here — `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` record the mechanism per trial. |
 | `manual_go_cue_aligned` | The delivery is the closest valve opening to a `LeftManualAutoReward` / `RightManualAutoReward` software event for this port: water the *experimenter* triggered to land on the go cue. It fires at the go cue like autowater, but the task did not schedule it, so it is neither `auto` nor `earned`. Takes precedence over both trial-derived labels. |
-| `manual` | The delivery is the closest valve opening to a `LeftManualWater` / `RightManualWater` software event for this port: experimenter water given at an arbitrary moment, tied to no go cue. Highest precedence of all four. |
+| `manual` | The delivery is the closest valve opening to a `LeftManualWater` / `RightManualWater` software event for this port: experimenter water given at an arbitrary moment, not tied to a go cue. Highest precedence of all four. |
 
 The side of an experimenter-water event comes from the **stream name**, not from
 an event payload. Each of the four streams exists only when the experimenter gave
