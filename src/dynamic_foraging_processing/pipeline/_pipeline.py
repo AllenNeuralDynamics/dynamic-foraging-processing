@@ -90,7 +90,6 @@ _LEFT_REWARD_SERIES = "left_reward_delivery_time"
 _RIGHT_REWARD_SERIES = "right_reward_delivery_time"
 
 
-
 class Pipeline:
     """Package a raw dynamic foraging acquisition to NWB and run QC.
 
@@ -385,15 +384,11 @@ class Pipeline:
         )
 
     @staticmethod
-    def _side_manual_water_times(
-        nwb_file: pynwb.NWBFile, series_name: str
-    ) -> ManualWaterTimes:
+    def _side_manual_water_times(nwb_file: pynwb.NWBFile, series_name: str) -> ManualWaterTimes:
         """Split one reward-delivery series' experimenter-water times by alignment."""
         return ManualWaterTimes(
             unaligned=Pipeline._annotated_times(nwb_file, series_name, MANUAL),
-            go_cue_aligned=Pipeline._annotated_times(
-                nwb_file, series_name, MANUAL_GO_CUE_ALIGNED
-            ),
+            go_cue_aligned=Pipeline._annotated_times(nwb_file, series_name, MANUAL_GO_CUE_ALIGNED),
         )
 
     @staticmethod
