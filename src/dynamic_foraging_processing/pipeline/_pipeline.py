@@ -48,6 +48,11 @@ from dynamic_foraging_processing.nwb.acquisition.acquisition_builder import Lick
 from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
 from dynamic_foraging_processing.qc import ProcessedQC, RawQC, build_quality_control
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
+from dynamic_foraging_processing.utils.rewards import (
+    MANUAL,
+    MANUAL_GO_CUE_ALIGNED,
+    ManualWaterTimes,
+)
 
 #: Default lick-port sources on the standard behavior board.
 _DEFAULT_LEFT_LICK = LickSource("HarpBehavior", "DigitalInputState", "DIPort0")
@@ -83,9 +88,6 @@ _LEFT_LICK_SERIES = "left_lick_time"
 _RIGHT_LICK_SERIES = "right_lick_time"
 _LEFT_REWARD_SERIES = "left_reward_delivery_time"
 _RIGHT_REWARD_SERIES = "right_reward_delivery_time"
-
-#: Reward-delivery annotation marking a manual-water event.
-_MANUAL_ANNOTATION = "manual"
 
 
 class Pipeline:
@@ -345,7 +347,7 @@ class Pipeline:
     # ------------------------------------------------------------------ #
     def _read_processed_inputs(
         self, nwb_file: pynwb.NWBFile
-    ) -> t.Tuple[pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> t.Tuple[pd.DataFrame, np.ndarray, np.ndarray, ManualWaterTimes, ManualWaterTimes]:
         """Read the processed-QC inputs from an NWB file.
 
         Parameters
@@ -356,25 +358,38 @@ class Pipeline:
         Returns
         -------
         tuple
-            ``(trials, left_lick_times, right_lick_times, manual_left_times,
-            manual_right_times)``.
+            ``(trials, left_lick_times, right_lick_times, manual_left,
+            manual_right)``, where the last two are :class:`ManualWaterTimes`.
         """
         trials = nwb_file.trials.to_dataframe()
         left_lick_times = np.asarray(nwb_file.acquisition[_LEFT_LICK_SERIES].timestamps)
         right_lick_times = np.asarray(nwb_file.acquisition[_RIGHT_LICK_SERIES].timestamps)
-        manual_left_times, manual_right_times = self._manual_water_times(nwb_file)
-        return trials, left_lick_times, right_lick_times, manual_left_times, manual_right_times
+        manual_left, manual_right = self._manual_water_times(nwb_file)
+        return trials, left_lick_times, right_lick_times, manual_left, manual_right
 
     @staticmethod
-    def _manual_water_times(nwb_file: pynwb.NWBFile) -> t.Tuple[np.ndarray, np.ndarray]:
-        """Return the ``(left, right)`` manual-water delivery times from the NWB.
+    def _manual_water_times(
+        nwb_file: pynwb.NWBFile,
+    ) -> t.Tuple[ManualWaterTimes, ManualWaterTimes]:
+        """Return the ``(left, right)`` experimenter-water times from the NWB.
 
-        Manual-water deliveries are the reward-delivery events annotated
-        ``"manual"`` on each side's ``*_reward_delivery_time`` acquisition series.
+        Each side's times are the reward-delivery events annotated ``"manual"``
+        (not aligned to a go cue) and ``"manual_go_cue_aligned"`` on that side's
+        ``*_reward_delivery_time`` acquisition series. The two are read back
+        separately so the QC figure can keep them on their own rows.
         """
-        left = Pipeline._annotated_times(nwb_file, _LEFT_REWARD_SERIES, _MANUAL_ANNOTATION)
-        right = Pipeline._annotated_times(nwb_file, _RIGHT_REWARD_SERIES, _MANUAL_ANNOTATION)
-        return left, right
+        return (
+            Pipeline._side_manual_water_times(nwb_file, _LEFT_REWARD_SERIES),
+            Pipeline._side_manual_water_times(nwb_file, _RIGHT_REWARD_SERIES),
+        )
+
+    @staticmethod
+    def _side_manual_water_times(nwb_file: pynwb.NWBFile, series_name: str) -> ManualWaterTimes:
+        """Split one reward-delivery series' experimenter-water times by alignment."""
+        return ManualWaterTimes(
+            unaligned=Pipeline._annotated_times(nwb_file, series_name, MANUAL),
+            go_cue_aligned=Pipeline._annotated_times(nwb_file, series_name, MANUAL_GO_CUE_ALIGNED),
+        )
 
     @staticmethod
     def _annotated_times(nwb_file: pynwb.NWBFile, series_name: str, annotation: str) -> np.ndarray:
@@ -389,8 +404,8 @@ class Pipeline:
         trials: pd.DataFrame,
         left_lick_times: np.ndarray,
         right_lick_times: np.ndarray,
-        manual_left_times: np.ndarray,
-        manual_right_times: np.ndarray,
+        manual_left: ManualWaterTimes,
+        manual_right: ManualWaterTimes,
         results_folder: t.Optional[str] = None,
     ) -> QualityControl:
         """Run the raw and processed QC stages and assemble one ``QualityControl``.
@@ -401,9 +416,9 @@ class Pipeline:
             The trials table, consumed by the processed (behavior) QC stage.
         left_lick_times, right_lick_times : numpy.ndarray
             Left/right-port lick times for the processed QC stage.
-        manual_left_times, manual_right_times : numpy.ndarray
-            Left/right manual-water delivery times passed through to the side-bias
-            figure.
+        manual_left, manual_right : ManualWaterTimes
+            Left/right experimenter-water delivery times, split into unaligned
+            and go-cue-aligned, passed through to the side-bias figure.
         results_folder : str, optional
             Directory to write figure assets into so the metric references
             resolve. If ``None``, assets are skipped.
@@ -420,8 +435,8 @@ class Pipeline:
             left_lick_times,
             right_lick_times,
             results_folder,
-            manual_left_times=manual_left_times,
-            manual_right_times=manual_right_times,
+            manual_left=manual_left,
+            manual_right=manual_right,
         )
         return build_quality_control([*raw_metrics, *processed_metrics])
 
@@ -486,7 +501,7 @@ class Pipeline:
             ``output_path`` is given, the QC JSON and figure assets are written to
             disk as a side effect.
         """
-        trials, left_lick_times, right_lick_times, manual_left_times, manual_right_times = (
+        trials, left_lick_times, right_lick_times, manual_left, manual_right = (
             self._read_processed_inputs(nwb_file)
         )
 
@@ -500,8 +515,8 @@ class Pipeline:
             trials,
             left_lick_times,
             right_lick_times,
-            manual_left_times,
-            manual_right_times,
+            manual_left,
+            manual_right,
             results_folder,
         )
         if output_path is not None:

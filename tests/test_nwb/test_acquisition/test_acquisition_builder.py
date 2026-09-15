@@ -95,9 +95,12 @@ def _make_response_frame() -> pd.DataFrame:
     )
 
 
-def _empty_manual_water_frame() -> pd.DataFrame:
-    """Build an empty manual-water stream with the ``data`` side column."""
-    return pd.DataFrame({"data": []}, index=pd.Index([], name="time"))
+def _manual_water_frame(*times: float) -> pd.DataFrame:
+    """Build a manual-water software-event stream firing at ``times``.
+
+    Only the index is read, so the payload is a placeholder.
+    """
+    return pd.DataFrame({"data": [True] * len(times)}, index=pd.Index(list(times), name="time"))
 
 
 def _make_digital_input_frame() -> pd.DataFrame:
@@ -116,10 +119,14 @@ def _make_digital_input_frame() -> pd.DataFrame:
     )
 
 
-def _make_dataset(manual_water=None):
-    """Build a path-aware fake dataset rooted at ``Behavior``."""
-    if manual_water is None:
-        manual_water = _empty_manual_water_frame()
+def _make_dataset(**manual_water_streams):
+    """Build a path-aware fake dataset rooted at ``Behavior``.
+
+    Manual-water streams are optional per session, so only the ones named in
+    ``manual_water_streams`` (e.g. ``RightManualWater=_manual_water_frame(0.49)``)
+    are present; the rest are absent, as they are for a session where the
+    experimenter gave no water of that kind.
+    """
     return _FakeNode(
         {
             "Behavior": _FakeNode(
@@ -134,7 +141,10 @@ def _make_dataset(manual_water=None):
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
                             "Response": _FakeStream(_make_response_frame()),
-                            "GiveManualWaterRight": _FakeStream(manual_water),
+                            **{
+                                name: _FakeStream(frame)
+                                for name, frame in manual_water_streams.items()
+                            },
                         }
                     ),
                 }
@@ -171,39 +181,37 @@ def test_get_valve_writes_filters_to_write_messages():
     assert list(result.index) == [0.1, 0.3, 0.5]
 
 
-def test_get_manual_water_times_returns_stream():
-    """``get_manual_water_times`` returns the GiveManualWaterRight stream."""
-    manual = pd.DataFrame({"data": [True]}, index=pd.Index([0.49], name="time"))
-    builder = AcquisitionBuilder(loader=_make_loader(_make_dataset(manual)))
-
-    result = builder.get_manual_water_times()
-
-    pd.testing.assert_frame_equal(result, manual)
-
-
-def test_get_manual_water_times_returns_empty_when_absent():
-    """A missing manual-water stream yields an empty frame with a ``data`` column."""
-    dataset = _FakeNode(
-        {
-            "Behavior": _FakeNode(
-                {
-                    "HarpBehavior": _FakeNode({"OutputSet": _FakeStream(_make_output_set_frame())}),
-                    "SoftwareEvents": _FakeNode(
-                        {
-                            "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
-                            "Response": _FakeStream(_make_response_frame()),
-                        }
-                    ),
-                }
-            )
-        }
+def test_get_manual_water_times_selects_streams_by_side():
+    """The side comes from the stream name, not from an event payload."""
+    dataset = _make_dataset(
+        LeftManualWater=_manual_water_frame(0.11),
+        LeftManualAutoReward=_manual_water_frame(0.12),
+        RightManualWater=_manual_water_frame(0.49),
+        RightManualAutoReward=_manual_water_frame(0.31, 0.32),
     )
     builder = AcquisitionBuilder(loader=_make_loader(dataset))
 
-    result = builder.get_manual_water_times()
+    left = builder.get_manual_water_times(is_right=False)
+    right = builder.get_manual_water_times(is_right=True)
 
-    assert list(result.columns) == ["data"]
-    assert result.empty
+    np.testing.assert_array_equal(left.unaligned, np.array([0.11]))
+    np.testing.assert_array_equal(left.go_cue_aligned, np.array([0.12]))
+    np.testing.assert_array_equal(right.unaligned, np.array([0.49]))
+    np.testing.assert_array_equal(right.go_cue_aligned, np.array([0.31, 0.32]))
+
+
+def test_get_manual_water_times_returns_empty_when_absent():
+    """Missing manual-water streams yield empty arrays, not an error.
+
+    Each stream only exists when the experimenter gave water of that kind, so a
+    session with no manual water at all has none of the four files.
+    """
+    builder = AcquisitionBuilder(loader=_make_loader(_make_dataset()))
+
+    for is_right in (False, True):
+        times = builder.get_manual_water_times(is_right=is_right)
+        assert times.unaligned.size == 0
+        assert times.go_cue_aligned.size == 0
 
 
 def test_get_lick_times_selects_di_port_by_side():
@@ -240,7 +248,6 @@ def test_get_lick_times_returns_empty_when_absent():
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
                             "Response": _FakeStream(_make_response_frame()),
-                            "GiveManualWaterRight": _FakeStream(_empty_manual_water_frame()),
                         }
                     ),
                 }
@@ -257,9 +264,10 @@ def test_get_lick_times_returns_empty_when_absent():
 
 def test_build_acquisition_returns_populated_list():
     """``build_acquisition`` returns the table plus reward and lick port series."""
-    # A right-side manual-water event (data=True) near the second right delivery.
-    manual = pd.DataFrame({"data": [True]}, index=pd.Index([0.49], name="time"))
-    builder = AcquisitionBuilder(loader=_make_loader(_make_dataset(manual)))
+    # A right-side manual-water event near the second right delivery.
+    builder = AcquisitionBuilder(
+        loader=_make_loader(_make_dataset(RightManualWater=_manual_water_frame(0.49)))
+    )
 
     acquisition = builder.build_acquisition()
 
@@ -297,6 +305,27 @@ def test_build_acquisition_returns_populated_list():
     np.testing.assert_array_equal(right_lick.timestamps, np.array([2.0, 2.5]))
     np.testing.assert_array_equal(right_lick.data, np.array([True, True]))
     assert "DIPort1" in right_lick.description
+
+
+def test_build_acquisition_annotates_manual_auto_reward_separately():
+    """Manual go-cue-aligned water is its own label, on its own side.
+
+    The left stream must not reach the right series: the side is carried by the
+    stream name now, so a left event near a right delivery is not that delivery's.
+    """
+    builder = AcquisitionBuilder(
+        loader=_make_loader(
+            _make_dataset(
+                RightManualAutoReward=_manual_water_frame(0.49),
+                LeftManualWater=_manual_water_frame(0.1),
+            )
+        )
+    )
+
+    _, left_reward, right_reward, _, _ = builder.build_acquisition()
+
+    np.testing.assert_array_equal(left_reward.data, np.array(["manual"]))
+    np.testing.assert_array_equal(right_reward.data, np.array(["auto", "manual_go_cue_aligned"]))
 
 
 def test_build_acquisition_defaults_none_description_to_empty_string():

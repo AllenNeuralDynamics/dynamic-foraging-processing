@@ -14,6 +14,7 @@ from aind_data_schema.core.quality_control import QCMetric
 from dynamic_foraging_processing.qc._core.base import BaseQC
 from dynamic_foraging_processing.qc._core.result import to_metrics
 from dynamic_foraging_processing.qc.processed.results import behavior_qc_results
+from dynamic_foraging_processing.utils.rewards import ManualWaterTimes
 
 
 class ProcessedQC(BaseQC):
@@ -26,8 +27,8 @@ class ProcessedQC(BaseQC):
         right_lick_times: np.ndarray,
         results_folder: t.Optional[str] = None,
         *,
-        manual_left_times: t.Optional[np.ndarray] = None,
-        manual_right_times: t.Optional[np.ndarray] = None,
+        manual_left: ManualWaterTimes = ManualWaterTimes(),
+        manual_right: ManualWaterTimes = ManualWaterTimes(),
     ) -> t.List[QCMetric]:
         """Compute the behavior QC checks and return them as metrics.
 
@@ -45,8 +46,9 @@ class ProcessedQC(BaseQC):
             Timestamps (s) of left/right-port licks.
         results_folder : str, optional
             Directory to write the plots into. If ``None``, plots are skipped.
-        manual_left_times, manual_right_times : numpy.ndarray, optional
-            Manual-water delivery timestamps passed through to the side-bias figure.
+        manual_left, manual_right : ManualWaterTimes, optional
+            Left/right experimenter-water delivery timestamps, split into
+            unaligned and go-cue-aligned, passed through to the side-bias figure.
 
         Returns
         -------
@@ -59,7 +61,7 @@ class ProcessedQC(BaseQC):
             left_lick_times,
             right_lick_times,
             results_folder,
-            manual_left_times=manual_left_times,
-            manual_right_times=manual_right_times,
+            manual_left=manual_left,
+            manual_right=manual_right,
         )
         return to_metrics(results)

@@ -11,7 +11,7 @@ from dynamic_foraging_processing.nwb.acquisition.models import (
 )
 from dynamic_foraging_processing.nwb.utils import clean_for_nwb
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
-from dynamic_foraging_processing.utils.rewards import get_reward_deliveries
+from dynamic_foraging_processing.utils.rewards import ManualWaterTimes, get_reward_deliveries
 
 
 class LickSource(t.NamedTuple):
@@ -96,28 +96,54 @@ class AcquisitionBuilder:
         )
         return responses.index.to_numpy()
 
-    def get_manual_water_times(self) -> pd.DataFrame:
-        """Get the manual-water software-event stream.
+    def _software_event_times(self, stream_name: str) -> np.ndarray:
+        """Get one ``Behavior/SoftwareEvents`` stream's event timestamps.
+
+        Parameters
+        ----------
+        stream_name : str
+            The software-event stream to read (e.g. ``"LeftManualWater"``).
 
         Returns
         -------
-        pandas.DataFrame
-            The ``GiveManualWaterRight`` stream under ``Behavior/SoftwareEvents``,
-            indexed by event timestamp with a ``data`` column that is ``True``
-            for right-port manual water and ``False`` for left-port manual water.
-            An empty frame (with a ``data`` column) is returned when the stream
-            is absent.
+        numpy.ndarray
+            The stream's event timestamps, or an empty array when the stream is
+            absent. Only the timestamps are used; these events carry no payload
+            this pipeline reads.
         """
         try:
-            return (
-                self.loader.dataset.at("Behavior")
-                .at("SoftwareEvents")
-                .at("GiveManualWaterRight")
-                .load()
-                .data
+            data = (
+                self.loader.dataset.at("Behavior").at("SoftwareEvents").at(stream_name).load().data
             )
         except (KeyError, FileNotFoundError):
-            return pd.DataFrame({"data": []})
+            return np.array([])
+        return data.index.to_numpy()
+
+    def get_manual_water_times(self, *, is_right: bool) -> ManualWaterTimes:
+        """Get one lick port's experimenter-triggered water times.
+
+        The acquisition software emits four side-specific streams:
+        ``{Left,Right}ManualWater`` for water given at an arbitrary moment and
+        ``{Left,Right}ManualAutoReward`` for water triggered to land on the go
+        cue. The side comes from the stream name, so no payload inspection is
+        needed. Each stream is optional -- a session where the experimenter gave
+        no water of that kind has no file -- and reads as an empty array.
+
+        Parameters
+        ----------
+        is_right : bool
+            ``True`` for the right lick port, ``False`` for the left.
+
+        Returns
+        -------
+        ManualWaterTimes
+            This port's ``unaligned`` and ``go_cue_aligned`` event timestamps.
+        """
+        side = "Right" if is_right else "Left"
+        return ManualWaterTimes(
+            unaligned=self._software_event_times(f"{side}ManualWater"),
+            go_cue_aligned=self._software_event_times(f"{side}ManualAutoReward"),
+        )
 
     def get_lick_times(self, device: str, stream_name: str, port: str) -> np.ndarray:
         """Get the lick times for one lick port from a Harp digital-input stream.
@@ -191,20 +217,20 @@ class AcquisitionBuilder:
         self,
         writes: pd.DataFrame,
         trial_outcomes: pd.DataFrame,
-        manual_water: pd.DataFrame,
+        manual_water: ManualWaterTimes,
         response_times: np.ndarray,
         *,
         port_column: str,
-        is_right: bool,
         name: str,
         side_label: str,
     ) -> AcquisitionSeries:
         """Build one lick port's reward-delivery series with reward annotations.
 
         Only valve-open events (``port_column`` is truthy) are reward
-        deliveries; the ``data`` field annotates each as earned, manual, or auto
-        via :func:`get_reward_deliveries`. Every valve opening is reported, so
-        the series is a complete record of the water delivered at this port.
+        deliveries; the ``data`` field annotates each as earned, auto, manual, or
+        manual-go-cue-aligned via :func:`get_reward_deliveries`. Every valve
+        opening is reported, so the series is a complete record of the water
+        delivered at this port.
 
         Parameters
         ----------
@@ -212,17 +238,15 @@ class AcquisitionBuilder:
             ``OutputSet`` ``WRITE`` messages indexed by timestamp.
         trial_outcomes : pandas.DataFrame
             The ``TrialOutcome`` stream, indexed by trial timestamp.
-        manual_water : pandas.DataFrame
-            The ``GiveManualWaterRight`` stream; the ``data`` column selects the
-            side (``True`` right, ``False`` left).
+        manual_water : ManualWaterTimes
+            This port's experimenter-triggered water times, already side-specific
+            (see :meth:`get_manual_water_times`).
         response_times : numpy.ndarray
             ``Response`` event timestamps, one per trial, used to match each
             delivery to its trial.
         port_column : str
             Supply-port column for this side (``"SupplyPort0"`` left,
             ``"SupplyPort1"`` right).
-        is_right : bool
-            ``True`` for the right lick port, ``False`` for the left.
         name : str
             Acquisition series name.
         side_label : str
@@ -235,11 +259,10 @@ class AcquisitionBuilder:
         """
         open_writes = writes[writes[port_column].fillna(False).astype(bool)]
         delivery_times = open_writes.index.to_numpy()
-        manual_water_times = manual_water.index[manual_water["data"] == is_right].to_numpy()
         annotations = get_reward_deliveries(
             delivery_times,
             trial_outcomes,
-            manual_water_times,
+            manual_water,
             response_times,
         )
         return AcquisitionSeries(
@@ -249,7 +272,9 @@ class AcquisitionBuilder:
             unit="second",
             description=(
                 f"The reward delivery time of the {side_label} lick port. The data field "
-                "annotates whether the reward was earned, manual, or auto"
+                "annotates whether the reward was earned, auto (task-triggered free water), "
+                "manual (experimenter water not aligned to a go cue), or "
+                "manual_go_cue_aligned (experimenter water delivered at the go cue)"
             ),
         )
 
@@ -276,7 +301,8 @@ class AcquisitionBuilder:
         """
         rewards = self.get_valve_writes()
         trial_outcomes = self.get_trial_outcomes()
-        manual_water = self.get_manual_water_times()
+        left_manual_water = self.get_manual_water_times(is_right=False)
+        right_manual_water = self.get_manual_water_times(is_right=True)
         response_times = self.get_response_times()
 
         acquisition_streams = self.loader.get_all_raw_data()
@@ -300,10 +326,9 @@ class AcquisitionBuilder:
             self._reward_delivery_series(
                 rewards,
                 trial_outcomes,
-                manual_water,
+                left_manual_water,
                 response_times,
                 port_column="SupplyPort0",
-                is_right=False,
                 name="left_reward_delivery_time",
                 side_label="left",
             )
@@ -312,10 +337,9 @@ class AcquisitionBuilder:
             self._reward_delivery_series(
                 rewards,
                 trial_outcomes,
-                manual_water,
+                right_manual_water,
                 response_times,
                 port_column="SupplyPort1",
-                is_right=True,
                 name="right_reward_delivery_time",
                 side_label="right",
             )
