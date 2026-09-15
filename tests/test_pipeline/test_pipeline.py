@@ -16,6 +16,7 @@ from dynamic_foraging_processing.nwb.acquisition.models import (
 from dynamic_foraging_processing.pipeline import _pipeline
 from dynamic_foraging_processing.pipeline._pipeline import Pipeline
 from dynamic_foraging_processing.processing.models import TrialConfig
+from dynamic_foraging_processing.utils.rewards import ManualWaterTimes
 
 
 def _make_loader() -> MagicMock:
@@ -196,16 +197,14 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
     class _FakeProcessedQC:
         """Processed QC stub returning one sentinel metric."""
 
-        def run(
-            self, trials, left, right, results_folder, *, manual_left_times, manual_right_times
-        ):
+        def run(self, trials, left, right, results_folder, *, manual_left, manual_right):
             """Record args and return processed metrics."""
             captured["processed"] = {
                 "left": left,
                 "right": right,
                 "results_folder": results_folder,
-                "manual_left": manual_left_times,
-                "manual_right": manual_right_times,
+                "manual_left": manual_left,
+                "manual_right": manual_right,
             }
             return ["proc1"]
 
@@ -220,8 +219,8 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
         trials,
         np.array([1.0]),
         np.array([2.0]),
-        np.array([0.1]),
-        np.array([0.2]),
+        ManualWaterTimes(unaligned=np.array([0.1])),
+        ManualWaterTimes(go_cue_aligned=np.array([0.2])),
         "out",
     )
 
@@ -229,8 +228,10 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
     assert captured["raw"] == (pipeline.loader.dataset, "out")
     np.testing.assert_array_equal(captured["processed"]["left"], np.array([1.0]))
     np.testing.assert_array_equal(captured["processed"]["right"], np.array([2.0]))
-    np.testing.assert_array_equal(captured["processed"]["manual_left"], np.array([0.1]))
-    np.testing.assert_array_equal(captured["processed"]["manual_right"], np.array([0.2]))
+    np.testing.assert_array_equal(captured["processed"]["manual_left"].unaligned, np.array([0.1]))
+    np.testing.assert_array_equal(
+        captured["processed"]["manual_right"].go_cue_aligned, np.array([0.2])
+    )
 
 
 def test_add_acquisition_series_builds_time_series():
@@ -342,20 +343,23 @@ def test_add_trials_skips_when_time_columns_missing():
     nwb_file.add_trial.assert_not_called()
 
 
-def test_manual_water_times_reads_manual_annotations():
-    """Manual-water times are the reward events annotated ``"manual"`` per side."""
+def test_manual_water_times_splits_annotations_by_alignment():
+    """Each side's experimenter water is read back split by go-cue alignment."""
     nwb_file = MagicMock()
     nwb_file.acquisition = {
         "left_reward_delivery_time": _FakeSeries(
-            np.array(["manual", "earned", "manual"]), np.array([0.1, 0.2, 0.3])
+            np.array(["manual", "earned", "manual", "manual_go_cue_aligned"]),
+            np.array([0.1, 0.2, 0.3, 0.4]),
         ),
         "right_reward_delivery_time": _FakeSeries(np.array(["auto"]), np.array([0.5])),
     }
 
     left, right = Pipeline._manual_water_times(nwb_file)
 
-    np.testing.assert_array_equal(left, np.array([0.1, 0.3]))
-    assert right.size == 0
+    np.testing.assert_array_equal(left.unaligned, np.array([0.1, 0.3]))
+    np.testing.assert_array_equal(left.go_cue_aligned, np.array([0.4]))
+    assert right.unaligned.size == 0
+    assert right.go_cue_aligned.size == 0
 
 
 def test_read_processed_inputs_reads_from_nwb():
@@ -369,7 +373,9 @@ def test_read_processed_inputs_reads_from_nwb():
         "left_reward_delivery_time": _FakeSeries(
             np.array(["manual", "earned"]), np.array([0.1, 0.2])
         ),
-        "right_reward_delivery_time": _FakeSeries(np.array(["manual"]), np.array([0.3])),
+        "right_reward_delivery_time": _FakeSeries(
+            np.array(["manual_go_cue_aligned"]), np.array([0.3])
+        ),
     }
 
     pipeline = _make_pipeline()
@@ -379,8 +385,8 @@ def test_read_processed_inputs_reads_from_nwb():
     assert got_trials is trials
     np.testing.assert_array_equal(left, np.array([1.0]))
     np.testing.assert_array_equal(right, np.array([2.0, 2.5]))
-    np.testing.assert_array_equal(manual_left, np.array([0.1]))
-    np.testing.assert_array_equal(manual_right, np.array([0.3]))
+    np.testing.assert_array_equal(manual_left.unaligned, np.array([0.1]))
+    np.testing.assert_array_equal(manual_right.go_cue_aligned, np.array([0.3]))
 
 
 def test_run_nwb_writes_nwb_and_processing(tmp_path, monkeypatch):

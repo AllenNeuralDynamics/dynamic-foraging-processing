@@ -25,6 +25,7 @@ from dynamic_foraging_processing.qc.processed.plots import (
     plot_lick_latency,
     plot_side_bias,
 )
+from dynamic_foraging_processing.utils.rewards import ManualWaterTimes
 
 # Logical input -> trials-table column name. Centralized so the mapping is easy
 # to correct against the trial-table builder. The lickspout columns are the
@@ -67,8 +68,8 @@ def behavior_qc_results(
     right_lick_times: np.ndarray,
     results_folder: t.Optional[str] = None,
     *,
-    manual_left_times: t.Optional[np.ndarray] = None,
-    manual_right_times: t.Optional[np.ndarray] = None,
+    manual_left: ManualWaterTimes = ManualWaterTimes(),
+    manual_right: ManualWaterTimes = ManualWaterTimes(),
 ) -> t.List[QCResult]:
     """Build the behavior QC results (side bias + lick intervals).
 
@@ -90,9 +91,10 @@ def behavior_qc_results(
         per-trial, so they are passed explicitly rather than read from ``trials``.
     results_folder : str, optional
         Directory to write the plots into. If ``None``, plots are skipped.
-    manual_left_times, manual_right_times : numpy.ndarray, optional
-        Manual-water delivery timestamps (s); event-time arrays passed through
-        to the side-bias figure.
+    manual_left, manual_right : ManualWaterTimes, optional
+        Left/right experimenter-water delivery timestamps (s), split into
+        unaligned and go-cue-aligned; event-time arrays passed through to the
+        side-bias figure.
 
     Returns
     -------
@@ -124,8 +126,8 @@ def behavior_qc_results(
             go_cue_times=_column(trials, "go_cue_times"),
             autowater_left=_column(trials, "autowater_left"),
             autowater_right=_column(trials, "autowater_right"),
-            manual_left_times=manual_left_times,
-            manual_right_times=manual_right_times,
+            manual_left=manual_left,
+            manual_right=manual_right,
             anti_bias_left_water=_column(trials, "anti_bias_left_water"),
             anti_bias_right_water=_column(trials, "anti_bias_right_water"),
             anti_bias_lickspout_movement=_column(trials, "anti_bias_lickspout_movement"),

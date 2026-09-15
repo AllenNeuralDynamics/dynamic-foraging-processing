@@ -39,7 +39,7 @@ wheels = [
 [[package]]
 name = "aind-behavior-dynamic-foraging"
 version = "0.0.2rc37"
-source = { git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=933a7aee2627de1979a982847f3553cf7435cbd2#933a7aee2627de1979a982847f3553cf7435cbd2" }
+source = { git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=4e4faa4941c8d9cc8024e760fdaec30339b626dc#4e4faa4941c8d9cc8024e760fdaec30339b626dc" }
 dependencies = [
     { name = "aind-behavior-services" },
     { name = "contraqctor" },
@@ -364,7 +364,7 @@ name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807, upload-time = "2026-08-03T21:21:18.939Z" }
 wheels = [
@@ -884,7 +884,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=933a7aee2627de1979a982847f3553cf7435cbd2" },
+    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=4e4faa4941c8d9cc8024e760fdaec30339b626dc" },
     { name = "aind-data-schema", marker = "extra == 'qc'", specifier = ">=2.4.1" },
     { name = "aind-nwb-utils", marker = "extra == 'nwb'" },
     { name = "dynamic-foraging-processing", extras = ["qc", "nwb"], marker = "extra == 'full'" },
@@ -1933,7 +1933,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess" },
+    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [

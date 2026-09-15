@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from dynamic_foraging_processing.qc.processed import plots as _plots
+from dynamic_foraging_processing.utils.rewards import ManualWaterTimes
 
 
 def test_plot_lick_intervals_writes_file(tmp_path):
@@ -66,8 +67,11 @@ def test_plot_side_bias_full_inputs(tmp_path):
         go_cue_times=np.array([0.5, 1.5, 2.5, 3.5, 4.5, 5.5]),
         autowater_left=np.array([1, 0, 0, 0, 0, 0]),
         autowater_right=np.array([0, 0, 0, 1, 0, 0]),
-        manual_left_times=np.array([0.1, 3.6]),  # 0.1 -> -1, 3.6 -> trial index
-        manual_right_times=np.array([5.6]),
+        manual_left=ManualWaterTimes(
+            unaligned=np.array([0.1, 3.6]),  # 0.1 -> -1, 3.6 -> trial index
+            go_cue_aligned=np.array([2.6]),
+        ),
+        manual_right=ManualWaterTimes(unaligned=np.array([5.6]), go_cue_aligned=np.array([1.6])),
         anti_bias_left_water=np.array([False, False, True, False, False, False]),
         anti_bias_right_water=np.array([False, False, False, False, False, True]),
         anti_bias_lickspout_movement=np.array([0.0, 0.5, 0.0, 0.0, -0.3, 0.0]),
@@ -142,8 +146,8 @@ def test_add_behavior_plot_gives_manual_water_its_own_rows():
         rewarded_right=None,
         autowater_left=np.array([1, 0, 0, 0]),
         autowater_right=np.array([0, 0, 0, 1]),
-        manual_left_times=np.array([1.6]),
-        manual_right_times=np.array([2.6]),
+        manual_left=ManualWaterTimes(unaligned=np.array([1.6])),
+        manual_right=ManualWaterTimes(unaligned=np.array([2.6])),
         go_cue_times=np.array([0.5, 1.5, 2.5, 3.5]),
     )
     labels = [text.get_text() for text in ax.get_legend().get_texts()]
@@ -153,7 +157,55 @@ def test_add_behavior_plot_gives_manual_water_its_own_rows():
     tick_labels = [text.get_text() for text in ax.get_yticklabels()]
     assert "L Manual Water" in tick_labels and "R Manual Water" in tick_labels
     # The manual rows are outside the autowater bands, so the two never overlap.
-    assert ax.get_ylim() == (-0.6, 1.6)
+    assert ax.get_ylim() == (-0.8, 1.8)
+    plt.close(fig)
+
+
+def test_add_behavior_plot_separates_go_cue_aligned_manual_water():
+    """Go-cue-aligned manual water gets its own rows and its own legend entry.
+
+    It fires at the go cue exactly as autowater does, so sharing either the
+    autowater row or the manual row would hide which gave the water.
+    """
+    fig, ax = plt.subplots()
+    _plots._add_behavior_plot(
+        ax,
+        np.array([0, 1, 0, 1]),
+        rewarded_left=None,
+        rewarded_right=None,
+        autowater_left=None,
+        autowater_right=None,
+        manual_left=ManualWaterTimes(unaligned=np.array([1.6]), go_cue_aligned=np.array([2.6])),
+        manual_right=ManualWaterTimes(go_cue_aligned=np.array([3.6])),
+        go_cue_times=np.array([0.5, 1.5, 2.5, 3.5]),
+    )
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    # One entry per kind, however many sides carry it.
+    assert labels.count("Manual Water") == 1
+    assert labels.count("Manual Water (go cue aligned)") == 1
+    tick_labels = [text.get_text() for text in ax.get_yticklabels()]
+    assert "L Manual Water (go cue)" in tick_labels
+    assert "R Manual Water (go cue)" in tick_labels
+    plt.close(fig)
+
+
+def test_add_behavior_plot_labels_only_the_kinds_present():
+    """A session with only go-cue-aligned water gets only that legend entry."""
+    fig, ax = plt.subplots()
+    _plots._add_behavior_plot(
+        ax,
+        np.array([0, 1]),
+        rewarded_left=None,
+        rewarded_right=None,
+        autowater_left=None,
+        autowater_right=None,
+        manual_left=ManualWaterTimes(go_cue_aligned=np.array([1.6])),
+        manual_right=ManualWaterTimes(),
+        go_cue_times=np.array([0.5, 1.5]),
+    )
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert "Manual Water (go cue aligned)" in labels
+    assert "Manual Water" not in labels
     plt.close(fig)
 
 
@@ -167,12 +219,13 @@ def test_add_behavior_plot_omits_manual_water_legend_when_absent():
         rewarded_right=None,
         autowater_left=None,
         autowater_right=None,
-        manual_left_times=np.array([]),
-        manual_right_times=np.array([]),
+        manual_left=ManualWaterTimes(),
+        manual_right=ManualWaterTimes(),
         go_cue_times=np.array([0.5, 1.5]),
     )
     labels = [text.get_text() for text in ax.get_legend().get_texts()]
     assert "Manual Water" not in labels
+    assert "Manual Water (go cue aligned)" not in labels
     plt.close(fig)
 
 
