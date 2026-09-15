@@ -38,7 +38,12 @@ Each reward-delivery timestamp carries a label in the series' `data` field:
 | --- | --- |
 | `earned` | Water the animal worked for: the matched trial has no free water (`is_auto_reward_right` is `None`). |
 | `auto` | Free water: the matched trial has `is_auto_reward_right` set. Scheduled autowater and the anti-bias intervention share that channel and are **not** split here — `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` record the mechanism per trial. |
-| `manual` | The delivery is the closest valve opening to a `GiveManualWater` software event for this port. Takes precedence over the other labels, since manual water is not aligned to a go cue. |
+| `manual_go_cue_aligned` | The delivery is the closest valve opening to a `LeftManualAutoReward` / `RightManualAutoReward` software event for this port: water the *experimenter* triggered to land on the go cue. It fires at the go cue like autowater, but the task did not schedule it, so it is neither `auto` nor `earned`. Takes precedence over both trial-derived labels. |
+| `manual` | The delivery is the closest valve opening to a `LeftManualWater` / `RightManualWater` software event for this port: experimenter water given at an arbitrary moment, tied to no go cue. Highest precedence of all four. |
+
+The side of an experimenter-water event comes from the **stream name**, not from
+an event payload. Each of the four streams exists only when the experimenter gave
+water of that kind, so a session with none of them is normal.
 
 Two properties of this series are worth stating explicitly, because both differ
 from "every time the valve opened":
@@ -230,3 +235,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-08-20 | `block_max` is now one below `block_length`'s configured maximum, which accounts for the floor applied upstream: a block is a whole number of trials, so the configured bound is never itself reachable. `block_min`, `block_beta`, and the `ITI_*` / `delay_*` bounds are unchanged — those durations are continuous and take no such adjustment. |
 | 2026-08-20 | `ITI_min` now reports `inter_trial_interval_duration`'s scaling `offset` instead of its truncation minimum: the sampled ITI is shifted by the offset, so the offset is the shortest ITI the generator can produce. Falls back to the truncation minimum when no scaling parameters are configured. |
 | 2026-08-20 | `bait_left` / `bait_right` now read `trial.metadata.extra.is_left_baited` / `is_right_baited` from the acquisition software instead of being re-derived from `p_reward_left` / `p_reward_right` and the `is_auto_reward_right` channel. The software is the authority on bait state, so the two can disagree — notably a port with `p_reward == 1` is no longer assumed baited. `False` when the trial carries no extra metadata. |
+| 2026-09-15 | **Breaking:** experimenter water is now read from the four side-specific software-event streams the acquisition software emits (`LeftManualWater` / `RightManualWater`, not aligned to a go cue, and `LeftManualAutoReward` / `RightManualAutoReward`, aligned to it) instead of the single `GiveManualWaterRight` stream whose `data` payload selected the side. The `GiveManualWaterRight` path is removed, not deprecated. A fourth reward-delivery label, `manual_go_cue_aligned`, joins `earned` / `auto` / `manual`. **This fixes a mislabel:** manual auto-rewards fire at the go cue but leave `is_auto_reward_right` unset, so they previously fell through to `earned` — water the animal never worked for, counted as earned. The QC `side_bias.png` behavior raster gains an `L` / `R Manual Water (go cue)` row per side (now 11 rows, y-limits `[-0.8, 1.8]`), drawn dotted where unaligned manual water is dashed. |
