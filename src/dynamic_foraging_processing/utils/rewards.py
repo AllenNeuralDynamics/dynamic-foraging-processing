@@ -191,9 +191,7 @@ def get_reward_deliveries(
         raise ValueError("trial_outcome_df index must be sorted to bound trials.")
 
     # side="left" so a delivery landing exactly on a trial's outcome belongs to
-    # that trial rather than the next. Water delivered after the final outcome
-    # (end-of-session experimenter water) has no trial of its own and is charged
-    # to the last one; the manual labels below overwrite it in practice.
+    # that trial rather than the next.
     trial_indices_in_reward_times = np.minimum(
         np.searchsorted(trial_end_times, reward_times, side="left"),
         trial_end_times.size - 1,
