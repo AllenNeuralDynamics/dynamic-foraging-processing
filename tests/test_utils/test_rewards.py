@@ -129,9 +129,7 @@ def test_get_reward_deliveries_labels_autowater_on_an_ignore_trial_as_auto():
     trial_outcome_df = _trial_outcome_df(np.array([10.0, 20.0]), autos=[None, True])
     autowater_at_go_cue = np.array([10.001])
 
-    annotations = get_reward_deliveries(
-        autowater_at_go_cue, trial_outcome_df, ManualWaterTimes()
-    )
+    annotations = get_reward_deliveries(autowater_at_go_cue, trial_outcome_df, ManualWaterTimes())
 
     np.testing.assert_array_equal(annotations, np.array(["auto"]))
 
