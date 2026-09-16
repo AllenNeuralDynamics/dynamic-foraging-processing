@@ -95,7 +95,6 @@ def get_reward_deliveries(
     reward_delivery_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
     manual_water: ManualWaterTimes,
-    response_times: np.ndarray,
 ) -> np.ndarray:
     """Classify one lick port's reward deliveries by how the water was given.
 
@@ -138,17 +137,18 @@ def get_reward_deliveries(
     contribute an ``auto`` delivery on the side the task watered and an
     ``earned`` delivery on the side the animal chose.
 
-    Deliveries are matched to trials by the ``Response`` software-event
-    timestamp: each delivery takes the annotation of the trial whose response is
-    closest. The response is used rather than the ``TrialOutcome`` timestamp
-    because ``TrialOutcome`` fires at the *end* of a trial, after the
-    reward-consumption and ITI periods, while the valve opens within
-    milliseconds of the response. Matching on trial end lets a delivery land
-    nearer the *previous* trial's outcome and inherit its
-    ``is_auto_reward_right``, flipping ``earned`` and ``auto``.
+    Deliveries are matched to trials by *containment*, not proximity: a
+    ``TrialOutcome`` fires at the end of a trial, after the reward-consumption
+    and ITI periods, so trial ``i`` spans ``(outcome[i - 1], outcome[i]]`` and a
+    delivery belongs to the first trial whose outcome it precedes.
 
-    ``response_times`` is aligned to ``trial_outcome_df`` positionally: entry
-    ``i`` is the response of the trial in row ``i``.
+    Proximity to the ``Response`` event was used previously and is unsound: it
+    has no notion of a trial boundary, so a delivery near the start of its trial
+    can be closer to the *previous* trial's response and inherit that trial's
+    ``is_auto_reward_right``, flipping ``auto`` to ``earned``. Autowater on an
+    ignore trial is the worst case -- the water lands at the go cue while the
+    trial's own ``Response`` waits out the full response deadline -- but the
+    boundary is what makes containment correct, whatever the response latency.
 
     Parameters
     ----------
@@ -161,9 +161,6 @@ def get_reward_deliveries(
         This port's experimenter-triggered water times, split into ``unaligned``
         and ``go_cue_aligned``. Either field may be empty when the session has
         no water of that kind.
-    response_times : numpy.ndarray
-        ``Response`` software-event timestamps, one per trial, positionally
-        aligned with the rows of ``trial_outcome_df``.
 
     Returns
     -------
@@ -174,23 +171,33 @@ def get_reward_deliveries(
     Raises
     ------
     ValueError
-        If ``response_times`` has a different length than ``trial_outcome_df``,
-        since the two are paired by position.
+        If ``trial_outcome_df`` is empty, or its index is unsorted or contains
+        ``NaN``, since the index is used as the trial window boundaries.
     """
-    response_times = np.asarray(response_times)
-    if response_times.size != len(trial_outcome_df):
-        raise ValueError(
-            f"response_times has {response_times.size} entries but there are "
-            f"{len(trial_outcome_df)} trials; the two are paired by position."
-        )
-
     reward_times = np.asarray(reward_delivery_times)
     if reward_times.size == 0:
         return np.array([], dtype=object)
 
-    # Annotate each delivery from its originating trial: query with reward_times so we
-    # get one trial position per reward delivery.
-    trial_indices_in_reward_times = find_closest_timestamps(reward_times, response_times)
+    # The trial's own end time bounds it, so the index doubles as the window
+    # edges. Guard the assumptions searchsorted makes rather than letting a bad
+    # index silently push every delivery onto one trial: an all-NaN index would
+    # otherwise assign them all to the last trial.
+    trial_end_times = np.asarray(trial_outcome_df.index, dtype=float)
+    if trial_end_times.size == 0:
+        raise ValueError("trial_outcome_df is empty; deliveries cannot be matched to a trial.")
+    if np.isnan(trial_end_times).any():
+        raise ValueError("trial_outcome_df index contains NaN; trial windows are undefined.")
+    if np.any(np.diff(trial_end_times) < 0):
+        raise ValueError("trial_outcome_df index must be sorted to bound trials.")
+
+    # side="left" so a delivery landing exactly on a trial's outcome belongs to
+    # that trial rather than the next. Water delivered after the final outcome
+    # (end-of-session experimenter water) has no trial of its own and is charged
+    # to the last one; the manual labels below overwrite it in practice.
+    trial_indices_in_reward_times = np.minimum(
+        np.searchsorted(trial_end_times, reward_times, side="left"),
+        trial_end_times.size - 1,
+    )
 
     trial_labels = []
     for trial_index in trial_indices_in_reward_times:
