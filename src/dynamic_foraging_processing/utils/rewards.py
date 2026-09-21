@@ -124,9 +124,35 @@ def trial_index_of(times: np.ndarray, trial_window_edges: np.ndarray) -> np.ndar
     )
 
 
+def _manual_water_labels(
+    reward_delivery_times: np.ndarray, manual_water: ManualWaterTimes
+) -> t.Tuple[np.ndarray, np.ndarray]:
+    """Return ``(labels, given_manually)`` for one port's deliveries.
+
+    Manual water is independent of trials (several deliveries can fall in one),
+    so each software event is correlated to its closest delivery rather than to
+    the trial it fired in. Unaligned manual water is applied last, so it wins
+    where both kinds land on the same delivery. ``given_manually`` marks which
+    entries of ``labels`` were set; the rest were caused by the task.
+    """
+    size = np.asarray(reward_delivery_times).size
+    labels = np.full(size, None, dtype=object)
+    given_manually = np.zeros(size, dtype=bool)
+    for times, label in (
+        (manual_water.go_cue_aligned, MANUAL_GO_CUE_ALIGNED),
+        (manual_water.unaligned, MANUAL),
+    ):
+        times = np.asarray(times)
+        if times.size:
+            matched = find_closest_timestamps(times, reward_delivery_times)
+            labels[matched] = label
+            given_manually[matched] = True
+    return labels, given_manually
+
+
 def get_manual_go_cue_aligned_trials(
     reward_delivery_times: np.ndarray,
-    go_cue_aligned_times: np.ndarray,
+    manual_water: ManualWaterTimes,
     trial_outcome_df: pd.DataFrame,
 ) -> t.Set[int]:
     """Return the trials given manual go-cue-aligned water, for one port.
@@ -137,12 +163,17 @@ def get_manual_go_cue_aligned_trials(
     delivery's trial; the event itself fires mid-trial, one or more trials
     before the water lands, so it cannot be matched to a trial directly.
 
+    Shares :func:`_manual_water_labels` with :func:`get_reward_deliveries`, so a
+    delivery that unaligned manual water also claims is excluded here exactly as
+    it is relabelled there; the two cannot disagree on which deliveries are
+    go-cue aligned.
+
     Parameters
     ----------
     reward_delivery_times : numpy.ndarray
         This port's reward-delivery timestamps.
-    go_cue_aligned_times : numpy.ndarray
-        This port's ``ManualAutoReward`` event timestamps.
+    manual_water : ManualWaterTimes
+        This port's manual-water times, both kinds.
     trial_outcome_df : pandas.DataFrame
         Trial outcome table indexed by trial timestamp.
 
@@ -152,11 +183,13 @@ def get_manual_go_cue_aligned_trials(
         Trial indices whose delivery came from manual go-cue-aligned water.
     """
     deliveries = np.asarray(reward_delivery_times)
-    events = np.asarray(go_cue_aligned_times)
-    if deliveries.size == 0 or events.size == 0:
+    if deliveries.size == 0:
         return set()
-    matched = deliveries[find_closest_timestamps(events, deliveries)]
-    return {int(i) for i in trial_index_of(matched, _trial_window_edges(trial_outcome_df))}
+    labels, _ = _manual_water_labels(deliveries, manual_water)
+    aligned = deliveries[labels == MANUAL_GO_CUE_ALIGNED]
+    if aligned.size == 0:
+        return set()
+    return {int(i) for i in trial_index_of(aligned, _trial_window_edges(trial_outcome_df))}
 
 
 def get_reward_deliveries(
@@ -260,18 +293,6 @@ def get_reward_deliveries(
     # truncate them.
     annotated_rewards = np.array(trial_labels, dtype=object)
 
-    # Experimenter water is independent of trials (multiple deliveries can occur
-    # within one trial), so annotate those deliveries directly rather than through
-    # the trial they fall in. Correlate each software event to its closest reward
-    # delivery; the returned positions index into reward_times, i.e. the deliveries
-    # the experimenter caused. Unaligned manual water is written last so it wins
-    # where both kinds land on the same delivery.
-    for times, label in (
-        (manual_water.go_cue_aligned, MANUAL_GO_CUE_ALIGNED),
-        (manual_water.unaligned, MANUAL),
-    ):
-        times = np.asarray(times)
-        if times.size:
-            annotated_rewards[find_closest_timestamps(times, reward_times)] = label
-
+    manual_labels, given_manually = _manual_water_labels(reward_times, manual_water)
+    annotated_rewards[given_manually] = manual_labels[given_manually]
     return annotated_rewards

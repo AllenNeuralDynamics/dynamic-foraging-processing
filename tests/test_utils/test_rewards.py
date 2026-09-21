@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
 
-from dynamic_foraging_processing.utils.rewards import ManualWaterTimes, get_reward_deliveries
+from dynamic_foraging_processing.utils.rewards import (
+    ManualWaterTimes,
+    get_manual_go_cue_aligned_trials,
+    get_reward_deliveries,
+)
 
 
 def _outcome_payload(auto=None, is_rewarded: bool = True, mechanism: str = "autowater") -> dict:
@@ -331,6 +335,47 @@ def test_get_reward_deliveries_rejects_an_unsorted_trial_index():
 
     with pytest.raises(ValueError, match="must be sorted"):
         get_reward_deliveries(np.array([0.15]), trial_outcome_df, ManualWaterTimes())
+
+
+def test_get_manual_go_cue_aligned_trials_flags_the_delivery_trial():
+    """A go-cue-aligned delivery flags the trial it landed in."""
+    trial_outcome_df = _trial_outcome_df(np.array([1.0, 2.0, 3.0]))
+    deliveries = np.array([0.15, 1.42, 2.95])
+    manual_water = ManualWaterTimes(go_cue_aligned=np.array([1.43]))
+
+    assert get_manual_go_cue_aligned_trials(deliveries, manual_water, trial_outcome_df) == {1}
+
+
+def test_get_manual_go_cue_aligned_trials_skips_deliveries_unaligned_water_claims():
+    """A delivery both kinds match is unaligned water, so it flags no trial.
+
+    ``get_reward_deliveries`` gives unaligned manual water the last word, so
+    flagging that trial here would contradict the label the series records.
+    """
+    trial_outcome_df = _trial_outcome_df(np.array([1.0, 2.0]))
+    deliveries = np.array([0.15, 1.42])
+    both = ManualWaterTimes(unaligned=np.array([1.42]), go_cue_aligned=np.array([1.42]))
+
+    assert get_manual_go_cue_aligned_trials(deliveries, both, trial_outcome_df) == set()
+    # ...and that is exactly the delivery the series calls "manual".
+    np.testing.assert_array_equal(
+        get_reward_deliveries(deliveries, trial_outcome_df, both),
+        np.array(["earned", "manual"]),
+    )
+
+
+def test_get_manual_go_cue_aligned_trials_empty_without_deliveries_or_events():
+    """No deliveries, or no go-cue-aligned water, flags no trials."""
+    trial_outcome_df = _trial_outcome_df(np.array([1.0]))
+    assert get_manual_go_cue_aligned_trials(np.array([]), ManualWaterTimes(), trial_outcome_df) == (
+        set()
+    )
+    assert (
+        get_manual_go_cue_aligned_trials(
+            np.array([0.15]), ManualWaterTimes(unaligned=np.array([0.15])), trial_outcome_df
+        )
+        == set()
+    )
 
 
 def test_get_reward_deliveries_returns_one_annotation_per_delivery():

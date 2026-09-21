@@ -25,7 +25,10 @@ from aind_behavior_services.task.distributions import Distribution, Distribution
 from contraqctor.contract import Dataset
 
 from dynamic_foraging_processing.processing.models import TrialConfig
-from dynamic_foraging_processing.utils.rewards import get_manual_go_cue_aligned_trials
+from dynamic_foraging_processing.utils.rewards import (
+    ManualWaterTimes,
+    get_manual_go_cue_aligned_trials,
+)
 from dynamic_foraging_processing.utils.trial_metadata import get_bias_metadata
 
 logger = logging.getLogger(__name__)
@@ -541,14 +544,21 @@ class TrialTableBuilder:
         return (
             get_manual_go_cue_aligned_trials(
                 self._valve_open_times(output_set, "SupplyPort0"),
-                self._optional_event_times("LeftManualAutoReward"),
+                self._manual_water_times("Left"),
                 outcomes,
             ),
             get_manual_go_cue_aligned_trials(
                 self._valve_open_times(output_set, "SupplyPort1"),
-                self._optional_event_times("RightManualAutoReward"),
+                self._manual_water_times("Right"),
                 outcomes,
             ),
+        )
+
+    def _manual_water_times(self, side: str) -> ManualWaterTimes:
+        """Return one port's manual-water times, both kinds (empty when absent)."""
+        return ManualWaterTimes(
+            unaligned=self._optional_event_times(f"{side}ManualWater"),
+            go_cue_aligned=self._optional_event_times(f"{side}ManualAutoReward"),
         )
 
     @staticmethod
