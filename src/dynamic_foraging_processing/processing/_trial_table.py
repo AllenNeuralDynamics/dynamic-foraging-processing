@@ -538,13 +538,17 @@ class TrialTableBuilder:
         """
         if outcomes is None or not len(outcomes):
             return set(), set()
-        return tuple(  # type: ignore[return-value]
+        return (
             get_manual_go_cue_aligned_trials(
-                self._valve_open_times(output_set, port_column),
-                self._optional_event_times(f"{side}ManualAutoReward"),
+                self._valve_open_times(output_set, "SupplyPort0"),
+                self._optional_event_times("LeftManualAutoReward"),
                 outcomes,
-            )
-            for side, port_column in (("Left", "SupplyPort0"), ("Right", "SupplyPort1"))
+            ),
+            get_manual_go_cue_aligned_trials(
+                self._valve_open_times(output_set, "SupplyPort1"),
+                self._optional_event_times("RightManualAutoReward"),
+                outcomes,
+            ),
         )
 
     @staticmethod
