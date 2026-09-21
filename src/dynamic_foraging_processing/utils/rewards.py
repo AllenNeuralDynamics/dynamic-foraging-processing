@@ -129,11 +129,10 @@ def _manual_water_labels(
 ) -> t.Tuple[np.ndarray, np.ndarray]:
     """Return ``(labels, given_manually)`` for one port's deliveries.
 
-    Manual water is independent of trials (several deliveries can fall in one),
-    so each software event is correlated to its closest delivery rather than to
-    the trial it fired in. Unaligned manual water is applied last, so it wins
-    where both kinds land on the same delivery. ``given_manually`` marks which
-    entries of ``labels`` were set; the rest were caused by the task.
+    Each event is correlated to its closest delivery, since manual water is
+    independent of trials. Unaligned water is applied last, so it wins where
+    both kinds land on the same delivery. ``given_manually`` marks the entries
+    that were set; the rest were caused by the task.
     """
     size = np.asarray(reward_delivery_times).size
     labels = np.full(size, None, dtype=object)
@@ -157,16 +156,10 @@ def get_manual_go_cue_aligned_trials(
 ) -> t.Set[int]:
     """Return the trials given manual go-cue-aligned water, for one port.
 
-    ``TrialOutcome`` reports manual go-cue-aligned water as ordinary autowater, so
-    the ``{Left,Right}ManualAutoReward`` events are the only way to tell them
-    apart. Each event is resolved to the delivery it caused and then to that
-    delivery's trial; the event itself fires mid-trial, one or more trials
-    before the water lands, so it cannot be matched to a trial directly.
-
-    Shares :func:`_manual_water_labels` with :func:`get_reward_deliveries`, so a
-    delivery that unaligned manual water also claims is excluded here exactly as
-    it is relabelled there; the two cannot disagree on which deliveries are
-    go-cue aligned.
+    The event fires mid-trial, one or more trials before the water lands, so it
+    is resolved to the delivery it caused and then to that delivery's trial.
+    Shares :func:`_manual_water_labels` with :func:`get_reward_deliveries` so the
+    two cannot disagree on which deliveries are go-cue aligned.
 
     Parameters
     ----------

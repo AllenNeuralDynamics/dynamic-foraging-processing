@@ -503,7 +503,7 @@ class TrialTableBuilder:
         """Load the stream at ``path``, or ``None`` when absent.
 
         Unlike :meth:`_load` an absent stream is not an error, so sessions
-        without manual go-cue-aligned water do not warn or raise.
+        without manual water do not warn or raise.
         """
         node = self.dataset
         try:
@@ -989,8 +989,8 @@ class TrialTableBuilder:
         ``periods`` holds the trial's period bounds (see :meth:`_trial_periods`);
         the quiescent-period start through the ITI start is also the window used
         to pick this trial's go cue out of the unaligned hardware stream.
-        ``manual_go_cue_aligned_left``/``manual_go_cue_aligned_right`` mark go-cue
-        water given by the experimenter rather than the task (see
+        ``manual_go_cue_aligned_left``/``manual_go_cue_aligned_right`` mark water
+        that is manual rather than autowater (see
         :meth:`_manual_go_cue_aligned_trials`).
         """
         trial = outcome.trial
