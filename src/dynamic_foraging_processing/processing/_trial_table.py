@@ -25,7 +25,7 @@ from aind_behavior_services.task.distributions import Distribution, Distribution
 from contraqctor.contract import Dataset
 
 from dynamic_foraging_processing.processing.models import TrialConfig
-from dynamic_foraging_processing.utils.rewards import get_armed_water_trials
+from dynamic_foraging_processing.utils.rewards import get_manual_go_cue_aligned_trials
 from dynamic_foraging_processing.utils.trial_metadata import get_bias_metadata
 
 logger = logging.getLogger(__name__)
@@ -455,7 +455,7 @@ class TrialTableBuilder:
         bias_metadata: BlockBasedTrialMetadata,
         *,
         is_right: bool,
-        is_armed: bool = False,
+        is_manual_go_cue_aligned_water: bool = False,
     ) -> int:
         """Return whether scheduled autowater was delivered to the requested side.
 
@@ -482,8 +482,8 @@ class TrialTableBuilder:
             The trial's extra metadata (see ``_bias_metadata``).
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
-        is_armed : bool
-            Whether this side's free water was experimenter-armed. Such water is
+        is_manual_go_cue_aligned_water : bool
+            Whether this side's free water was manual go-cue-aligned water. Such water is
             reported as autowater by ``TrialOutcome`` but the task did not
             schedule it, so it is ``0`` here.
 
@@ -492,7 +492,7 @@ class TrialTableBuilder:
         int
             ``1`` when scheduled autowater targeted the requested side, else ``0``.
         """
-        if is_armed or not bias_metadata.is_autowater:
+        if is_manual_go_cue_aligned_water or not bias_metadata.is_autowater:
             return 0
         return int(trial.is_auto_reward_right is is_right)
 
@@ -500,7 +500,7 @@ class TrialTableBuilder:
         """Load the stream at ``path``, or ``None`` when absent.
 
         Unlike :meth:`_load` an absent stream is not an error, so sessions
-        without experimenter-armed water do not warn or raise.
+        without manual go-cue-aligned water do not warn or raise.
         """
         node = self.dataset
         try:
@@ -527,19 +527,19 @@ class TrialTableBuilder:
         opened = writes[writes[port_column].fillna(False).astype(bool)]
         return opened.index.to_numpy(dtype=float)
 
-    def _armed_water_trials(
+    def _manual_go_cue_aligned_trials(
         self, outcomes: t.Optional[pd.DataFrame], output_set: t.Optional[pd.DataFrame]
     ) -> t.Tuple[t.Set[int], t.Set[int]]:
-        """Return the ``(left, right)`` trials whose free water was experimenter-armed.
+        """Return the ``(left, right)`` trials whose free water was manual go-cue-aligned water.
 
-        ``TrialOutcome`` reports armed water as ordinary autowater, so the
+        ``TrialOutcome`` reports it as ordinary autowater, so the
         ``{Left,Right}ManualAutoReward`` streams are the only way to tell them
         apart; shared with the reward annotation so both agree.
         """
         if outcomes is None or not len(outcomes):
             return set(), set()
         return tuple(  # type: ignore[return-value]
-            get_armed_water_trials(
+            get_manual_go_cue_aligned_trials(
                 self._valve_open_times(output_set, port_column),
                 self._optional_event_times(f"{side}ManualAutoReward"),
                 outcomes,
@@ -573,7 +573,7 @@ class TrialTableBuilder:
         bias_metadata: BlockBasedTrialMetadata,
         *,
         is_right: bool,
-        is_armed: bool = False,
+        is_manual_go_cue_aligned_water: bool = False,
     ) -> bool:
         """Return whether the anti-bias algorithm watered the requested side.
 
@@ -599,8 +599,8 @@ class TrialTableBuilder:
             The trial's extra metadata (see ``_bias_metadata``).
         is_right : bool
             ``True`` for the right port, ``False`` for the left port.
-        is_armed : bool
-            Whether this side's free water was experimenter-armed. The algorithm
+        is_manual_go_cue_aligned_water : bool
+            Whether this side's free water was manual go-cue-aligned water. The algorithm
             did not cause such water, so it is ``False`` here.
 
         Returns
@@ -608,7 +608,7 @@ class TrialTableBuilder:
         bool
             Whether an anti-bias water intervention targeted the requested side.
         """
-        if is_armed or not bias_metadata.is_bias_water_intervention:
+        if is_manual_go_cue_aligned_water or not bias_metadata.is_bias_water_intervention:
             return False
         return trial.is_auto_reward_right is is_right
 
@@ -967,16 +967,17 @@ class TrialTableBuilder:
         go_cue_times: np.ndarray,
         session: t.Dict[str, t.Any],
         lickspout: t.Dict[str, t.Optional[float]],
-        armed_left: bool = False,
-        armed_right: bool = False,
+        manual_go_cue_aligned_left: bool = False,
+        manual_go_cue_aligned_right: bool = False,
     ) -> TrialConfig:
         """Assemble a single ``TrialConfig`` from aligned per-trial inputs.
 
         ``periods`` holds the trial's period bounds (see :meth:`_trial_periods`);
         the quiescent-period start through the ITI start is also the window used
         to pick this trial's go cue out of the unaligned hardware stream.
-        ``armed_left``/``armed_right`` mark free water the experimenter armed
-        rather than the task (see :meth:`_armed_water_trials`).
+        ``manual_go_cue_aligned_left``/``manual_go_cue_aligned_right`` mark go-cue
+        water given by the experimenter rather than the task (see
+        :meth:`_manual_go_cue_aligned_trials`).
         """
         trial = outcome.trial
         is_right_choice = outcome.is_right_choice
@@ -1009,13 +1010,29 @@ class TrialTableBuilder:
             reward_consumption_duration=trial.reward_consumption_duration,
             ITI_duration=trial.inter_trial_interval_duration,
             delay_duration=trial.quiescence_period_duration,
-            auto_waterL=self._auto_water(trial, bias_metadata, is_right=False, is_armed=armed_left),
-            auto_waterR=self._auto_water(trial, bias_metadata, is_right=True, is_armed=armed_right),
+            auto_waterL=self._auto_water(
+                trial,
+                bias_metadata,
+                is_right=False,
+                is_manual_go_cue_aligned_water=manual_go_cue_aligned_left,
+            ),
+            auto_waterR=self._auto_water(
+                trial,
+                bias_metadata,
+                is_right=True,
+                is_manual_go_cue_aligned_water=manual_go_cue_aligned_right,
+            ),
             anti_bias_left_water=self._anti_bias_water(
-                trial, bias_metadata, is_right=False, is_armed=armed_left
+                trial,
+                bias_metadata,
+                is_right=False,
+                is_manual_go_cue_aligned_water=manual_go_cue_aligned_left,
             ),
             anti_bias_right_water=self._anti_bias_water(
-                trial, bias_metadata, is_right=True, is_armed=armed_right
+                trial,
+                bias_metadata,
+                is_right=True,
+                is_manual_go_cue_aligned_water=manual_go_cue_aligned_right,
             ),
             anti_bias_lickspout_movement=self._anti_bias_lickspout_movement(trial, bias_metadata),
             **session,
@@ -1104,7 +1121,7 @@ class TrialTableBuilder:
         pulse_supply_left = self._load("Behavior", "HarpBehavior", "PulseSupplyPort0")
         pulse_supply_right = self._load("Behavior", "HarpBehavior", "PulseSupplyPort1")
         go_cue = self._load("Behavior", "HarpSoundCard", "PlaySoundOrFrequency")
-        # Optional: only needed to attribute experimenter-armed water.
+        # Optional: only needed to attribute manual go-cue-aligned water.
         output_set = self._optional_stream("Behavior", "HarpBehavior", "OutputSet")
         accumulated_steps = self._load("Behavior", "HarpManipulator", "AccumulatedSteps")
         rig = self._load("Behavior", "InputSchemas", "Rig")
@@ -1163,7 +1180,9 @@ class TrialTableBuilder:
             self._manipulator_positions(accumulated_steps, rig) if n_trials else None
         )
 
-        armed_left_trials, armed_right_trials = self._armed_water_trials(outcomes, output_set)
+        manual_go_cue_aligned_left_trials, manual_go_cue_aligned_right_trials = (
+            self._manual_go_cue_aligned_trials(outcomes, output_set)
+        )
 
         rows: t.List[TrialConfig] = []
         for i, outcome_payload in enumerate(outcome_payloads):
@@ -1199,8 +1218,8 @@ class TrialTableBuilder:
                     go_cue_times=go_cue_times,
                     session=session,
                     lickspout=lickspout,
-                    armed_left=i in armed_left_trials,
-                    armed_right=i in armed_right_trials,
+                    manual_go_cue_aligned_left=i in manual_go_cue_aligned_left_trials,
+                    manual_go_cue_aligned_right=i in manual_go_cue_aligned_right_trials,
                 )
             )
 

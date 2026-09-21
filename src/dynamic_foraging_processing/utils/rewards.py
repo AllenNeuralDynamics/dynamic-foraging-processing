@@ -124,14 +124,14 @@ def trial_index_of(times: np.ndarray, trial_window_edges: np.ndarray) -> np.ndar
     )
 
 
-def get_armed_water_trials(
+def get_manual_go_cue_aligned_trials(
     reward_delivery_times: np.ndarray,
     go_cue_aligned_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
 ) -> t.Set[int]:
-    """Return the trials whose go-cue water the experimenter armed, for one port.
+    """Return the trials given manual go-cue-aligned water, for one port.
 
-    ``TrialOutcome`` reports experimenter-armed water as ordinary autowater, so
+    ``TrialOutcome`` reports manual go-cue-aligned water as ordinary autowater, so
     the ``{Left,Right}ManualAutoReward`` events are the only way to tell them
     apart. Each event is resolved to the delivery it caused and then to that
     delivery's trial; the event itself fires mid-trial, one or more trials
@@ -149,14 +149,14 @@ def get_armed_water_trials(
     Returns
     -------
     set of int
-        Trial indices whose delivery came from experimenter-armed water.
+        Trial indices whose delivery came from manual go-cue-aligned water.
     """
     deliveries = np.asarray(reward_delivery_times)
     events = np.asarray(go_cue_aligned_times)
     if deliveries.size == 0 or events.size == 0:
         return set()
-    armed = deliveries[find_closest_timestamps(events, deliveries)]
-    return {int(i) for i in trial_index_of(armed, _trial_window_edges(trial_outcome_df))}
+    matched = deliveries[find_closest_timestamps(events, deliveries)]
+    return {int(i) for i in trial_index_of(matched, _trial_window_edges(trial_outcome_df))}
 
 
 def get_reward_deliveries(

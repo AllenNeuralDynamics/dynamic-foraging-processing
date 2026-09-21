@@ -891,24 +891,34 @@ def test_auto_water_excludes_anti_bias_water():
     assert TrialTableBuilder._anti_bias_water(bias_water, meta, is_right=True) is True
 
 
-def test_auto_water_excludes_experimenter_armed_water():
-    """Experimenter-armed water is not scheduled autowater.
+def test_auto_water_excludes_manual_go_cue_aligned_water():
+    """Manual go-cue-aligned water is not scheduled autowater.
 
     ``TrialOutcome`` reports it as ordinary autowater, so only the
     ``ManualAutoReward`` streams distinguish it (872547_2026-09-17 trials
     276/277).
     """
-    armed = TrialOutcome.model_validate(
+    manual = TrialOutcome.model_validate(
         _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True, is_autowater=True)
     ).trial
-    meta = TrialTableBuilder._bias_metadata(armed)
-    assert TrialTableBuilder._auto_water(armed, meta, is_right=True, is_armed=True) == 0
-    assert TrialTableBuilder._auto_water(armed, meta, is_right=True, is_armed=False) == 1
+    meta = TrialTableBuilder._bias_metadata(manual)
+    assert (
+        TrialTableBuilder._auto_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=True
+        )
+        == 0
+    )
+    assert (
+        TrialTableBuilder._auto_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=False
+        )
+        == 1
+    )
 
 
-def test_anti_bias_water_excludes_experimenter_armed_water():
-    """The anti-bias algorithm did not cause experimenter-armed water."""
-    armed = TrialOutcome.model_validate(
+def test_anti_bias_water_excludes_manual_go_cue_aligned_water():
+    """The anti-bias algorithm did not cause manual go-cue-aligned water."""
+    manual = TrialOutcome.model_validate(
         _outcome(
             1.0,
             1.0,
@@ -918,9 +928,19 @@ def test_anti_bias_water_excludes_experimenter_armed_water():
             is_bias_water_intervention=True,
         )
     ).trial
-    meta = TrialTableBuilder._bias_metadata(armed)
-    assert TrialTableBuilder._anti_bias_water(armed, meta, is_right=True, is_armed=True) is False
-    assert TrialTableBuilder._anti_bias_water(armed, meta, is_right=True, is_armed=False) is True
+    meta = TrialTableBuilder._bias_metadata(manual)
+    assert (
+        TrialTableBuilder._anti_bias_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=True
+        )
+        is False
+    )
+    assert (
+        TrialTableBuilder._anti_bias_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=False
+        )
+        is True
+    )
 
 
 def test_valve_open_times_reads_write_messages_for_one_port():
@@ -944,8 +964,8 @@ def test_valve_open_times_reads_write_messages_for_one_port():
     assert TrialTableBuilder._valve_open_times(output_set, "SupplyPort9").size == 0
 
 
-def test_armed_water_trials_resolves_events_to_their_delivery_trial():
-    """An armed event is attributed to the trial its water landed in.
+def test_manual_go_cue_aligned_trials_resolves_events_to_their_delivery_trial():
+    """The event is attributed to the trial its water landed in.
 
     The event fires mid-trial and the water lands at a later go cue, so the
     event time alone does not identify the trial.
@@ -969,19 +989,19 @@ def test_armed_water_trials_resolves_events_to_their_delivery_trial():
             }
         )
     )
-    left, right = builder._armed_water_trials(outcomes, output_set)
+    left, right = builder._manual_go_cue_aligned_trials(outcomes, output_set)
     # Event at 15.0 (trial 1) -> delivery at 20.5, which falls in trial 2.
     assert right == {2}
     assert left == set()
 
 
-def test_armed_water_trials_empty_without_trials_or_events():
-    """No trials, or no armed events, yields no armed trials."""
+def test_manual_go_cue_aligned_trials_empty_without_trials_or_events():
+    """No trials, or no events, yields no flagged trials."""
     builder = TrialTableBuilder(_Node({"Behavior": _Node({})}))
-    assert builder._armed_water_trials(None, None) == (set(), set())
-    assert builder._armed_water_trials(_events([], []), None) == (set(), set())
+    assert builder._manual_go_cue_aligned_trials(None, None) == (set(), set())
+    assert builder._manual_go_cue_aligned_trials(_events([], []), None) == (set(), set())
     # Trials present but no ManualAutoReward streams at all.
-    assert builder._armed_water_trials(_events([1.0], [None]), None) == (set(), set())
+    assert builder._manual_go_cue_aligned_trials(_events([1.0], [None]), None) == (set(), set())
 
 
 def test_optional_stream_returns_none_when_absent_or_unloadable():
