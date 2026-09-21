@@ -91,6 +91,74 @@ def _free_water_label(trial: t.Optional[Trial]) -> str:
     return AUTO
 
 
+def _trial_window_edges(trial_outcome_df: pd.DataFrame) -> np.ndarray:
+    """Return the validated trial end times that bound each trial.
+
+    Raises
+    ------
+    ValueError
+        If the index is empty, unsorted, or contains ``NaN``.
+    """
+    # Guard what searchsorted assumes: an all-NaN index would silently charge
+    # every delivery to the last trial instead of failing.
+    edges = np.asarray(trial_outcome_df.index, dtype=float)
+    if edges.size == 0:
+        raise ValueError("trial_outcome_df is empty; deliveries cannot be matched to a trial.")
+    if np.isnan(edges).any():
+        raise ValueError("trial_outcome_df index contains NaN; trial windows are undefined.")
+    if np.any(np.diff(edges) < 0):
+        raise ValueError("trial_outcome_df index must be sorted to bound trials.")
+    return edges
+
+
+def trial_index_of(times: np.ndarray, trial_window_edges: np.ndarray) -> np.ndarray:
+    """Return the index of the trial whose window contains each time.
+
+    Trial ``i`` spans ``(edge[i - 1], edge[i]]``. Times past the last edge are
+    charged to the last trial.
+    """
+    # side="left" so a time landing exactly on a trial's end belongs to it.
+    return np.minimum(
+        np.searchsorted(trial_window_edges, times, side="left"),
+        trial_window_edges.size - 1,
+    )
+
+
+def get_armed_water_trials(
+    reward_delivery_times: np.ndarray,
+    go_cue_aligned_times: np.ndarray,
+    trial_outcome_df: pd.DataFrame,
+) -> t.Set[int]:
+    """Return the trials whose go-cue water the experimenter armed, for one port.
+
+    ``TrialOutcome`` reports experimenter-armed water as ordinary autowater, so
+    the ``{Left,Right}ManualAutoReward`` events are the only way to tell them
+    apart. Each event is resolved to the delivery it caused and then to that
+    delivery's trial; the event itself fires mid-trial, one or more trials
+    before the water lands, so it cannot be matched to a trial directly.
+
+    Parameters
+    ----------
+    reward_delivery_times : numpy.ndarray
+        This port's reward-delivery timestamps.
+    go_cue_aligned_times : numpy.ndarray
+        This port's ``ManualAutoReward`` event timestamps.
+    trial_outcome_df : pandas.DataFrame
+        Trial outcome table indexed by trial timestamp.
+
+    Returns
+    -------
+    set of int
+        Trial indices whose delivery came from experimenter-armed water.
+    """
+    deliveries = np.asarray(reward_delivery_times)
+    events = np.asarray(go_cue_aligned_times)
+    if deliveries.size == 0 or events.size == 0:
+        return set()
+    armed = deliveries[find_closest_timestamps(events, deliveries)]
+    return {int(i) for i in trial_index_of(armed, _trial_window_edges(trial_outcome_df))}
+
+
 def get_reward_deliveries(
     reward_delivery_times: np.ndarray,
     trial_outcome_df: pd.DataFrame,
@@ -178,23 +246,8 @@ def get_reward_deliveries(
     if reward_times.size == 0:
         return np.array([], dtype=object)
 
-    # The trial's own end time bounds it, so the index doubles as the window
-    # edges. Guard the assumptions searchsorted makes rather than letting a bad
-    # index silently push every delivery onto one trial: an all-NaN index would
-    # otherwise assign them all to the last trial.
-    trial_end_times = np.asarray(trial_outcome_df.index, dtype=float)
-    if trial_end_times.size == 0:
-        raise ValueError("trial_outcome_df is empty; deliveries cannot be matched to a trial.")
-    if np.isnan(trial_end_times).any():
-        raise ValueError("trial_outcome_df index contains NaN; trial windows are undefined.")
-    if np.any(np.diff(trial_end_times) < 0):
-        raise ValueError("trial_outcome_df index must be sorted to bound trials.")
-
-    # side="left" so a delivery landing exactly on a trial's outcome belongs to
-    # that trial rather than the next.
-    trial_indices_in_reward_times = np.minimum(
-        np.searchsorted(trial_end_times, reward_times, side="left"),
-        trial_end_times.size - 1,
+    trial_indices_in_reward_times = trial_index_of(
+        reward_times, _trial_window_edges(trial_outcome_df)
     )
 
     trial_labels = []
