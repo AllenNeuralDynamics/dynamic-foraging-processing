@@ -891,6 +891,128 @@ def test_auto_water_excludes_anti_bias_water():
     assert TrialTableBuilder._anti_bias_water(bias_water, meta, is_right=True) is True
 
 
+def test_auto_water_excludes_manual_go_cue_aligned_water():
+    """Manual go-cue-aligned water is not scheduled autowater.
+
+    ``TrialOutcome`` reports it as ordinary autowater, so only the
+    ``ManualAutoReward`` streams distinguish it (872547_2026-09-17 trials
+    276/277).
+    """
+    manual = TrialOutcome.model_validate(
+        _outcome(1.0, 1.0, is_right_choice=True, is_rewarded=True, auto=True, is_autowater=True)
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(manual)
+    assert (
+        TrialTableBuilder._auto_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=True
+        )
+        == 0
+    )
+    assert (
+        TrialTableBuilder._auto_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=False
+        )
+        == 1
+    )
+
+
+def test_anti_bias_water_excludes_manual_go_cue_aligned_water():
+    """The anti-bias algorithm did not cause manual go-cue-aligned water."""
+    manual = TrialOutcome.model_validate(
+        _outcome(
+            1.0,
+            1.0,
+            is_right_choice=True,
+            is_rewarded=True,
+            auto=True,
+            is_bias_water_intervention=True,
+        )
+    ).trial
+    meta = TrialTableBuilder._bias_metadata(manual)
+    assert (
+        TrialTableBuilder._anti_bias_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=True
+        )
+        is False
+    )
+    assert (
+        TrialTableBuilder._anti_bias_water(
+            manual, meta, is_right=True, is_manual_go_cue_aligned_water=False
+        )
+        is True
+    )
+
+
+def test_valve_open_times_reads_write_messages_for_one_port():
+    """Only ``WRITE`` messages with the port's bit set are valve openings."""
+    output_set = pd.DataFrame(
+        {
+            "MessageType": ["WRITE", "READ", "WRITE", "WRITE"],
+            "SupplyPort0": [True, True, False, None],
+            "SupplyPort1": [False, False, True, True],
+        },
+        index=pd.Index([1.0, 2.0, 3.0, 4.0], name="timestamp"),
+    )
+    np.testing.assert_array_equal(
+        TrialTableBuilder._valve_open_times(output_set, "SupplyPort0"), np.array([1.0])
+    )
+    np.testing.assert_array_equal(
+        TrialTableBuilder._valve_open_times(output_set, "SupplyPort1"), np.array([3.0, 4.0])
+    )
+    # Absent stream or absent column yields no openings.
+    assert TrialTableBuilder._valve_open_times(None, "SupplyPort0").size == 0
+    assert TrialTableBuilder._valve_open_times(output_set, "SupplyPort9").size == 0
+
+
+def test_manual_go_cue_aligned_trials_resolves_events_to_their_delivery_trial():
+    """The event is attributed to the trial its water landed in.
+
+    The event fires mid-trial and the water lands at a later go cue, so the
+    event time alone does not identify the trial.
+    """
+    outcomes = _events([10.0, 20.0, 30.0], [None, None, None])
+    output_set = pd.DataFrame(
+        {"MessageType": ["WRITE"], "SupplyPort1": [True]},
+        index=pd.Index([20.5], name="timestamp"),
+    )
+    builder = TrialTableBuilder(
+        _Node(
+            {
+                "Behavior": _Node(
+                    {
+                        "HarpBehavior": _Node({"OutputSet": _Stream(output_set)}),
+                        "SoftwareEvents": _Node(
+                            {"RightManualAutoReward": _Stream(_events([15.0], [None]))}
+                        ),
+                    }
+                )
+            }
+        )
+    )
+    left, right = builder._manual_go_cue_aligned_trials(outcomes, output_set)
+    # Event at 15.0 (trial 1) -> delivery at 20.5, which falls in trial 2.
+    assert right == {2}
+    assert left == set()
+
+
+def test_manual_go_cue_aligned_trials_empty_without_trials_or_events():
+    """No trials, or no events, yields no flagged trials."""
+    builder = TrialTableBuilder(_Node({"Behavior": _Node({})}))
+    assert builder._manual_go_cue_aligned_trials(None, None) == (set(), set())
+    assert builder._manual_go_cue_aligned_trials(_events([], []), None) == (set(), set())
+    # Trials present but no ManualAutoReward streams at all.
+    assert builder._manual_go_cue_aligned_trials(_events([1.0], [None]), None) == (set(), set())
+
+
+def test_optional_stream_returns_none_when_absent_or_unloadable():
+    """An optional stream that is missing or fails to load is ``None``, not an error."""
+    builder = TrialTableBuilder(
+        _Node({"Behavior": _Node({"Broken": _FailedStream()})}), raise_on_error=True
+    )
+    assert builder._optional_stream("Behavior", "Missing") is None
+    assert builder._optional_stream("Behavior", "Broken") is None
+
+
 def test_auto_water_excludes_free_water_with_no_mechanism_flag():
     """Free water the metadata flags as neither mechanism is ``0`` on both columns."""
     unflagged = TrialOutcome.model_validate(
