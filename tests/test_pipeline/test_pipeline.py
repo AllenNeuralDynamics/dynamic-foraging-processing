@@ -312,6 +312,16 @@ def test_add_trials_derives_native_start_and_stop_from_periods():
     assert extents[1][0] == 1.0 and np.isnan(extents[1][1])
 
 
+def test_add_trials_describes_native_start_and_stop():
+    """The native start/stop columns describe their reference points."""
+    nwb_file = MagicMock()
+
+    Pipeline._add_trials(nwb_file, _trials_frame())
+
+    assert "quiescent_start_time" in nwb_file.trials.start_time.description
+    assert "ITI_stop_time" in nwb_file.trials.stop_time.description
+
+
 def test_add_trials_skips_frame_without_period_columns():
     """A table missing the columns the trial extent is derived from adds nothing."""
     nwb_file = MagicMock()

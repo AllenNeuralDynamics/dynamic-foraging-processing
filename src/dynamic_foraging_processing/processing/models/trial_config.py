@@ -25,40 +25,40 @@ class TrialConfig(BaseModel):
     # quiescent). No entry in the column-info JSON.
     quiescent_start_time: float = Field(
         description=(
-            "Start time of the quiescent period (QuiescentPeriod timestamp). The quiescent period is the lick-free delay preceding the go cue; each lick restarts it, so its realized duration can exceed the configured delay_duration."
+            "Start time (s) of the quiescent period (QuiescentPeriod timestamp). The quiescent period is the lick-free delay preceding the go cue; each lick restarts it, so its realized duration can exceed the configured delay_duration."
         ),
     )
     quiescent_stop_time: float = Field(
         description=(
-            "End time of the quiescent period, i.e. the start of the response period (ResponsePeriod timestamp); the go cue is played at this boundary."
+            "End time (s) of the quiescent period, i.e. the start of the response period (ResponsePeriod timestamp); the go cue is played at this boundary."
         ),
     )
     response_start_time: float = Field(
         description=(
-            "Start time of the response period (ResponsePeriod timestamp), when the go cue is played."
+            "Start time (s) of the response period (ResponsePeriod timestamp), when the go cue is played."
         ),
     )
     response_stop_time: float = Field(
         description=(
-            "End time of the response period, i.e. the start of the reward consumption period (RewardConsumptionPeriod timestamp). This is when the animal responded, or the response deadline for an ignored trial."
+            "End time (s) of the response period, i.e. the start of the reward consumption period (RewardConsumptionPeriod timestamp). This is when the animal responded, or the response deadline for an ignored trial."
         ),
     )
     reward_consumption_start_time: float = Field(
         description=(
-            "Start time of the reward consumption period (RewardConsumptionPeriod timestamp)."
+            "Start time (s) of the reward consumption period (RewardConsumptionPeriod timestamp)."
         ),
     )
     reward_consumption_stop_time: float = Field(
         description=(
-            "End time of the reward consumption period, i.e. the start of the inter-trial interval (ItiPeriod timestamp)."
+            "End time (s) of the reward consumption period, i.e. the start of the inter-trial interval (ItiPeriod timestamp)."
         ),
     )
     ITI_start_time: float = Field(
-        description="Start time of the inter-trial interval (ItiPeriod timestamp).",
+        description="Start time (s) of the inter-trial interval (ItiPeriod timestamp).",
     )
     ITI_stop_time: float = Field(
         description=(
-            "End time of the inter-trial interval, i.e. the start of the next trial's quiescent period (the following QuiescentPeriod timestamp). The last trial of the session has no following quiescent period, so it ends at the EndSession timestamp; NaN if that stream is unavailable."
+            "End time (s) of the inter-trial interval, i.e. the start of the next trial's quiescent period (the following QuiescentPeriod timestamp). The last trial of the session has no following quiescent period, so it ends at the EndSession timestamp; NaN if that stream is unavailable."
         ),
     )
 
@@ -83,10 +83,10 @@ class TrialConfig(BaseModel):
     delay_start_time: Optional[float] = Field(
         default=None,
         description=(
-            "Legacy name for the start of the quiescent period (QuiescentPeriod timestamp); the 'delay' of the legacy delay_* columns is the acquisition software's quiescent period, so this always equals quiescent_start_time."
+            "Legacy name for the start time (s) of the quiescent period (QuiescentPeriod timestamp); the 'delay' of the legacy delay_* columns is the acquisition software's quiescent period, so this always equals quiescent_start_time."
         ),
     )
-    goCue_start_time: Optional[float] = Field(default=None, description="The go cue start time")
+    goCue_start_time: Optional[float] = Field(default=None, description="The go cue start time (s)")
 
     # --- behavior_structure ---
     bait_left: bool = Field(
