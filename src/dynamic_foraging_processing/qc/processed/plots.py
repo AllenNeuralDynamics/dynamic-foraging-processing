@@ -168,6 +168,7 @@ def _legend_outside(ax: plt.Axes) -> None:
 def _add_bias_plot(
     ax: plt.Axes,
     side_bias: np.ndarray,
+    bias_threshold: t.Optional[float] = None,
     anti_bias_left_water: t.Optional[np.ndarray] = None,
     anti_bias_right_water: t.Optional[np.ndarray] = None,
     anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
@@ -178,12 +179,15 @@ def _add_bias_plot(
     interventions are drawn on top of the bias trace they respond to: water
     interventions as short ticks at the top (right port) and bottom (left
     port), and lickspout movements as triangles straddling the zero-bias line,
-    pointing (and coloured) in the direction the spout was moved.
+    pointing (and coloured) in the direction the spout was moved. The bias
+    magnitude at which the algorithm intervenes is drawn as dashed red lines at
+    ``±bias_threshold``, when known.
     """
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Side Bias")
-    ax.axhline(+0.7, color="r", linestyle="--")
-    ax.axhline(-0.7, color="r", linestyle="--")
+    if bias_threshold is not None:
+        ax.axhline(+bias_threshold, color="r", linestyle="--")
+        ax.axhline(-bias_threshold, color="r", linestyle="--")
     ax.axhline(0, color="k", linestyle="--")
     ax.set_ylim([-1, +1])
 
@@ -268,7 +272,8 @@ def _add_lickspout_position_plot(
     Trials where the spouts moved are marked with ticks along the bottom of the
     panel, split by who moved them: the anti-bias algorithm (same flag as the
     markers on the side-bias panel) versus the experimenter, which is any other
-    change in position.
+    change in position. Manual ticks are dashed so they stay distinguishable
+    from the solid automatic ticks.
     """
     ax.set_xlabel("Trial #")
     ax.set_ylabel("Lickspout Position \n relative to session start (mm)")
@@ -315,6 +320,7 @@ def _add_lickspout_position_plot(
             transform=transform,
             color="k",
             linewidth=1,
+            linestyles="dashed",
             label="Manual move",
         )
         plotted = True
@@ -476,6 +482,7 @@ def plot_side_bias(
     anti_bias_left_water: t.Optional[np.ndarray] = None,
     anti_bias_right_water: t.Optional[np.ndarray] = None,
     anti_bias_lickspout_movement: t.Optional[np.ndarray] = None,
+    bias_threshold: t.Optional[float] = None,
 ) -> str:
     """Save the four-panel side-bias figure.
 
@@ -511,6 +518,10 @@ def plot_side_bias(
         algorithm; nonzero trials are marked on the side-bias trace and ticked
         as automatic moves on the lickspout-position panel, where any other
         change in position is ticked as a manual move.
+    bias_threshold : float, optional
+        Side-bias magnitude at which the anti-bias algorithm intervenes, from
+        the curriculum's trainer state; drawn as dashed lines on the side-bias
+        panel. Omitted when ``None``.
 
     Returns
     -------
@@ -526,6 +537,7 @@ def plot_side_bias(
     _add_bias_plot(
         ax[0],
         side_bias,
+        bias_threshold=bias_threshold,
         anti_bias_left_water=anti_bias_left_water,
         anti_bias_right_water=anti_bias_right_water,
         anti_bias_lickspout_movement=anti_bias_lickspout_movement,

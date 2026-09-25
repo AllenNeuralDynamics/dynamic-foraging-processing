@@ -235,16 +235,23 @@ def lick_latency_by_side(
     return left_latency, right_latency
 
 
-def lick_latency_result(results_folder: t.Optional[str] = None) -> QCResult:
-    """Build the review-only first-lick-latency ``QCResult``.
+def lick_latency_result(
+    left_latency: np.ndarray,
+    right_latency: np.ndarray,
+    results_folder: t.Optional[str] = None,
+) -> QCResult:
+    """Build the first-lick-latency ``QCResult``.
 
-    A single review-only metric surfacing the lick-latency plot (per-side
-    first-lick latency after the go cue): there is no computed value
-    (``value=None``) and no automated pass/fail (``passed=None`` -> ``PENDING``).
-    Tagged ``type="Lick_Interval"`` so it groups with the lick-interval metrics.
+    The value is the fraction of first-lick latencies (both sides combined, the
+    same values as the lick-latency histogram) longer than 0.5 s after the go
+    cue. Tagged ``type="Lick_Interval"`` so it groups with the lick-interval
+    metrics.
 
     Parameters
     ----------
+    left_latency, right_latency : numpy.ndarray
+        Per-trial first-lick latencies (s) from :func:`lick_latency_by_side`;
+        ``nan`` entries are ignored.
     results_folder : str, optional
         Directory the lick-latency plot is written to; used to build the
         result's reference. When ``None``, the reference is the bare plot name.
@@ -252,14 +259,23 @@ def lick_latency_result(results_folder: t.Optional[str] = None) -> QCResult:
     Returns
     -------
     QCResult
-        The lick-latency result (``PENDING``, no value or auto pass/fail)
-        referencing the lick-latency plot.
+        Passes when fewer than half of the latencies exceed 0.5 s. Fails when
+        there are no latencies (value is ``nan``). References the lick-latency
+        plot.
     """
+    latencies = np.concatenate([left_latency, right_latency])
+    latencies = latencies[~np.isnan(latencies)]
+    if latencies.size == 0:
+        slow_fraction = float("nan")
+    else:
+        slow_fraction = round(float(np.mean(latencies > 0.5)), 3)
     return QCResult(
         name="Lick_Latency",
-        value=None,
-        passed=None,  # no automated pass/fail -> PENDING for manual review
-        description="First-lick latency (s) after the go cue, by side (review-only).",
+        value=slow_fraction,
+        passed=bool(slow_fraction < 0.5),  # nan comparisons are False -> fails
+        description=(
+            "Fraction of first-lick latencies > 0.5 s after the go cue; passes when < 0.5."
+        ),
         reference=_plot_reference(LICK_LATENCY_PLOT, results_folder),
         tags={"metric": "Lick_Latency", "type": "Lick_Interval"},
     )

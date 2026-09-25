@@ -197,7 +197,9 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
     class _FakeProcessedQC:
         """Processed QC stub returning one sentinel metric."""
 
-        def run(self, trials, left, right, results_folder, *, manual_left, manual_right):
+        def run(
+            self, trials, left, right, results_folder, *, manual_left, manual_right, bias_threshold
+        ):
             """Record args and return processed metrics."""
             captured["processed"] = {
                 "left": left,
@@ -205,14 +207,20 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
                 "results_folder": results_folder,
                 "manual_left": manual_left,
                 "manual_right": manual_right,
+                "bias_threshold": bias_threshold,
             }
             return ["proc1"]
 
+    trainer_state = object()
     monkeypatch.setattr(_pipeline, "RawQC", _FakeRawQC)
     monkeypatch.setattr(_pipeline, "ProcessedQC", _FakeProcessedQC)
     monkeypatch.setattr(_pipeline, "build_quality_control", lambda metrics: metrics)
+    monkeypatch.setattr(
+        _pipeline, "get_bias_threshold", lambda state: 0.5 if state is trainer_state else None
+    )
 
     pipeline = _make_pipeline()
+    pipeline._trainer_state = lambda: trainer_state
     trials = _trials_frame()
 
     result = pipeline._assemble_quality_control(
@@ -232,6 +240,24 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
     np.testing.assert_array_equal(
         captured["processed"]["manual_right"].go_cue_aligned, np.array([0.2])
     )
+    # The bias threshold is read from the session's trainer state.
+    assert captured["processed"]["bias_threshold"] == 0.5
+
+
+def test_trainer_state_loads_stream_or_none():
+    """The trainer state is the stream's data, or ``None`` when it failed to load."""
+    pipeline = _make_pipeline()
+    pipeline.loader.dataset = MagicMock()
+    node = pipeline.loader.dataset.at.return_value.at.return_value
+
+    node.has_data = True
+    assert pipeline._trainer_state() is node.data
+    node.load.assert_called_once_with()
+    pipeline.loader.dataset.at.assert_called_with("Behavior")
+    pipeline.loader.dataset.at.return_value.at.assert_called_with("TrainerState")
+
+    node.has_data = False
+    assert pipeline._trainer_state() is None
 
 
 def test_add_acquisition_series_builds_time_series():
@@ -310,6 +336,16 @@ def test_add_trials_derives_native_start_and_stop_from_periods():
     ]
     assert extents[0] == (0.0, 1.0)
     assert extents[1][0] == 1.0 and np.isnan(extents[1][1])
+
+
+def test_add_trials_describes_native_start_and_stop():
+    """The native start/stop columns describe their reference points."""
+    nwb_file = MagicMock()
+
+    Pipeline._add_trials(nwb_file, _trials_frame())
+
+    assert "quiescent_start_time" in nwb_file.trials.start_time.description
+    assert "ITI_stop_time" in nwb_file.trials.stop_time.description
 
 
 def test_add_trials_skips_frame_without_period_columns():

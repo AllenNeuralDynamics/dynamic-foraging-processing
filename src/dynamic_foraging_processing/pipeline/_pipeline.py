@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pynwb
+from aind_behavior_curriculum import TrainerState
 from aind_data_schema.components.identifiers import DataAsset
 from aind_data_schema.core.processing import (
     Code,
@@ -36,8 +37,9 @@ from aind_data_schema.core.processing import (
 )
 from aind_data_schema.core.quality_control import QualityControl
 from aind_nwb_utils.utils import create_base_nwb_file
-from hdmf.common import DynamicTable
+from hdmf.common import DynamicTable, VectorData
 from hdmf_zarr.nwb import NWBZarrIO
+from pynwb.epoch import TimeIntervals
 
 from dynamic_foraging_processing.nwb.acquisition import (
     AcquisitionBuilder,
@@ -48,6 +50,7 @@ from dynamic_foraging_processing.nwb.acquisition.acquisition_builder import Lick
 from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
 from dynamic_foraging_processing.qc import ProcessedQC, RawQC, build_quality_control
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
+from dynamic_foraging_processing.utils.curriculum import get_bias_threshold
 from dynamic_foraging_processing.utils.rewards import (
     MANUAL,
     MANUAL_GO_CUE_ALIGNED,
@@ -70,6 +73,10 @@ _NWB_START_COLUMN = "quiescent_start_time"
 #: is propagated rather than substituted, so an unknown trial end reads as
 #: unknown instead of as a shortened trial.
 _NWB_STOP_COLUMN = "ITI_stop_time"
+
+#: Descriptions of NWB's native trial ``start_time`` / ``stop_time``.
+_NWB_START_DESCRIPTION = f"Trial start (s): the quiescent period start ({_NWB_START_COLUMN})."
+_NWB_STOP_DESCRIPTION = f"Trial stop (s): the ITI end ({_NWB_STOP_COLUMN})."
 
 #: Source repository recorded in the ``processing.json`` data process.
 _CODE_URL = "https://github.com/AllenNeuralDynamics/dynamic-foraging-processing"
@@ -274,6 +281,14 @@ class Pipeline:
         required = (_NWB_START_COLUMN, _NWB_STOP_COLUMN)
         if trials.empty or any(col not in trials.columns for col in required):
             return
+        nwb_file.trials = TimeIntervals(
+            name="trials",
+            description="experimental trials",
+            columns=[
+                VectorData(name="start_time", description=_NWB_START_DESCRIPTION, data=[]),
+                VectorData(name="stop_time", description=_NWB_STOP_DESCRIPTION, data=[]),
+            ],
+        )
         descriptions = TrialConfig.column_descriptions()
         for column in trials.columns:
             nwb_file.add_trial_column(name=column, description=descriptions.get(column, column))
@@ -437,8 +452,15 @@ class Pipeline:
             results_folder,
             manual_left=manual_left,
             manual_right=manual_right,
+            bias_threshold=get_bias_threshold(self._trainer_state()),
         )
         return build_quality_control([*raw_metrics, *processed_metrics])
+
+    def _trainer_state(self) -> t.Optional[TrainerState]:
+        """Return the session's curriculum trainer state, or ``None`` if unavailable."""
+        node = self.loader.dataset.at("Behavior").at("TrainerState")
+        node.load()
+        return node.data if node.has_data else None
 
     # ------------------------------------------------------------------ #
     # Entry points (one per Code Ocean capsule)

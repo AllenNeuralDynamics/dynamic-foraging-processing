@@ -17,6 +17,7 @@ import pandas as pd
 from dynamic_foraging_processing.qc._core.result import QCResult
 from dynamic_foraging_processing.qc.processed.behavior import (
     lick_interval_results,
+    lick_latency_by_side,
     lick_latency_result,
     side_bias_result,
 )
@@ -70,6 +71,7 @@ def behavior_qc_results(
     *,
     manual_left: ManualWaterTimes = ManualWaterTimes(),
     manual_right: ManualWaterTimes = ManualWaterTimes(),
+    bias_threshold: t.Optional[float] = None,
 ) -> t.List[QCResult]:
     """Build the behavior QC results (side bias + lick intervals).
 
@@ -95,20 +97,25 @@ def behavior_qc_results(
         Left/right experimenter-water delivery timestamps (s), split into
         unaligned and go-cue-aligned; event-time arrays passed through to the
         side-bias figure.
+    bias_threshold : float, optional
+        Anti-bias intervention threshold drawn on the side-bias figure.
 
     Returns
     -------
     list of QCResult
         The average-side-bias result, the four lick-interval results, and the
-        review-only lick-latency result.
+        lick-latency result.
     """
     side_bias = _column(trials, "side_bias")
     go_cue_times = _column(trials, "go_cue_times")
     animal_response = _column(trials, "animal_response")
+    left_latency, right_latency = lick_latency_by_side(
+        go_cue_times, animal_response, left_lick_times, right_lick_times
+    )
     results = [
         side_bias_result(side_bias, results_folder),
         *lick_interval_results(left_lick_times, right_lick_times, results_folder),
-        lick_latency_result(results_folder),
+        lick_latency_result(left_latency, right_latency, results_folder),
     ]
     if results_folder is not None:
         plot_side_bias(
@@ -131,6 +138,7 @@ def behavior_qc_results(
             anti_bias_left_water=_column(trials, "anti_bias_left_water"),
             anti_bias_right_water=_column(trials, "anti_bias_right_water"),
             anti_bias_lickspout_movement=_column(trials, "anti_bias_lickspout_movement"),
+            bias_threshold=bias_threshold,
         )
         plot_lick_intervals(left_lick_times, right_lick_times, results_folder)
         plot_lick_latency(

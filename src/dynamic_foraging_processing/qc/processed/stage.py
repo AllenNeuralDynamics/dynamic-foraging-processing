@@ -29,6 +29,7 @@ class ProcessedQC(BaseQC):
         *,
         manual_left: ManualWaterTimes = ManualWaterTimes(),
         manual_right: ManualWaterTimes = ManualWaterTimes(),
+        bias_threshold: t.Optional[float] = None,
     ) -> t.List[QCMetric]:
         """Compute the behavior QC checks and return them as metrics.
 
@@ -49,6 +50,8 @@ class ProcessedQC(BaseQC):
         manual_left, manual_right : ManualWaterTimes, optional
             Left/right experimenter-water delivery timestamps, split into
             unaligned and go-cue-aligned, passed through to the side-bias figure.
+        bias_threshold : float, optional
+            Anti-bias intervention threshold drawn on the side-bias figure.
 
         Returns
         -------
@@ -63,5 +66,6 @@ class ProcessedQC(BaseQC):
             results_folder,
             manual_left=manual_left,
             manual_right=manual_right,
+            bias_threshold=bias_threshold,
         )
         return to_metrics(results)
