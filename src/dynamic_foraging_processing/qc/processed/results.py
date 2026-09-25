@@ -17,6 +17,7 @@ import pandas as pd
 from dynamic_foraging_processing.qc._core.result import QCResult
 from dynamic_foraging_processing.qc.processed.behavior import (
     lick_interval_results,
+    lick_latency_by_side,
     lick_latency_result,
     side_bias_result,
 )
@@ -100,15 +101,18 @@ def behavior_qc_results(
     -------
     list of QCResult
         The average-side-bias result, the four lick-interval results, and the
-        review-only lick-latency result.
+        lick-latency result.
     """
     side_bias = _column(trials, "side_bias")
     go_cue_times = _column(trials, "go_cue_times")
     animal_response = _column(trials, "animal_response")
+    left_latency, right_latency = lick_latency_by_side(
+        go_cue_times, animal_response, left_lick_times, right_lick_times
+    )
     results = [
         side_bias_result(side_bias, results_folder),
         *lick_interval_results(left_lick_times, right_lick_times, results_folder),
-        lick_latency_result(results_folder),
+        lick_latency_result(left_latency, right_latency, results_folder),
     ]
     if results_folder is not None:
         plot_side_bias(

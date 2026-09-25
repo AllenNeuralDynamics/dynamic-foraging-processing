@@ -110,16 +110,31 @@ def test_lick_latency_by_side_none_inputs_return_empty():
     assert left.size == 0 and right.size == 0
 
 
-def test_lick_latency_result_is_pending_review_only():
-    """The single latency result is review-only: no value, PENDING, plot ref."""
-    result = _behavior.lick_latency_result("/data/my_results")
+def test_lick_latency_result_passes_when_most_licks_are_fast():
+    """Value is the fraction of latencies > 0.5 s across both sides, nan ignored."""
+    left = np.array([0.1, np.nan, 0.8])
+    right = np.array([np.nan, 0.2, 0.3])
+    result = _behavior.lick_latency_result(left, right, "/data/my_results")
     assert result.name == "Lick_Latency"
-    # No computed value yet, and no automated pass/fail (renders as PENDING).
-    assert result.value is None
-    assert result.passed is None
+    assert result.value == 0.25
+    assert result.passed is True
     assert result.reference == f"my_results/{_behavior.LICK_LATENCY_PLOT}"
     # Tagged Lick_Interval so it groups with the lick-interval metrics.
     assert result.tags == {"metric": "Lick_Latency", "type": "Lick_Interval"}
+
+
+def test_lick_latency_result_fails_when_most_licks_are_slow():
+    """Half or more latencies > 0.5 s fails."""
+    result = _behavior.lick_latency_result(np.array([0.6, 0.1]), np.array([0.9]))
+    assert result.value == pytest.approx(0.667)
+    assert result.passed is False
+
+
+def test_lick_latency_result_fails_without_latencies():
+    """No (non-nan) latencies yields a nan value and fails."""
+    result = _behavior.lick_latency_result(np.array([np.nan]), np.empty(0))
+    assert np.isnan(result.value)
+    assert result.passed is False
 
 
 def test_reference_includes_results_folder_name():
