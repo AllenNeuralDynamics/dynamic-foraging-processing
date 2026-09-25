@@ -133,6 +133,25 @@ def test_add_lickspout_position_plot_splits_automatic_and_manual_moves():
     labels = [text.get_text() for text in ax.get_legend().get_texts()]
     assert "Automatic move" in labels
     assert "Manual move" in labels
+    # Manual ticks are dashed so they stand apart from the solid automatic ticks.
+    ticks = {c.get_label(): c for c in ax.collections}
+    assert ticks["Automatic move"].get_linestyle()[0][1] is None
+    assert ticks["Manual move"].get_linestyle()[0][1] is not None
+    plt.close(fig)
+
+
+def test_add_bias_plot_draws_threshold_lines_only_when_known():
+    """Threshold lines sit at ±threshold; without one only the zero line is drawn."""
+    fig, ax = plt.subplots()
+    _plots._add_bias_plot(ax, np.array([0.1, -0.2]), bias_threshold=0.5)
+    levels = sorted(line.get_ydata()[0] for line in ax.get_lines() if line.get_linestyle() == "--")
+    assert levels == [-0.5, 0.0, 0.5]
+    plt.close(fig)
+
+    fig, ax = plt.subplots()
+    _plots._add_bias_plot(ax, np.array([0.1, -0.2]))
+    levels = [line.get_ydata()[0] for line in ax.get_lines() if line.get_linestyle() == "--"]
+    assert levels == [0.0]
     plt.close(fig)
 
 

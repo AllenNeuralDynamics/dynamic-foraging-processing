@@ -71,6 +71,7 @@ def behavior_qc_results(
     *,
     manual_left: ManualWaterTimes = ManualWaterTimes(),
     manual_right: ManualWaterTimes = ManualWaterTimes(),
+    bias_threshold: t.Optional[float] = None,
 ) -> t.List[QCResult]:
     """Build the behavior QC results (side bias + lick intervals).
 
@@ -96,6 +97,8 @@ def behavior_qc_results(
         Left/right experimenter-water delivery timestamps (s), split into
         unaligned and go-cue-aligned; event-time arrays passed through to the
         side-bias figure.
+    bias_threshold : float, optional
+        Anti-bias intervention threshold drawn on the side-bias figure.
 
     Returns
     -------
@@ -135,6 +138,7 @@ def behavior_qc_results(
             anti_bias_left_water=_column(trials, "anti_bias_left_water"),
             anti_bias_right_water=_column(trials, "anti_bias_right_water"),
             anti_bias_lickspout_movement=_column(trials, "anti_bias_lickspout_movement"),
+            bias_threshold=bias_threshold,
         )
         plot_lick_intervals(left_lick_times, right_lick_times, results_folder)
         plot_lick_latency(

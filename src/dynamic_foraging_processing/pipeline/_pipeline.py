@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pynwb
+from aind_behavior_curriculum import TrainerState
 from aind_data_schema.components.identifiers import DataAsset
 from aind_data_schema.core.processing import (
     Code,
@@ -49,6 +50,7 @@ from dynamic_foraging_processing.nwb.acquisition.acquisition_builder import Lick
 from dynamic_foraging_processing.processing import TrialConfig, TrialTableBuilder
 from dynamic_foraging_processing.qc import ProcessedQC, RawQC, build_quality_control
 from dynamic_foraging_processing.raw_data_loader import RawDataLoader
+from dynamic_foraging_processing.utils.curriculum import get_bias_threshold
 from dynamic_foraging_processing.utils.rewards import (
     MANUAL,
     MANUAL_GO_CUE_ALIGNED,
@@ -450,8 +452,15 @@ class Pipeline:
             results_folder,
             manual_left=manual_left,
             manual_right=manual_right,
+            bias_threshold=get_bias_threshold(self._trainer_state()),
         )
         return build_quality_control([*raw_metrics, *processed_metrics])
+
+    def _trainer_state(self) -> t.Optional[TrainerState]:
+        """Return the session's curriculum trainer state, or ``None`` if unavailable."""
+        node = self.loader.dataset.at("Behavior").at("TrainerState")
+        node.load()
+        return node.data if node.has_data else None
 
     # ------------------------------------------------------------------ #
     # Entry points (one per Code Ocean capsule)
