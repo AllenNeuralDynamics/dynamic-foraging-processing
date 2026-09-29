@@ -970,7 +970,12 @@ def test_manual_go_cue_aligned_trials_resolves_events_to_their_delivery_trial():
     The event fires mid-trial and the water lands at a later go cue, so the
     event time alone does not identify the trial.
     """
-    outcomes = _events([10.0, 20.0, 30.0], [None, None, None])
+    no_water = _outcome(1.0, 1.0, is_right_choice=None, is_rewarded=False)
+    free_right = _outcome(
+        1.0, 1.0, is_right_choice=None, is_rewarded=False, auto=True, is_autowater=True
+    )
+    outcomes = _events([10.0, 20.0, 30.0], [no_water, no_water, free_right])
+    go_cue_times = np.array([2.0, 12.0, 20.5])
     output_set = pd.DataFrame(
         {"MessageType": ["WRITE"], "SupplyPort1": [True]},
         index=pd.Index([20.5], name="timestamp"),
@@ -989,8 +994,8 @@ def test_manual_go_cue_aligned_trials_resolves_events_to_their_delivery_trial():
             }
         )
     )
-    left, right = builder._manual_go_cue_aligned_trials(outcomes, output_set)
-    # Event at 15.0 (trial 1) -> delivery at 20.5, which falls in trial 2.
+    left, right = builder._manual_go_cue_aligned_trials(outcomes, output_set, go_cue_times)
+    # Event at 15.0 (trial 1) -> free water at trial 2's go cue (20.5).
     assert right == {2}
     assert left == set()
 
@@ -998,10 +1003,12 @@ def test_manual_go_cue_aligned_trials_resolves_events_to_their_delivery_trial():
 def test_manual_go_cue_aligned_trials_empty_without_trials_or_events():
     """No trials, or no events, yields no flagged trials."""
     builder = TrialTableBuilder(_Node({"Behavior": _Node({})}))
-    assert builder._manual_go_cue_aligned_trials(None, None) == (set(), set())
-    assert builder._manual_go_cue_aligned_trials(_events([], []), None) == (set(), set())
+    no_cues = np.array([])
+    assert builder._manual_go_cue_aligned_trials(None, None, no_cues) == (set(), set())
+    assert builder._manual_go_cue_aligned_trials(_events([], []), None, no_cues) == (set(), set())
     # Trials present but no ManualAutoReward streams at all.
-    assert builder._manual_go_cue_aligned_trials(_events([1.0], [None]), None) == (set(), set())
+    trials = _events([1.0], [None])
+    assert builder._manual_go_cue_aligned_trials(trials, None, no_cues) == (set(), set())
 
 
 def test_optional_stream_returns_none_when_absent_or_unloadable():

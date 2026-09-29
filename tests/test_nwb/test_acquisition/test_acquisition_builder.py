@@ -57,7 +57,7 @@ def _make_output_set_frame() -> pd.DataFrame:
     )
 
 
-def _outcome_payload(auto) -> dict:
+def _outcome_payload(auto, *, choice=True) -> dict:
     """Return a serialized ``TrialOutcome`` payload with the given auto-response.
 
     Free water is flagged as scheduled autowater in ``metadata.extra`` so the
@@ -74,16 +74,24 @@ def _outcome_payload(auto) -> dict:
             "is_auto_reward_right": auto,
             "metadata": {"extra": {"is_autowater": auto is not None}},
         },
-        "is_right_choice": True,
+        "is_right_choice": choice,
         "is_rewarded": True,
     }
 
 
 def _make_trial_outcome_frame() -> pd.DataFrame:
-    """Two trials: an earned trial at 0.1 and an auto-response trial at 0.4."""
+    """Two trials: a rewarded left choice ending at 0.1, right autowater ending at 0.4."""
     return pd.DataFrame(
-        {"data": [_outcome_payload(None), _outcome_payload(True)]},
+        {"data": [_outcome_payload(None, choice=False), _outcome_payload(True)]},
         index=pd.Index([0.1, 0.4], name="time"),
+    )
+
+
+def _make_go_cue_frame() -> pd.DataFrame:
+    """Sound-card go cues at 0.05 and 0.3, plus a ``READ`` row that is not a go cue."""
+    return pd.DataFrame(
+        {"MessageType": ["WRITE", "READ", "WRITE"]},
+        index=pd.Index([0.05, 0.2, 0.3], name="time"),
     )
 
 
@@ -137,6 +145,9 @@ def _make_dataset(**manual_water_streams):
                             "DigitalInputState": _FakeStream(_make_digital_input_frame()),
                         }
                     ),
+                    "HarpSoundCard": _FakeNode(
+                        {"PlaySoundOrFrequency": _FakeStream(_make_go_cue_frame())}
+                    ),
                     "SoftwareEvents": _FakeNode(
                         {
                             "TrialOutcome": _FakeStream(_make_trial_outcome_frame()),
@@ -179,6 +190,13 @@ def test_get_valve_writes_filters_to_write_messages():
 
     assert list(result["MessageType"]) == ["WRITE", "WRITE", "WRITE"]
     assert list(result.index) == [0.1, 0.3, 0.5]
+
+
+def test_get_go_cue_times_returns_sorted_write_messages():
+    """Only the sound card's ``WRITE`` messages are go cues."""
+    builder = AcquisitionBuilder(loader=_make_loader())
+
+    np.testing.assert_array_equal(builder.get_go_cue_times(), np.array([0.05, 0.3]))
 
 
 def test_get_manual_water_times_selects_streams_by_side():
@@ -264,10 +282,7 @@ def test_get_lick_times_returns_empty_when_absent():
 
 def test_build_acquisition_returns_populated_list():
     """``build_acquisition`` returns the table plus reward and lick port series."""
-    # A right-side manual-water event near the second right delivery.
-    builder = AcquisitionBuilder(
-        loader=_make_loader(_make_dataset(RightManualWater=_manual_water_frame(0.49)))
-    )
+    builder = AcquisitionBuilder(loader=_make_loader())
 
     acquisition = builder.build_acquisition()
 
@@ -279,7 +294,7 @@ def test_build_acquisition_returns_populated_list():
     assert table.name == "Behavior.RawStream"
     assert table.description == "raw stream desc"
 
-    # Left reward: one valve-open delivery, earned (no auto-response, no left manual).
+    # Left reward: the rewarded left choice's delivery, after trial 0's go cue.
     assert isinstance(left_reward, AcquisitionSeries)
     np.testing.assert_array_equal(left_reward.timestamps, np.array([0.1]))
     np.testing.assert_array_equal(left_reward.data, np.array(["earned"]))
@@ -287,8 +302,8 @@ def test_build_acquisition_returns_populated_list():
     assert left_reward.unit == "second"
     assert "left lick port" in left_reward.description
 
-    # Right reward: two deliveries. Both nearest the auto-response trial (0.4);
-    # the second is overridden to manual by the right-side manual-water event.
+    # Right reward: autowater at trial 1's go cue (0.3) is auto; the later opening
+    # at 0.5 is not the task's delivery, so it is manual.
     assert isinstance(right_reward, AcquisitionSeries)
     np.testing.assert_array_equal(right_reward.timestamps, np.array([0.3, 0.5]))
     np.testing.assert_array_equal(right_reward.data, np.array(["auto", "manual"]))
@@ -308,24 +323,24 @@ def test_build_acquisition_returns_populated_list():
 
 
 def test_build_acquisition_annotates_manual_auto_reward_separately():
-    """Manual go-cue-aligned water is its own label, on its own side.
+    """A ``ManualAutoReward`` request claims the next free water on its own port.
 
-    The left stream must not reach the right series: the side is carried by the
-    stream name now, so a left event near a right delivery is not that delivery's.
+    The right request claims trial 1's autowater. The left request finds no left
+    free water after it, so the left earned delivery is untouched.
     """
     builder = AcquisitionBuilder(
         loader=_make_loader(
             _make_dataset(
-                RightManualAutoReward=_manual_water_frame(0.49),
-                LeftManualWater=_manual_water_frame(0.1),
+                RightManualAutoReward=_manual_water_frame(0.2),
+                LeftManualAutoReward=_manual_water_frame(0.2),
             )
         )
     )
 
     _, left_reward, right_reward, _, _ = builder.build_acquisition()
 
-    np.testing.assert_array_equal(left_reward.data, np.array(["manual"]))
-    np.testing.assert_array_equal(right_reward.data, np.array(["auto", "manual_go_cue_aligned"]))
+    np.testing.assert_array_equal(left_reward.data, np.array(["earned"]))
+    np.testing.assert_array_equal(right_reward.data, np.array(["manual_go_cue_aligned", "manual"]))
 
 
 def test_build_acquisition_defaults_none_description_to_empty_string():
