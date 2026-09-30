@@ -49,7 +49,7 @@ def test_side_bias_result_pass_and_fail():
     assert passing.passed is True
     assert passing.value == pytest.approx(0.0)
     assert passing.reference == _behavior.SIDE_BIAS_PLOT
-    assert passing.tags == {"type": "Average_Side_Bias"}
+    assert passing.tags == {"type": "Side Bias", "group": "Side Bias"}
 
     failing = _behavior.side_bias_result(np.array([0.8, 0.9, 1.0]))
     assert failing.passed is False
@@ -75,7 +75,7 @@ def test_lick_interval_results_names_and_count():
         "Artifact Percent (%)",
     ]
     assert all(r.reference == _behavior.LICK_INTERVALS_PLOT for r in results)
-    assert all(r.tags == {"metric": r.name, "type": "Lick_Interval"} for r in results)
+    assert all(r.tags == {"type": "Licking", "group": "Lick Intervals"} for r in results)
 
 
 def test_first_lick_latency_after_go_cue_and_none():
@@ -119,8 +119,8 @@ def test_lick_latency_result_passes_when_most_licks_are_fast():
     assert result.value == 0.25
     assert result.passed is True
     assert result.reference == f"my_results/{_behavior.LICK_LATENCY_PLOT}"
-    # Tagged Lick_Interval so it groups with the lick-interval metrics.
-    assert result.tags == {"metric": "Lick_Latency", "type": "Lick_Interval"}
+    # Tagged Licking so it sits next to the lick-interval metrics.
+    assert result.tags == {"type": "Licking", "group": "Lick Latency"}
 
 
 def test_lick_latency_result_fails_when_most_licks_are_slow():

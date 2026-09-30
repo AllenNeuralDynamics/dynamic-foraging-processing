@@ -4,7 +4,10 @@ The dynamic foraging contract QA (Harp devices, cameras, CSV streams, the data
 contract, and task-specific checks) is provided by
 ``aind_behavior_dynamic_foraging.data_qc.make_qc_runner``. This module runs that
 runner over a dataset and maps each ``contraqctor`` ``Result`` onto a schema
-``QCMetric``, tagged so the QC portal groups them under ``test_suite``.
+``QCMetric`` named after its test and tagged with exactly the
+``default_grouping`` keys: ``type`` :data:`QC_TYPE` (the QC portal's top-level
+group) and ``group`` (the device or stream being checked), so each metric is
+uniquely identified by name + tags.
 """
 
 import re
@@ -18,6 +21,9 @@ from aind_data_schema_models.modalities import Modality
 from contraqctor import contract, qc
 
 from dynamic_foraging_processing.qc._core.schema import STATUS_CONVERTER, now_utc, to_builtin
+
+#: ``type`` tag shared by all contract QC metrics (their QC portal group).
+QC_TYPE = "Harp QC Suite"
 
 #: Group value used when a runner result has no group.
 NO_GROUP = "NoGroup"
@@ -82,25 +88,27 @@ def results_to_metrics(
     Returns
     -------
     list of QCMetric
-        One metric per result, tagged ``{"test_suite": suite, suite: group}``.
+        One metric per result, named after the test and tagged
+        ``{"type": QC_TYPE, "group": group}``.
 
     Examples
     --------
     The dynamic foraging runner produces results grouped roughly like::
 
         {
-            "Data contract": [<ContractTestSuite results>],
+            "HarpBehavior": [<HarpDeviceTestSuite results>],
+            "HarpLickometerRight": [<HarpDeviceTestSuite results>],
             "HarpHub": [<HarpHubTestSuite results>],
-            "HarpLickometerRight": [<HarpLicketySplitTestSuite results>],
             "DynamicForaging": [<DynamicForagingQcSuite results>],
         }
 
-    Each result becomes a metric named ``"<suite_name>::<test_name>"`` tagged
-    with both its suite and group, e.g. a ``ContractTestSuite`` result in the
-    ``"Data contract"`` group yields::
+    The same suite (and so the same test names) runs once per device, so the
+    metric name is just the test name and the group goes in the tags (the group
+    implies the suite), e.g. a ``HarpDeviceTestSuite`` result in the
+    ``"HarpBehavior"`` group yields::
 
-        name = "ContractTestSuite::test_no_load_errors"
-        tags = {"test_suite": "ContractTestSuite", "ContractTestSuite": "Data contract"}
+        name = "test_has_whoami"
+        tags = {"type": "Harp QC Suite", "group": "HarpBehavior"}
     """
     metrics: t.List[QCMetric] = []
     for group, group_results in results.items():
@@ -113,14 +121,14 @@ def results_to_metrics(
             )
             metrics.append(
                 QCMetric(
-                    name=f"{result.suite_name}::{result.test_name}",
+                    name=result.test_name,
                     modality=Modality.BEHAVIOR,
                     stage=Stage.RAW,
                     value=to_builtin(result.result),
                     status_history=[status],
                     description=f"Test: {result.description} // Message: {result.message}",
                     reference=_save_asset(result, results_folder),
-                    tags={"test_suite": result.suite_name, result.suite_name: group_name},
+                    tags={"type": QC_TYPE, "group": group_name},
                 )
             )
     return metrics
