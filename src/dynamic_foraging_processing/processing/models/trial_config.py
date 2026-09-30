@@ -228,19 +228,19 @@ class TrialConfig(BaseModel):
     # --- lickspout_position (mapping's `lickspout_positions` -> these four components) ---
     lickspout_position_x: Optional[float] = Field(
         default=None,
-        description="x lickspout position (mm), relative to session start (left-right)",
+        description="x lickspout position (mm), absolute manipulator coordinates (left-right)",
     )
     lickspout_position_y1: Optional[float] = Field(
         default=None,
-        description="y1 left lickspout position (mm), relative to session start (forward-backward)",
+        description="y1 left lickspout position (mm), absolute manipulator coordinates (forward-backward)",
     )
     lickspout_position_y2: Optional[float] = Field(
         default=None,
-        description="y2 right lickspout position (mm), relative to session start (forward-backward)",
+        description="y2 right lickspout position (mm), absolute manipulator coordinates (forward-backward)",
     )
     lickspout_position_z: Optional[float] = Field(
         default=None,
-        description="z lickspout position (mm), relative to session start (up-down)",
+        description="z lickspout position (mm), absolute manipulator coordinates (up-down)",
     )
 
     @classmethod

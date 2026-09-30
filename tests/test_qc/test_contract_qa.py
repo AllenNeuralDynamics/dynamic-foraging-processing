@@ -65,7 +65,7 @@ def test_results_to_metrics_grouping_and_status(tmp_path):
     """Results convert to tagged metrics; missing group becomes ``NoGroup``."""
     fig = plt.figure()
     results = {
-        "Data contract": [
+        "HubDevice": [
             _result(cqc.Status.WARNING, suite="HubSuite", test="t1", context={"asset": fig})
         ],
         None: [_result(cqc.Status.FAILED, suite="CamSuite", test="t2")],
@@ -74,15 +74,33 @@ def test_results_to_metrics_grouping_and_status(tmp_path):
     plt.close(fig)
 
     by_name = {m.name: m for m in metrics}
-    warn = by_name["HubSuite::t1"]
+    warn = by_name["t1"]
     assert warn.status_history[0].status == "Pending"
-    assert warn.tags == {"test_suite": "HubSuite", "HubSuite": "Data contract"}
+    assert warn.tags == {
+        "type": _contract_qa.QC_TYPE,
+        "group": "HubDevice",
+    }
     assert warn.reference == f"{tmp_path.name}/HubSuite_t1.png"
 
-    fail = by_name["CamSuite::t2"]
+    fail = by_name["t2"]
     assert fail.status_history[0].status == "Fail"
-    assert fail.tags == {"test_suite": "CamSuite", "CamSuite": _contract_qa.NO_GROUP}
+    assert fail.tags == {
+        "type": _contract_qa.QC_TYPE,
+        "group": _contract_qa.NO_GROUP,
+    }
     assert fail.reference is None
+
+
+def test_results_to_metrics_same_suite_across_devices_is_unique():
+    """A suite run per device yields same-named metrics told apart by ``group``."""
+    results = {
+        "HarpBehavior": [_result(cqc.Status.PASSED, suite="HarpDeviceTestSuite", test="t")],
+        "HarpLickometer": [_result(cqc.Status.PASSED, suite="HarpDeviceTestSuite", test="t")],
+    }
+    metrics = _contract_qa.results_to_metrics(results)
+    keys = {(m.name, tuple(sorted(m.tags.items()))) for m in metrics}
+    assert len(keys) == len(metrics) == 2
+    assert {m.tags["group"] for m in metrics} == {"HarpBehavior", "HarpLickometer"}
 
 
 def test_contract_qc_metrics_uses_runner(monkeypatch, tmp_path):
@@ -97,5 +115,5 @@ def test_contract_qc_metrics_uses_runner(monkeypatch, tmp_path):
 
     monkeypatch.setattr(_contract_qa, "make_qc_runner", lambda dataset: _FakeRunner())
     metrics = _contract_qa.contract_qc_metrics(dataset=object(), results_folder=str(tmp_path))
-    assert [m.name for m in metrics] == ["S::t"]
+    assert [m.name for m in metrics] == ["t"]
     assert metrics[0].status_history[0].status == "Pass"

@@ -399,13 +399,13 @@ def test_build_full_dataset():
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
     # Lickspout positions from AccumulatedSteps (microsteps * 0.00125 mm),
-    # sampled at each trial start and re-referenced to session start. The first
-    # sample is the baseline (all zero); x then moves +5.0 mm for the second trial.
-    assert first["lickspout_position_x"] == 0.0
-    assert first["lickspout_position_y1"] == 0.0
-    assert first["lickspout_position_y2"] == 0.0
-    assert first["lickspout_position_z"] == 0.0
-    assert second["lickspout_position_x"] == 5.0
+    # sampled at each trial start, in absolute manipulator coordinates (not
+    # re-referenced to session start); x then moves +5.0 mm for the second trial.
+    assert first["lickspout_position_x"] == 10.0
+    assert first["lickspout_position_y1"] == 2.0
+    assert first["lickspout_position_y2"] == 3.0
+    assert first["lickspout_position_z"] == 5.0
+    assert second["lickspout_position_x"] == 15.0
 
     # Per-trial reward volumes (uL) from trial.reward_size; second trial uses the default.
     assert first["reward_size_left"] == 2.0
@@ -1247,16 +1247,16 @@ def test_manipulator_mm_per_step_missing_axis_raises():
         builder._manipulator_mm_per_step(rig)
 
 
-def test_manipulator_positions_converts_steps_to_mm_relative_to_start():
-    """EVENT rows convert to mm and are re-referenced to the session-start sample."""
+def test_manipulator_positions_converts_steps_to_absolute_mm():
+    """EVENT rows convert to absolute mm, not re-referenced to the session start."""
     builder = TrialTableBuilder(_Node({}))
     steps = _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)])
     positions = builder._manipulator_positions(steps, _rig())
     assert list(positions.index) == [8.0, 15.0]
-    # First sample is the baseline (zeroed); x then moves +5.0 mm (4000 steps).
-    assert positions.loc[8.0, "lickspout_position_x"] == 0.0
-    assert positions.loc[15.0, "lickspout_position_x"] == 5.0
-    assert positions.loc[8.0, "lickspout_position_z"] == 0.0
+    # The first sample keeps its absolute position; x then moves +5.0 mm (4000 steps).
+    assert positions.loc[8.0, "lickspout_position_x"] == 10.0
+    assert positions.loc[15.0, "lickspout_position_x"] == 15.0
+    assert positions.loc[8.0, "lickspout_position_z"] == 5.0
 
 
 def test_manipulator_positions_filters_non_event_rows():
@@ -1300,7 +1300,7 @@ def test_manipulator_positions_incomplete_calibration_raises():
 
 
 def _two_sample_positions(builder):
-    """Build a position frame relative to session start: t=8.0 (x=0.0), t=15.0 (x=5.0)."""
+    """Build an absolute position frame: t=8.0 (x=10.0), t=15.0 (x=15.0)."""
     return builder._manipulator_positions(
         _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)]),
         _rig(),
@@ -1311,10 +1311,10 @@ def test_sample_lickspout_picks_sample_nearest_start_in_window():
     """A trial takes the in-window sample nearest its start."""
     builder = TrialTableBuilder(_Node({}))
     positions = _two_sample_positions(builder)
-    # Window [7.0, 12.0) contains only the t=8.0 baseline sample (0.0).
-    assert builder._sample_lickspout(positions, 7.0, 12.0)["lickspout_position_x"] == 0.0
-    # Window [14.0, 20.0) contains only the t=15.0 sample (+5.0 mm).
-    assert builder._sample_lickspout(positions, 14.0, 20.0)["lickspout_position_x"] == 5.0
+    # Window [7.0, 12.0) contains only the t=8.0 sample (x=10.0).
+    assert builder._sample_lickspout(positions, 7.0, 12.0)["lickspout_position_x"] == 10.0
+    # Window [14.0, 20.0) contains only the t=15.0 sample (x=15.0).
+    assert builder._sample_lickspout(positions, 14.0, 20.0)["lickspout_position_x"] == 15.0
 
 
 def test_sample_lickspout_no_sample_in_window_is_null():
