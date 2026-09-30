@@ -140,6 +140,22 @@ def test_add_lickspout_position_plot_splits_automatic_and_manual_moves():
     plt.close(fig)
 
 
+def test_add_lickspout_position_plot_is_relative_to_session_start():
+    """Absolute positions are drawn relative to each axis's first recorded value."""
+    fig, ax = plt.subplots()
+    _plots._add_lickspout_position_plot(
+        ax,
+        np.array([np.nan, 14.3, 14.3, 14.15]),  # first trial has no sample
+        None,
+        None,
+        np.array([np.nan, np.nan]),  # never sampled -> drawn as-is
+    )
+    x, z = (line.get_ydata() for line in ax.get_lines())
+    np.testing.assert_allclose(x, [np.nan, 0.0, 0.0, -0.15])
+    assert np.isnan(z).all()
+    plt.close(fig)
+
+
 def test_add_bias_plot_draws_threshold_lines_only_when_known():
     """Threshold lines sit at ±threshold; without one only the zero line is drawn."""
     fig, ax = plt.subplots()
