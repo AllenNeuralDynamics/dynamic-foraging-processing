@@ -825,15 +825,16 @@ class TrialTableBuilder:
         accumulated_steps: pd.DataFrame,
         rig: AindDynamicForagingRig,
     ) -> pd.DataFrame:
-        """Return a time-indexed frame of lickspout position (mm) over the session.
+        """Return a time-indexed frame of absolute lickspout position (mm).
 
         Built from the ``HarpManipulator`` ``AccumulatedSteps`` stream: each
         ``EVENT`` row's per-motor microstep count is converted to millimetres via
         the rig calibration. ``AccumulatedSteps`` is absolute (zero-referenced at
         the homing position), so the count maps directly to position with no
-        offset. The frame is then re-referenced to the session start (the first
-        sample subtracted from every row), so the stored values are displacement
-        *relative to session start* — the units the QC plot expects.
+        offset. The values are left in that frame — the same one as the
+        ``InitialManipulatorPosition`` / ``FinalManipulatorPosition`` software
+        events and the rig's ``initial_position`` — so positions are comparable
+        across sessions.
 
         Parameters
         ----------
@@ -848,7 +849,7 @@ class TrialTableBuilder:
         -------
         pandas.DataFrame
             Columns ``lickspout_position_x`` / ``y1`` / ``y2`` / ``z`` indexed by
-            time (sorted ascending), relative to the session-start position.
+            time (sorted ascending), in absolute manipulator coordinates.
 
         Raises
         ------
@@ -876,10 +877,7 @@ class TrialTableBuilder:
             columns[f"lickspout_position_{axis}"] = (
                 events[motor].to_numpy(dtype=float) * mm_per_step[axis]
             )
-        positions = pd.DataFrame(columns, index=events.index)
-        # Re-reference to session start so the stored values are displacement
-        # from the first sample (previously done in the plot as ``values[0]``).
-        return positions - positions.iloc[0]
+        return pd.DataFrame(columns, index=events.index)
 
     def _sample_lickspout(
         self, positions: pd.DataFrame, start: float, stop: float
