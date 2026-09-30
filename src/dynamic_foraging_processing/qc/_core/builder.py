@@ -2,21 +2,24 @@
 
 Collects a flat list of metrics (behavior + contract QC) into a single
 ``QualityControl``, wiring up ``default_grouping`` so the QC portal groups
-metrics by their ``type`` and ``test_suite`` tags.
+metrics by their ``type`` tag ("Harp QC Suite", "Side Bias", "Licking") and
+then by ``group``.
 """
 
 import typing as t
 
 from aind_data_schema.core.quality_control import QCMetric, QualityControl
 
-#: Tag keys laid out as siblings at the top level of the QC portal.
-DEFAULT_GROUPING = [("type", "test_suite")]
+#: Split on ``type`` ("Harp QC Suite", "Side Bias", "Licking"), then ``group``
+#: (device/stream for contract QC, plot for behavior QC). Every metric carries
+#: exactly these two tag keys, so the portal can build the tree.
+DEFAULT_GROUPING = ["type", "group"]
 
 
 def build_quality_control(
     metrics: t.List[QCMetric],
     *,
-    default_grouping: t.Optional[t.List[str]] = None,
+    default_grouping: t.Optional[t.List[t.Union[str, t.Tuple[str, ...]]]] = None,
     allow_tag_failures: t.Optional[t.List[str]] = None,
     key_experimenters: t.Optional[t.List[str]] = None,
     notes: t.Optional[str] = None,
@@ -27,8 +30,9 @@ def build_quality_control(
     ----------
     metrics : list of QCMetric
         All metrics (behavior + contract QC).
-    default_grouping : list of str, optional
-        Tag keys the portal groups by. Defaults to ``[("type", "test_suite")]``.
+    default_grouping : list of str or tuple of str, optional
+        Tag keys the portal groups by, one tree level per entry; a tuple splits
+        on any of its keys at that level. Defaults to ``["type", "group"]``.
     allow_tag_failures : list of str, optional
         Tag values whose metric failures should not fail the overall QC.
     key_experimenters : list of str, optional
