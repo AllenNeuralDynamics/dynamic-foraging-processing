@@ -36,36 +36,41 @@ Each reward-delivery timestamp carries a label in the series' `data` field:
 
 | Label | Meaning |
 | --- | --- |
-| `earned` | Water the animal worked for: the matched trial has no free water (`is_auto_reward_right` is `None`). |
-| `auto` | Free water: the matched trial has `is_auto_reward_right` set. Scheduled autowater and the anti-bias intervention share that channel and are **not** split here — `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` record the mechanism per trial. |
-| `manual_go_cue_aligned` | The delivery is the closest valve opening to a `LeftManualAutoReward` / `RightManualAutoReward` software event for this port: water the *experimenter* triggered to land on the go cue. It fires at the go cue like autowater, but the task did not schedule it, so it is neither `auto` nor `earned`. Takes precedence over both trial-derived labels. |
-| `manual` | The delivery is the closest valve opening to a `LeftManualWater` / `RightManualWater` software event for this port: experimenter water given at an arbitrary moment, not tied to a go cue. Highest precedence of all four. |
+| `earned` | On a trial with no free water, the first delivery on the chosen port at or after the go cue. At most one per trial. `is_rewarded` is not consulted: the valve opening is the record that water was delivered. |
+| `auto` | On a free-water trial (`is_auto_reward_right` set), the delivery on the watered port closest to the go cue, within 20 ms of it. At most one per trial. Scheduled autowater and the anti-bias intervention share that channel and are **not** split here — `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` record the mechanism per trial. |
+| `manual_go_cue_aligned` | Manual water the operator requested for the go cue. Each `LeftManualAutoReward` / `RightManualAutoReward` request relabels the next `auto` delivery on its port. |
+| `manual` | Every other delivery: water the task did not deliver, such as unaligned manual water. |
 
-The side of an experimenter-water event comes from the **stream name**, not from
-an event payload. Each of the four streams exists only when the experimenter gave
-water of that kind, so a session with none of them is normal.
+Each delivery belongs to the trial whose `TrialOutcome` window contains it, and
+each trial's go cue is its hardware go-cue time from the sound card. A trial has
+at most one task delivery — one `auto` / `manual_go_cue_aligned` or one
+`earned`, never both — and free water is only ever on the watered port.
+
+Manual-water event timestamps are when the operator pressed the button, not
+when the water was delivered, so they are used only for ordering: precise timing
+compares valve openings with go cues, both hardware times. Unaligned manual water
+needs no event at all. The side of a `ManualAutoReward` request comes from the
+**stream name**, and each stream exists only when the operator gave water of that
+kind, so a session without them is normal.
 
 Two properties of this series are worth stating explicitly, because both differ
 from "every time the valve opened":
 
-**Deliveries are matched to trials by the `Response` timestamp**, not the
-`TrialOutcome` timestamp. `TrialOutcome` fires at the *end* of a trial, after the
-reward-consumption and ITI periods, so a delivery can sit nearer the *previous*
-trial's outcome and inherit its `is_auto_reward_right`. The valve opens within
-milliseconds of the response, so the response anchors each delivery to its own
-trial. Two independent checks back this: the nearest-`Response` trial agrees
-with the trial whose `[quiescent_start_time, ITI_start_time)` window contains the
-delivery, and every `earned` delivery follows a lick on that same port within a
-few milliseconds.
+**Deliveries are matched to trials by containment**, not proximity.
+`TrialOutcome` fires at the *end* of a trial, after the reward-consumption and ITI
+periods, so trial *i* spans from the previous trial's outcome up to its own, and
+a delivery belongs to the first trial whose outcome it precedes. Matching by the
+nearest `Response` was used previously and is unsound: on an ignore trial the
+response waits out the deadline while autowater lands at the go cue, so the
+previous trial's response can be nearer.
 
 **The series records every valve opening**: nothing is filtered out, so a
-delivery on a trial reporting `is_rewarded=False` is still annotated. Free water
-is triggered immediately at the go cue and the trial then continues normally, so
-`is_rewarded` reports the outcome of the animal's *own choice* — a separate
-event from the free water. A single trial can therefore contribute an `auto`
-delivery at the port the task watered and an `earned` delivery at the port the
-animal chose. The series is a water record rather than a reward-trial count, so
-its length is not expected to equal `sum(is_rewarded)` over the trials.
+delivery on a trial reporting `is_rewarded=False` is still annotated. A
+free-water trial never also gets an `earned` delivery — matching
+`rewarded_historyL` / `rewarded_historyR`, which are `False` on both sides for
+such trials — so any other opening on it is `manual`. The series is a water
+record rather than a reward-trial count, so its length is not expected to equal
+`sum(is_rewarded)` over the trials.
 
 ## Trials Table
 
@@ -237,3 +242,4 @@ These were mapped during exploration but are no longer in scope:
 | 2026-08-20 | `bait_left` / `bait_right` now read `trial.metadata.extra.is_left_baited` / `is_right_baited` from the acquisition software instead of being re-derived from `p_reward_left` / `p_reward_right` and the `is_auto_reward_right` channel. The software is the authority on bait state, so the two can disagree — notably a port with `p_reward == 1` is no longer assumed baited. `False` when the trial carries no extra metadata. |
 | 2026-09-15 | **Breaking:** experimenter water is now read from the four side-specific software-event streams the acquisition software emits (`LeftManualWater` / `RightManualWater`, not aligned to a go cue, and `LeftManualAutoReward` / `RightManualAutoReward`, aligned to it) instead of the single `GiveManualWaterRight` stream whose `data` payload selected the side. The `GiveManualWaterRight` path is removed, not deprecated. A fourth reward-delivery label, `manual_go_cue_aligned`, joins `earned` / `auto` / `manual`. **This fixes a mislabel:** manual auto-rewards fire at the go cue but leave `is_auto_reward_right` unset, so they previously fell through to `earned` — water the animal never worked for, counted as earned. The QC `side_bias.png` behavior raster gains an `L` / `R Manual Water (go cue)` row per side (now 11 rows, y-limits `[-0.8, 1.8]`), drawn dotted where unaligned manual water is dashed. |
 | 2026-09-21 | `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` are `0` / `False` for manual go-cue-aligned water: it is not autowater, though `TrialOutcome` reports it as such. The `{Left,Right}ManualAutoReward` streams are what distinguish it, matching the `manual_go_cue_aligned` label in the reward-delivery series. Sessions without those streams are unchanged. |
+| 2026-09-29 | Reward-delivery labels are now assigned per trial rather than by matching each manual-water event to its nearest valve opening. Those event timestamps are when the operator pressed the button, not when water was delivered, and a `ManualAutoReward` press precedes its water by seconds, so nearest matching often claimed the wrong delivery. Each trial now has at most one task delivery: `auto` at the go cue on the watered port, or `earned` on the chosen port after it. A `ManualAutoReward` request relabels the next `auto` delivery on its port, and every other delivery is `manual`. Validated against a ground-truth session (23/23 deliveries). On 872547_2026-09-17 this changes five labels: trial 207 left becomes `manual_go_cue_aligned`, and four valve openings that were not at a go cue become `manual`. `auto_waterL` for trial 207 becomes `0`. |
