@@ -124,7 +124,8 @@ All carry `reference="lick_intervals.png"`.
   - Side bias trace — the per-trial `side_bias` column read from the trial
     table (no confidence-interval band).
   - Lickspout position over trials — `stage_positions` (x / y1 / y2 / z,
-    relative to session start, in mm).
+    relative to session start, in mm; the trial table itself stores absolute
+    manipulator coordinates).
   - Behavior event raster — `animal_response` (L/R choice, ignore),
     `rewarded_history` (L/R earned water), manual water times, and
     `auto_water` (L/R) per trial.
