@@ -429,15 +429,13 @@ def test_build_full_dataset():
     assert second["anti_bias_lickspout_movement"] == 0.0
 
 
-def test_build_missing_task_logic_leaves_session_columns_null():
-    """A missing TaskLogic stream still builds; session distribution columns are null."""
+def test_build_raises_when_task_logic_missing_with_trials():
+    """A missing TaskLogic stream is an error when there are trials."""
     dataset = _full_dataset()
     input_schemas = dataset.children["Behavior"].children["InputSchemas"]
     input_schemas.children["TaskLogic"] = _FailedStream()
-    table = TrialTableBuilder(dataset).build()
-    assert len(table) == 2
-    assert table["ITI_beta"].isna().all()
-    assert table["block_beta"].isna().all()
+    with pytest.raises(ValueError, match="TaskLogic stream is required"):
+        TrialTableBuilder(dataset).build()
 
 
 def test_build_raises_when_rig_missing_with_trials():
@@ -699,11 +697,6 @@ def test_session_columns_flat_generator_applies_to_every_trial():
     columns = TrialTableBuilder(_Node({}))._session_columns(_task_logic(), _choices(False, True))
     assert len(columns) == 2 and columns[0] == columns[1]
     assert columns[0]["ITI_beta"] == pytest.approx(5.0)
-
-
-def test_session_columns_without_task_logic_are_empty():
-    """No task logic leaves every trial's columns empty."""
-    assert TrialTableBuilder(_Node({}))._session_columns(None, _choices(False, True)) == [{}, {}]
 
 
 def test_side_bias_parses_dict_model_json_and_none():

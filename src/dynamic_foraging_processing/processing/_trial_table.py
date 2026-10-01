@@ -767,7 +767,7 @@ class TrialTableBuilder:
 
     def _session_columns(
         self,
-        task_logic: t.Optional[AindDynamicForagingTaskLogic],
+        task_logic: AindDynamicForagingTaskLogic,
         outcomes: t.List[TrialOutcome],
     ) -> t.List[t.Dict[str, t.Any]]:
         """Return the task-logic-derived columns for each trial.
@@ -780,8 +780,8 @@ class TrialTableBuilder:
 
         Parameters
         ----------
-        task_logic : AindDynamicForagingTaskLogic or None
-            The session's task logic; ``None`` leaves every trial's columns empty.
+        task_logic : AindDynamicForagingTaskLogic
+            The session's task logic.
         outcomes : list of TrialOutcome
             The session's trial outcomes, in order (one entry per trial).
 
@@ -790,8 +790,6 @@ class TrialTableBuilder:
         list of dict
             One column mapping per trial.
         """
-        if task_logic is None:
-            return [{} for _ in outcomes]
         generator = task_logic.task_parameters.trial_generator
         if isinstance(generator, CoupledWarmupTrialGeneratorSpec):
             switch = self._warmup_switch_index(generator, outcomes)
@@ -1205,13 +1203,16 @@ class TrialTableBuilder:
         right_valve_open_time = self._pulse_duration(pulse_supply_right, "PulseSupplyPort1")
         go_cue_times = self._write_times(go_cue)
 
-        parsed_outcomes = [self._parse_outcome(payload) for payload in outcome_payloads]
-        session_columns = self._session_columns(task_logic, parsed_outcomes)
         if n_trials:
             if rig is None:
                 raise ValueError("Rig stream is required when there are trials.")
             if accumulated_steps is None:
                 raise ValueError("AccumulatedSteps stream is required when there are trials.")
+            if task_logic is None:
+                raise ValueError("TaskLogic stream is required when there are trials.")
+        parsed_outcomes = [self._parse_outcome(payload) for payload in outcome_payloads]
+        # With no trials there are no rows to summarise (the loop does not run).
+        session_columns = self._session_columns(task_logic, parsed_outcomes) if n_trials else []
         # With no trials the frame goes unused (the loop does not run).
         lickspout_positions = (
             self._manipulator_positions(accumulated_steps, rig) if n_trials else None
