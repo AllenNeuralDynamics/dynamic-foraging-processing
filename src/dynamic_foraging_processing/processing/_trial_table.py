@@ -12,7 +12,10 @@ import numpy as np
 import pandas as pd
 from aind_behavior_dynamic_foraging.rig import AindDynamicForagingRig
 from aind_behavior_dynamic_foraging.task_logic import AindDynamicForagingTaskLogic
-from aind_behavior_dynamic_foraging.task_logic.trial_generators import TrialGeneratorSpec
+from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
+    CoupledWarmupTrialGeneratorSpec,
+    TrialGeneratorSpec,
+)
 from aind_behavior_dynamic_foraging.task_logic.trial_generators.block_based_trial_generator import (
     BlockBasedTrialMetadata,
 )
@@ -259,10 +262,10 @@ class TrialTableBuilder:
         """Return ``(beta, min, max)`` for a task-logic distribution.
 
         ``beta`` is the scale of an exponential distribution (``1 / rate``); it
-        is ``None`` for non-exponential families (e.g. the scalar quiescent
-        duration). ``min``/``max`` come from the truncation parameters when set,
-        except for a uniform distribution, whose bounds are its own ``min`` and
-        ``max`` distribution parameters.
+        is ``None`` for non-exponential families. ``min``/``max``
+        come from the truncation parameters when set, except for a uniform
+        distribution, whose bounds are its own ``min`` and ``max`` distribution
+        parameters, and a scalar, whose single value is both bounds.
 
         The optional ``scaling_parameters`` apply ``value * scale + offset`` to
         each sample, so they are folded into all three values. Two details
@@ -275,8 +278,8 @@ class TrialTableBuilder:
           reported minimum is whichever of the two constraints binds. This is
           what makes a configured offset visible when the truncation minimum is
           left at its ``0`` default.
-        * A uniform's bounds live in the distribution parameters, which *are*
-          pre-scaling, so they take the full transform.
+        * A uniform's bounds and a scalar's value live in the distribution
+          parameters, which *are* pre-scaling, so they take the full transform.
 
         Parameters
         ----------
@@ -305,6 +308,9 @@ class TrialTableBuilder:
             # parameters rather than the truncation parameters.
             minimum = params.min * scale + offset
             maximum = params.max * scale + offset
+        elif params.family == DistributionFamily.SCALAR:
+            # A scalar always draws the same value, so it is both bounds.
+            minimum = maximum = params.value * scale + offset
         return beta, minimum, maximum
 
     @staticmethod
@@ -680,74 +686,26 @@ class TrialTableBuilder:
         return trial.metadata.p_reward_right if is_right else trial.metadata.p_reward_left
 
     # ------------------------------------------------------------------ #
-    # Session-level (constant across trials) columns
+    # Task-logic (per-generator) columns
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _summary_generator(
-        generator: TrialGeneratorSpec,
-    ) -> t.Optional[TrialGeneratorSpec]:
-        """Resolve the generator whose parameters populate the session columns.
-
-        ``task_parameters.trial_generator`` is either a single generator spec or
-        a ``TrialGeneratorCompositeSpec`` wrapping several sub-generators in
-        ``.generators`` (e.g. a warm-up stage concatenated before the main
-        generator). Both coupled and uncoupled generators are supported: the
-        block-length, ITI, and delay summaries are common to all block-based
-        generators, while coupled-only fields (reward-probability sum, minimum
-        reward per block) are read defensively in ``_session_columns``.
-
-        For a composite, a ``CoupledTrialGenerator`` is preferred (it carries the
-        richest set of session parameters); an ``UncoupledTrialGenerator`` is
-        used as a fallback when no coupled generator is present. Other stages
-        (e.g. warm-up generators) are skipped. A non-composite spec is returned
-        unchanged.
+    def _generator_columns(self, generator: TrialGeneratorSpec) -> t.Dict[str, t.Any]:
+        """Return the distribution and reward columns summarising one generator spec.
 
         Parameters
         ----------
         generator : TrialGeneratorSpec
-            The ``trial_generator`` from the task parameters.
+            A flat block-based generator spec (coupled, uncoupled, or warmup).
 
         Returns
         -------
-        TrialGeneratorSpec or None
-            The summarising generator, or ``None`` if a composite contains
-            neither a coupled nor an uncoupled sub-generator.
+        dict
+            The ``block_*``, ``ITI_*``, ``delay_*``, ``base_reward_probability_sum``
+            and ``min_reward_each_block`` columns.
         """
-        sub_generators = getattr(generator, "generators", None)
-        if sub_generators is None:
-            return generator
-        uncoupled_fallback: t.Optional[TrialGeneratorSpec] = None
-        for sub in sub_generators:
-            sub_type = getattr(sub, "type", None)
-            if sub_type == "CoupledTrialGenerator":
-                return sub
-            if sub_type == "UncoupledTrialGenerator" and uncoupled_fallback is None:
-                uncoupled_fallback = sub
-        if uncoupled_fallback is not None:
-            return uncoupled_fallback
-        logger.warning(
-            "No coupled or uncoupled generator among composite trial generators; "
-            "session columns will be null."
-        )
-        return None
-
-    def _session_columns(self, task_logic: AindDynamicForagingTaskLogic) -> t.Dict[str, t.Any]:
-        """Return the per-session trial columns derived from the task logic.
-
-        These (block/ITI/delay distribution summaries and reward structure) are
-        constant across trials.
-        """
-        columns: t.Dict[str, t.Any] = {}
-        if task_logic is None:
-            return columns
-
-        generator = self._summary_generator(task_logic.task_parameters.trial_generator)
-        if generator is None:
-            return columns
-
         block_beta, block_min, block_max = self._distribution_stats(generator.block_length)
-        # Account for the floor applied upstream.
-        if block_max is not None:
+        if generator.type == "UncoupledTrialGenerator" and block_max is not None:
+            # The uncoupled generator floors its block-length draw, making the
+            # configured maximum exclusive.
             block_max -= 1
         iti_beta, iti_min, iti_max = self._distribution_stats(
             generator.inter_trial_interval_duration
@@ -760,7 +718,7 @@ class TrialTableBuilder:
         reward_params = getattr(generator, "reward_probability_parameters", None)
         base_reward_sum = reward_params.base_reward_sum if reward_params is not None else None
 
-        columns.update(
+        return dict(
             block_beta=block_beta,
             block_min=block_min,
             block_max=block_max,
@@ -771,11 +729,77 @@ class TrialTableBuilder:
             delay_min=delay_min,
             delay_max=delay_max,
             base_reward_probability_sum=base_reward_sum,
+            # ``min_block_reward`` is warmup-generator-only; a generator that omits
+            # it enforces no per-block minimum, which is a floor of 0, not unknown.
+            min_reward_each_block=getattr(generator, "min_block_reward", 0),
         )
-        # ``min_block_reward`` is warmup-generator-only; a generator that omits it
-        # enforces no per-block minimum, which is a floor of 0 rather than unknown.
-        columns["min_reward_each_block"] = getattr(generator, "min_block_reward", 0)
-        return columns
+
+    @staticmethod
+    def _warmup_switch_index(
+        spec: CoupledWarmupTrialGeneratorSpec, outcomes: t.List[TrialOutcome]
+    ) -> int:
+        """Return the index of the first trial produced by the coupled generator.
+
+        Replays the session's outcomes through the library's own warmup
+        generator: ``CoupledWarmupTrialGenerator`` hands over to its coupled
+        generator once the warmup end conditions are met (``next()`` returns
+        ``None``), so the switch is the first trial at which they hold.
+
+        Parameters
+        ----------
+        spec : CoupledWarmupTrialGeneratorSpec
+            The warmup wrapper from the task parameters.
+        outcomes : list of TrialOutcome
+            The session's trial outcomes, in order.
+
+        Returns
+        -------
+        int
+            The index of the first coupled trial, or ``len(outcomes)`` when the
+            end conditions were never met (the whole session was warmup).
+        """
+        warmup = spec.warmup_generator_spec.create_generator()
+        for i, outcome in enumerate(outcomes):
+            if warmup._are_end_conditions_met():
+                return i
+            warmup.update(outcome)
+        return len(outcomes)
+
+    def _session_columns(
+        self,
+        task_logic: t.Optional[AindDynamicForagingTaskLogic],
+        outcomes: t.List[TrialOutcome],
+    ) -> t.List[t.Dict[str, t.Any]]:
+        """Return the task-logic-derived columns for each trial.
+
+        A flat generator spec summarises every trial. A
+        ``CoupledWarmupTrialGenerator`` runs its warmup spec, then switches to
+        its coupled spec mid-session, so trials before the switch (see
+        ``_warmup_switch_index``) get the warmup spec's columns and the rest get
+        the coupled spec's.
+
+        Parameters
+        ----------
+        task_logic : AindDynamicForagingTaskLogic or None
+            The session's task logic; ``None`` leaves every trial's columns empty.
+        outcomes : list of TrialOutcome
+            The session's trial outcomes, in order (one entry per trial).
+
+        Returns
+        -------
+        list of dict
+            One column mapping per trial.
+        """
+        if task_logic is None:
+            return [{} for _ in outcomes]
+        generator = task_logic.task_parameters.trial_generator
+        if isinstance(generator, CoupledWarmupTrialGeneratorSpec):
+            switch = self._warmup_switch_index(generator, outcomes)
+            warmup = self._generator_columns(generator.warmup_generator_spec)
+            coupled = self._generator_columns(generator.coupled_generator_spec)
+            return [warmup if i < switch else coupled for i in range(len(outcomes))]
+        columns = self._generator_columns(generator)
+        return [columns for _ in outcomes]
 
     def _manipulator_mm_per_step(self, rig: AindDynamicForagingRig) -> t.Dict[str, float]:
         """Return millimetres travelled per accumulated step, keyed by axis.
@@ -1181,7 +1205,8 @@ class TrialTableBuilder:
         right_valve_open_time = self._pulse_duration(pulse_supply_right, "PulseSupplyPort1")
         go_cue_times = self._write_times(go_cue)
 
-        session = self._session_columns(task_logic)
+        parsed_outcomes = [self._parse_outcome(payload) for payload in outcome_payloads]
+        session_columns = self._session_columns(task_logic, parsed_outcomes)
         if n_trials:
             if rig is None:
                 raise ValueError("Rig stream is required when there are trials.")
@@ -1197,8 +1222,7 @@ class TrialTableBuilder:
         )
 
         rows: t.List[TrialConfig] = []
-        for i, outcome_payload in enumerate(outcome_payloads):
-            outcome = self._parse_outcome(outcome_payload)
+        for i, outcome in enumerate(parsed_outcomes):
             # Pad with NaN/None when a stream is shorter than the trial count;
             # _check_aligned has already warned about any such mismatch.
             periods = self._trial_periods(
@@ -1228,7 +1252,7 @@ class TrialTableBuilder:
                     left_valve_open_time=left_valve_open_time,
                     right_valve_open_time=right_valve_open_time,
                     go_cue_times=go_cue_times,
-                    session=session,
+                    session=session_columns[i],
                     lickspout=lickspout,
                     manual_go_cue_aligned_left=i in manual_go_cue_aligned_left_trials,
                     manual_go_cue_aligned_right=i in manual_go_cue_aligned_right_trials,
