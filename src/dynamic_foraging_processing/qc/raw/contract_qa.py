@@ -4,10 +4,9 @@ The dynamic foraging contract QA (Harp devices, cameras, CSV streams, the data
 contract, and task-specific checks) is provided by
 ``aind_behavior_dynamic_foraging.data_qc.make_qc_runner``. This module runs that
 runner over a dataset and maps each ``contraqctor`` ``Result`` onto a schema
-``QCMetric`` named after its test and tagged with exactly the
-``default_grouping`` keys: ``type`` :data:`QC_TYPE` (the QC portal's top-level
-group) and ``group`` (the device or stream being checked), so each metric is
-uniquely identified by name + tags.
+``QCMetric`` named ``"<test>:<group>"`` (unique per session) and tagged with
+exactly the ``default_grouping`` keys: ``type`` :data:`QC_TYPE` (the QC portal's
+top-level group) and ``group`` (the device or stream being checked).
 """
 
 import re
@@ -34,13 +33,16 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z._-]+", "_", name)
 
 
-def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optional[str]:
+def _save_asset(result: qc.Result, group: str, results_folder: t.Optional[str]) -> t.Optional[str]:
     """Save a result's figure asset (if any) and return its relative path.
 
     Parameters
     ----------
     result : contraqctor.qc.Result
         A single QA result; its ``context["asset"]`` may be a matplotlib figure.
+    group : str
+        The runner group (device/stream) the result belongs to; part of the
+        file name so the same suite run on several devices doesn't overwrite.
     results_folder : str or None
         Directory to save figures into. If ``None``, nothing is saved.
 
@@ -49,9 +51,10 @@ def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optiona
     str or None
         The saved figure's reference (``"<results-folder-name>/<file>"``), or
         ``None`` when there is no figure asset (or no ``results_folder``). The
-        file name combines the (sanitized) suite and test names, e.g. a
-        ``CameraTestSuite`` result for ``test_frame_rate`` in ``.../nwb`` becomes
-        ``"nwb/CameraTestSuite_test_frame_rate.png"``.
+        file name combines the (sanitized) group, suite, and test names, e.g. a
+        ``CameraTestSuite`` result for ``test_frame_rate`` in the ``BottomCamera``
+        group under ``.../nwb`` becomes
+        ``"nwb/BottomCamera_CameraTestSuite_test_frame_rate.png"``.
     """
     context = result.context
     if not isinstance(context, dict):
@@ -59,7 +62,9 @@ def _save_asset(result: qc.Result, results_folder: t.Optional[str]) -> t.Optiona
     asset = context.get("asset")
     if not isinstance(asset, matplotlib.figure.Figure) or results_folder is None:
         return None
-    filename = f"{_sanitize(result.suite_name)}_{_sanitize(result.test_name)}.png"
+    filename = (
+        f"{_sanitize(group)}_{_sanitize(result.suite_name)}_{_sanitize(result.test_name)}.png"
+    )
     asset.savefig(Path(results_folder) / filename, dpi=300, bbox_inches="tight")
     # Reference is relative to the top-level results folder, where the QC JSON is
     # written; the images live in the named subfolder alongside it.
@@ -88,7 +93,7 @@ def results_to_metrics(
     Returns
     -------
     list of QCMetric
-        One metric per result, named after the test and tagged
+        One metric per result, named ``"<test>:<group>"`` and tagged
         ``{"type": QC_TYPE, "group": group}``.
 
     Examples
@@ -103,11 +108,11 @@ def results_to_metrics(
         }
 
     The same suite (and so the same test names) runs once per device, so the
-    metric name is just the test name and the group goes in the tags (the group
-    implies the suite), e.g. a ``HarpDeviceTestSuite`` result in the
-    ``"HarpBehavior"`` group yields::
+    group is appended to the test name to keep metric names unique, and also
+    goes in the tags (the group implies the suite), e.g. a
+    ``HarpDeviceTestSuite`` result in the ``"HarpBehavior"`` group yields::
 
-        name = "test_has_whoami"
+        name = "test_has_whoami:HarpBehavior"
         tags = {"type": "Harp QC Suite", "group": "HarpBehavior"}
     """
     metrics: t.List[QCMetric] = []
@@ -121,13 +126,13 @@ def results_to_metrics(
             )
             metrics.append(
                 QCMetric(
-                    name=result.test_name,
+                    name=f"{result.test_name}:{group_name}",
                     modality=Modality.BEHAVIOR,
                     stage=Stage.RAW,
                     value=to_builtin(result.result),
                     status_history=[status],
                     description=f"Test: {result.description} // Message: {result.message}",
-                    reference=_save_asset(result, results_folder),
+                    reference=_save_asset(result, group_name, results_folder),
                     tags={"type": QC_TYPE, "group": group_name},
                 )
             )
