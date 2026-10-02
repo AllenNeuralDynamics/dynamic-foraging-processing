@@ -4,13 +4,15 @@ The dynamic foraging contract QA (Harp devices, cameras, CSV streams, the data
 contract, and task-specific checks) is provided by
 ``aind_behavior_dynamic_foraging.data_qc.make_qc_runner``. This module runs that
 runner over a dataset and maps each ``contraqctor`` ``Result`` onto a schema
-``QCMetric`` named ``"<test>:<group>"`` (unique per session) and tagged with
-exactly the ``default_grouping`` keys: ``type`` :data:`QC_TYPE` (the QC portal's
+``QCMetric`` named ``"<test>:<group>"`` (plus ``":<n>"`` for a test that yields
+several results, so names are unique per session) and tagged with exactly the
+``default_grouping`` keys: ``type`` :data:`QC_TYPE` (the QC portal's
 top-level group) and ``group`` (the device or stream being checked).
 """
 
 import re
 import typing as t
+from collections import Counter
 from pathlib import Path
 
 import matplotlib.figure
@@ -33,7 +35,12 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z._-]+", "_", name)
 
 
-def _save_asset(result: qc.Result, group: str, results_folder: t.Optional[str]) -> t.Optional[str]:
+def _save_asset(
+    result: qc.Result,
+    group: str,
+    results_folder: t.Optional[str],
+    index: t.Optional[int] = None,
+) -> t.Optional[str]:
     """Save a result's figure asset (if any) and return its relative path.
 
     Parameters
@@ -45,6 +52,9 @@ def _save_asset(result: qc.Result, group: str, results_folder: t.Optional[str]) 
         file name so the same suite run on several devices doesn't overwrite.
     results_folder : str or None
         Directory to save figures into. If ``None``, nothing is saved.
+    index : int, optional
+        Position of the result among same-named results in its group (see
+        :func:`results_to_metrics`); appended to the file name when given.
 
     Returns
     -------
@@ -54,7 +64,8 @@ def _save_asset(result: qc.Result, group: str, results_folder: t.Optional[str]) 
         file name combines the (sanitized) group, suite, and test names, e.g. a
         ``CameraTestSuite`` result for ``test_frame_rate`` in the ``BottomCamera``
         group under ``.../nwb`` becomes
-        ``"nwb/BottomCamera_CameraTestSuite_test_frame_rate.png"``.
+        ``"nwb/BottomCamera_CameraTestSuite_test_frame_rate.png"``, or
+        ``"..._test_frame_rate_1.png"`` with ``index=1``.
     """
     context = result.context
     if not isinstance(context, dict):
@@ -62,9 +73,8 @@ def _save_asset(result: qc.Result, group: str, results_folder: t.Optional[str]) 
     asset = context.get("asset")
     if not isinstance(asset, matplotlib.figure.Figure) or results_folder is None:
         return None
-    filename = (
-        f"{_sanitize(group)}_{_sanitize(result.suite_name)}_{_sanitize(result.test_name)}.png"
-    )
+    stem = f"{_sanitize(group)}_{_sanitize(result.suite_name)}_{_sanitize(result.test_name)}"
+    filename = f"{stem}.png" if index is None else f"{stem}_{index}.png"
     asset.savefig(Path(results_folder) / filename, dpi=300, bbox_inches="tight")
     # Reference is relative to the top-level results folder, where the QC JSON is
     # written; the images live in the named subfolder alongside it.
@@ -93,7 +103,8 @@ def results_to_metrics(
     Returns
     -------
     list of QCMetric
-        One metric per result, named ``"<test>:<group>"`` and tagged
+        One metric per result, named ``"<test>:<group>"`` (``"<test>:<group>:<n>"``
+        for a test that yields several results) and tagged
         ``{"type": QC_TYPE, "group": group}``.
 
     Examples
@@ -114,11 +125,28 @@ def results_to_metrics(
 
         name = "test_has_whoami:HarpBehavior"
         tags = {"type": "Harp QC Suite", "group": "HarpBehavior"}
+
+    A test can also yield several results, e.g. ``HarpHubTestSuite`` checks
+    each device in turn under one test name (the device is only in the
+    message, hence the description). Those are numbered in yield order::
+
+        name = "test_devices_are_subordinate:HarpHub:0"
+        name = "test_devices_are_subordinate:HarpHub:1"
     """
     metrics: t.List[QCMetric] = []
     for group, group_results in results.items():
         group_name = group if group is not None else NO_GROUP
+        # Tests that yield several results share a name; number those so each
+        # metric name stays unique.
+        counts = Counter(result.test_name for result in group_results)
+        seen: t.Counter[str] = Counter()
         for result in group_results:
+            index: t.Optional[int] = None
+            name = f"{result.test_name}:{group_name}"
+            if counts[result.test_name] > 1:
+                index = seen[result.test_name]
+                seen[result.test_name] += 1
+                name = f"{name}:{index}"
             status = QCStatus(
                 evaluator="Automated",
                 status=STATUS_CONVERTER[result.status],
@@ -126,13 +154,13 @@ def results_to_metrics(
             )
             metrics.append(
                 QCMetric(
-                    name=f"{result.test_name}:{group_name}",
+                    name=name,
                     modality=Modality.BEHAVIOR,
                     stage=Stage.RAW,
                     value=to_builtin(result.result),
                     status_history=[status],
                     description=f"Test: {result.description} // Message: {result.message}",
-                    reference=_save_asset(result, group_name, results_folder),
+                    reference=_save_asset(result, group_name, results_folder, index),
                     tags={"type": QC_TYPE, "group": group_name},
                 )
             )

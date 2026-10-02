@@ -7,6 +7,7 @@ then by ``group``.
 """
 
 import typing as t
+from collections import Counter
 
 from aind_data_schema.core.quality_control import QCMetric, QualityControl
 
@@ -44,7 +45,18 @@ def build_quality_control(
     -------
     QualityControl
         The assembled quality-control object.
+
+    Raises
+    ------
+    ValueError
+        If two metrics share a name. The QC portal identifies metrics by name
+        and silently drops every metric with a duplicated one, so this fails
+        processing instead.
     """
+    counts = Counter(metric.name for metric in metrics)
+    duplicates = sorted(name for name, count in counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"QC metric names must be unique; duplicated: {duplicates}")
     return QualityControl(
         metrics=metrics,
         default_grouping=default_grouping if default_grouping is not None else DEFAULT_GROUPING,
