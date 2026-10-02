@@ -166,7 +166,7 @@ status_converter = {
 
 For each `qc.Result`:
 
-- `name = result.test_name`
+- `name = f"{result.test_name}:{group_name}"` (unique per session)
 - `description = f"Test: {result.description} // Message: {result.message}"`
 - `value = convert_numpy_to_python_data_type(result.result)`
 - `status_history = [QCStatus(evaluator="Automated", status=..., timestamp=now_utc)]`
@@ -218,3 +218,4 @@ test_suite
 | 2026-09-30 | qa | Contract QC metrics are named by test only and tagged `{"type": "Harp QC Suite", "group": device}`. | Suite-prefixed names duplicated across devices; portal identifies metrics by name + tags. |
 | 2026-09-30 | grouping | `default_grouping = ["type"]` with every metric tagged `type` = "Harp QC Suite" (contract QC), "Side Bias", or "Licking". | Three top-level groups in the QC portal. |
 | 2026-09-30 | grouping | `default_grouping = ["type", "group"]`; every metric carries exactly those two tags (dropped `test_suite` and `metric`). Behavior groups: "Side Bias", "Lick Intervals", "Lick Latency". | Portal needs every metric to carry exactly the grouping keys to build the tree. |
+| 2026-10-01 | qa | Contract QC metric names are `"<test>:<group>"` and figure files `<group>_<suite>_<test>.png`. | Metric names must be unique; the same suite runs once per device, so test names (and figure files) repeated. |
