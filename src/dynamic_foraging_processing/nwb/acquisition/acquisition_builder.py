@@ -99,6 +99,24 @@ class AcquisitionBuilder:
             return np.array([])
         return data.index.to_numpy()
 
+    def get_go_cue_times(self) -> np.ndarray:
+        """Get the hardware go-cue times.
+
+        Returns
+        -------
+        numpy.ndarray
+            Sorted timestamps of the ``WRITE`` messages in the sound card's
+            ``PlaySoundOrFrequency`` register under ``Behavior/HarpSoundCard``.
+        """
+        data = (
+            self.loader.dataset.at("Behavior")
+            .at("HarpSoundCard")
+            .at("PlaySoundOrFrequency")
+            .load()
+            .data
+        )
+        return np.sort(data[data["MessageType"] == "WRITE"].index.to_numpy(dtype=float))
+
     def get_manual_water_times(self, *, is_right: bool) -> ManualWaterTimes:
         """Get one lick port's experimenter-triggered water times.
 
@@ -197,9 +215,11 @@ class AcquisitionBuilder:
         self,
         writes: pd.DataFrame,
         trial_outcomes: pd.DataFrame,
-        manual_water: ManualWaterTimes,
+        go_cue_times: np.ndarray,
+        manual_go_cue_aligned_times: np.ndarray,
         *,
         port_column: str,
+        is_right: bool,
         name: str,
         side_label: str,
     ) -> AcquisitionSeries:
@@ -217,12 +237,15 @@ class AcquisitionBuilder:
             ``OutputSet`` ``WRITE`` messages indexed by timestamp.
         trial_outcomes : pandas.DataFrame
             The ``TrialOutcome`` stream, indexed by trial timestamp.
-        manual_water : ManualWaterTimes
-            This port's experimenter-triggered water times, already side-specific
-            (see :meth:`get_manual_water_times`).
+        go_cue_times : numpy.ndarray
+            Hardware go-cue timestamps (see :meth:`get_go_cue_times`).
+        manual_go_cue_aligned_times : numpy.ndarray
+            This port's ``ManualAutoReward`` event timestamps.
         port_column : str
             Supply-port column for this side (``"SupplyPort0"`` left,
             ``"SupplyPort1"`` right).
+        is_right : bool
+            ``True`` for the right lick port, ``False`` for the left.
         name : str
             Acquisition series name.
         side_label : str
@@ -238,7 +261,9 @@ class AcquisitionBuilder:
         annotations = get_reward_deliveries(
             delivery_times,
             trial_outcomes,
-            manual_water,
+            go_cue_times,
+            manual_go_cue_aligned_times,
+            is_right=is_right,
         )
         return AcquisitionSeries(
             name=name,
@@ -247,9 +272,9 @@ class AcquisitionBuilder:
             unit="second",
             description=(
                 f"The reward delivery time of the {side_label} lick port. The data field "
-                "annotates whether the reward was earned, auto (task-triggered free water), "
-                "manual (experimenter water not aligned to a go cue), or "
-                "manual_go_cue_aligned (experimenter water delivered at the go cue)"
+                "annotates whether the reward was earned, auto (task-triggered free water "
+                "at the go cue), manual_go_cue_aligned (manual water requested for the go "
+                "cue), or manual (any other water the task did not deliver)"
             ),
         )
 
@@ -276,6 +301,7 @@ class AcquisitionBuilder:
         """
         rewards = self.get_valve_writes()
         trial_outcomes = self.get_trial_outcomes()
+        go_cue_times = self.get_go_cue_times()
         left_manual_water = self.get_manual_water_times(is_right=False)
         right_manual_water = self.get_manual_water_times(is_right=True)
 
@@ -300,8 +326,10 @@ class AcquisitionBuilder:
             self._reward_delivery_series(
                 rewards,
                 trial_outcomes,
-                left_manual_water,
+                go_cue_times,
+                left_manual_water.go_cue_aligned,
                 port_column="SupplyPort0",
+                is_right=False,
                 name="left_reward_delivery_time",
                 side_label="left",
             )
@@ -310,8 +338,10 @@ class AcquisitionBuilder:
             self._reward_delivery_series(
                 rewards,
                 trial_outcomes,
-                right_manual_water,
+                go_cue_times,
+                right_manual_water.go_cue_aligned,
                 port_column="SupplyPort1",
+                is_right=True,
                 name="right_reward_delivery_time",
                 side_label="right",
             )
