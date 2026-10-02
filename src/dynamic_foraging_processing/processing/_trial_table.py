@@ -28,10 +28,7 @@ from aind_behavior_services.task.distributions import Distribution, Distribution
 from contraqctor.contract import Dataset
 
 from dynamic_foraging_processing.processing.models import TrialConfig
-from dynamic_foraging_processing.utils.rewards import (
-    ManualWaterTimes,
-    get_manual_go_cue_aligned_trials,
-)
+from dynamic_foraging_processing.utils.rewards import get_manual_go_cue_aligned_trials
 from dynamic_foraging_processing.utils.trial_metadata import get_bias_metadata
 
 logger = logging.getLogger(__name__)
@@ -404,7 +401,7 @@ class TrialTableBuilder:
         delivered on the trial, autowater included, so an autowater trial
         (``trial.is_auto_reward_right is not None``) is ``False`` on *both*
         sides here — its water is reported by ``auto_waterL``/``auto_waterR``
-        instead. This matches the ``earned``/``automatic`` split in
+        instead. This matches the ``earned``/``auto`` split in
         :func:`~dynamic_foraging_processing.utils.rewards.get_reward_deliveries`.
 
         A trial with no reward or an ignored trial (no choice) likewise counts
@@ -537,34 +534,34 @@ class TrialTableBuilder:
         return opened.index.to_numpy(dtype=float)
 
     def _manual_go_cue_aligned_trials(
-        self, outcomes: t.Optional[pd.DataFrame], output_set: t.Optional[pd.DataFrame]
+        self,
+        outcomes: t.Optional[pd.DataFrame],
+        output_set: t.Optional[pd.DataFrame],
+        go_cue_times: np.ndarray,
     ) -> t.Tuple[t.Set[int], t.Set[int]]:
         """Return the ``(left, right)`` trials whose free water was manual go-cue-aligned water.
 
         ``TrialOutcome`` reports it as ordinary autowater, so the
-        ``{Left,Right}ManualAutoReward`` streams are the only way to tell them
-        apart; shared with the reward annotation so both agree.
+        ``{Left,Right}ManualAutoReward`` streams are what distinguish it. Shares
+        the reward annotation's labelling, so both agree.
         """
         if outcomes is None or not len(outcomes):
             return set(), set()
         return (
             get_manual_go_cue_aligned_trials(
                 self._valve_open_times(output_set, "SupplyPort0"),
-                self._manual_water_times("Left"),
                 outcomes,
+                go_cue_times,
+                self._optional_event_times("LeftManualAutoReward"),
+                is_right=False,
             ),
             get_manual_go_cue_aligned_trials(
                 self._valve_open_times(output_set, "SupplyPort1"),
-                self._manual_water_times("Right"),
                 outcomes,
+                go_cue_times,
+                self._optional_event_times("RightManualAutoReward"),
+                is_right=True,
             ),
-        )
-
-    def _manual_water_times(self, side: str) -> ManualWaterTimes:
-        """Return one port's manual-water times, both kinds (empty when absent)."""
-        return ManualWaterTimes(
-            unaligned=self._optional_event_times(f"{side}ManualWater"),
-            go_cue_aligned=self._optional_event_times(f"{side}ManualAutoReward"),
         )
 
     @staticmethod
@@ -1219,7 +1216,7 @@ class TrialTableBuilder:
         )
 
         manual_go_cue_aligned_left_trials, manual_go_cue_aligned_right_trials = (
-            self._manual_go_cue_aligned_trials(outcomes, output_set)
+            self._manual_go_cue_aligned_trials(outcomes, output_set, go_cue_times)
         )
 
         rows: t.List[TrialConfig] = []
