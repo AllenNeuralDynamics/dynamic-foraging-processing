@@ -34,20 +34,20 @@ def test_sanitize_replaces_unsafe_characters():
 
 def test_save_asset_non_dict_context_returns_none(tmp_path):
     """A result with no dict context saves nothing."""
-    assert _contract_qa._save_asset(_result(cqc.Status.PASSED), str(tmp_path)) is None
+    assert _contract_qa._save_asset(_result(cqc.Status.PASSED), "G", str(tmp_path)) is None
 
 
 def test_save_asset_non_figure_asset_returns_none(tmp_path):
     """A non-figure asset saves nothing."""
     result = _result(cqc.Status.PASSED, context={"asset": "not-a-figure"})
-    assert _contract_qa._save_asset(result, str(tmp_path)) is None
+    assert _contract_qa._save_asset(result, "G", str(tmp_path)) is None
 
 
 def test_save_asset_figure_without_folder_returns_none():
     """A figure asset with no results folder saves nothing."""
     fig = plt.figure()
     result = _result(cqc.Status.PASSED, context={"asset": fig})
-    assert _contract_qa._save_asset(result, None) is None
+    assert _contract_qa._save_asset(result, "G", None) is None
     plt.close(fig)
 
 
@@ -55,9 +55,9 @@ def test_save_asset_figure_is_saved(tmp_path):
     """A figure asset is written and its filename returned."""
     fig = plt.figure()
     result = _result(cqc.Status.PASSED, suite="S", test="t", context={"asset": fig})
-    reference = _contract_qa._save_asset(result, str(tmp_path))
-    assert reference == f"{tmp_path.name}/S_t.png"
-    assert os.path.exists(tmp_path / "S_t.png")
+    reference = _contract_qa._save_asset(result, "G", str(tmp_path))
+    assert reference == f"{tmp_path.name}/G_S_t.png"
+    assert os.path.exists(tmp_path / "G_S_t.png")
     plt.close(fig)
 
 
@@ -65,7 +65,7 @@ def test_results_to_metrics_grouping_and_status(tmp_path):
     """Results convert to tagged metrics; missing group becomes ``NoGroup``."""
     fig = plt.figure()
     results = {
-        "Data contract": [
+        "HubDevice": [
             _result(cqc.Status.WARNING, suite="HubSuite", test="t1", context={"asset": fig})
         ],
         None: [_result(cqc.Status.FAILED, suite="CamSuite", test="t2")],
@@ -74,15 +74,54 @@ def test_results_to_metrics_grouping_and_status(tmp_path):
     plt.close(fig)
 
     by_name = {m.name: m for m in metrics}
-    warn = by_name["HubSuite::t1"]
+    warn = by_name["t1:HubDevice"]
     assert warn.status_history[0].status == "Pending"
-    assert warn.tags == {"test_suite": "HubSuite", "HubSuite": "Data contract"}
-    assert warn.reference == f"{tmp_path.name}/HubSuite_t1.png"
+    assert warn.tags == {
+        "type": _contract_qa.QC_TYPE,
+        "group": "HubDevice",
+    }
+    assert warn.reference == f"{tmp_path.name}/HubDevice_HubSuite_t1.png"
 
-    fail = by_name["CamSuite::t2"]
+    fail = by_name[f"t2:{_contract_qa.NO_GROUP}"]
     assert fail.status_history[0].status == "Fail"
-    assert fail.tags == {"test_suite": "CamSuite", "CamSuite": _contract_qa.NO_GROUP}
+    assert fail.tags == {
+        "type": _contract_qa.QC_TYPE,
+        "group": _contract_qa.NO_GROUP,
+    }
     assert fail.reference is None
+
+
+def test_results_to_metrics_same_suite_across_devices_is_unique():
+    """A suite run per device yields uniquely named metrics, one per ``group``."""
+    results = {
+        "HarpBehavior": [_result(cqc.Status.PASSED, suite="HarpDeviceTestSuite", test="t")],
+        "HarpLickometer": [_result(cqc.Status.PASSED, suite="HarpDeviceTestSuite", test="t")],
+    }
+    metrics = _contract_qa.results_to_metrics(results)
+    assert sorted(m.name for m in metrics) == ["t:HarpBehavior", "t:HarpLickometer"]
+    assert {m.tags["group"] for m in metrics} == {"HarpBehavior", "HarpLickometer"}
+
+
+def test_results_to_metrics_numbers_a_test_yielding_several_results(tmp_path):
+    """Same-named results in one group get ``:<n>`` suffixes; single results do not."""
+    figs = [plt.figure(), plt.figure()]
+    results = {
+        "HarpHub": [
+            _result(cqc.Status.PASSED, suite="HubSuite", test="t_sub", context={"asset": figs[0]}),
+            _result(cqc.Status.FAILED, suite="HubSuite", test="t_sub", context={"asset": figs[1]}),
+            _result(cqc.Status.PASSED, suite="HubSuite", test="t_clock"),
+        ]
+    }
+    metrics = _contract_qa.results_to_metrics(results, str(tmp_path))
+    for fig in figs:
+        plt.close(fig)
+
+    assert [m.name for m in metrics] == ["t_sub:HarpHub:0", "t_sub:HarpHub:1", "t_clock:HarpHub"]
+    # Each numbered result keeps its own figure instead of overwriting the other.
+    assert metrics[0].reference == f"{tmp_path.name}/HarpHub_HubSuite_t_sub_0.png"
+    assert metrics[1].reference == f"{tmp_path.name}/HarpHub_HubSuite_t_sub_1.png"
+    assert os.path.exists(tmp_path / "HarpHub_HubSuite_t_sub_0.png")
+    assert os.path.exists(tmp_path / "HarpHub_HubSuite_t_sub_1.png")
 
 
 def test_contract_qc_metrics_uses_runner(monkeypatch, tmp_path):
@@ -97,5 +136,5 @@ def test_contract_qc_metrics_uses_runner(monkeypatch, tmp_path):
 
     monkeypatch.setattr(_contract_qa, "make_qc_runner", lambda dataset: _FakeRunner())
     metrics = _contract_qa.contract_qc_metrics(dataset=object(), results_folder=str(tmp_path))
-    assert [m.name for m in metrics] == ["S::t"]
+    assert [m.name for m in metrics] == ["t:grp"]
     assert metrics[0].status_history[0].status == "Pass"

@@ -148,7 +148,7 @@ def side_bias_result(side_bias: np.ndarray, results_folder: t.Optional[str] = No
     QCResult
         Passes when ``abs(mean_bias) < 0.5``. Fails when the column is empty or
         all ``nan`` (``mean_bias`` is ``nan``). Tagged
-        ``{"type": "Average_Side_Bias"}`` and referencing the side-bias plot.
+        ``{"type": "Side Bias", "group": "Side Bias"}`` and referencing the side-bias plot.
     """
     values = np.asarray(side_bias, dtype=float)
     if values.size == 0 or np.all(np.isnan(values)):
@@ -162,7 +162,7 @@ def side_bias_result(side_bias: np.ndarray, results_folder: t.Optional[str] = No
         passed=bool(abs(mean_bias) < 0.5),  # nan comparisons are False -> fails
         description="Average side bias should be less than 0.5",
         reference=_plot_reference(SIDE_BIAS_PLOT, results_folder),
-        tags={"type": "Average_Side_Bias"},
+        tags={"type": "Side Bias", "group": "Side Bias"},
     )
 
 
@@ -244,8 +244,8 @@ def lick_latency_result(
 
     The value is the fraction of first-lick latencies (both sides combined, the
     same values as the lick-latency histogram) longer than 0.5 s after the go
-    cue. Tagged ``type="Lick_Interval"`` so it groups with the lick-interval
-    metrics.
+    cue. Tagged ``{"type": "Licking", "group": "Lick Latency"}`` so it sits
+    under ``Licking`` next to the lick-interval metrics.
 
     Parameters
     ----------
@@ -277,7 +277,7 @@ def lick_latency_result(
             "Fraction of first-lick latencies > 0.5 s after the go cue; passes when < 0.5."
         ),
         reference=_plot_reference(LICK_LATENCY_PLOT, results_folder),
-        tags={"metric": "Lick_Latency", "type": "Lick_Interval"},
+        tags={"type": "Licking", "group": "Lick Latency"},
     )
 
 
@@ -303,7 +303,8 @@ def lick_interval_results(
     list of QCResult
         ``Left``/``Right``/``Cross Side`` lick-interval results (pass ``< 10``)
         and ``Artifact Percent`` (pass ``< 1``), all referencing the
-        lick-intervals plot.
+        lick-intervals plot and tagged
+        ``{"type": "Licking", "group": "Lick Intervals"}``.
     """
     results = calculate_lick_intervals(left_lick_times, right_lick_times)
     specs = [
@@ -319,7 +320,7 @@ def lick_interval_results(
             passed=value < limit,
             description=f"{name} of inter-lick intervals; passes when < {limit}.",
             reference=_plot_reference(LICK_INTERVALS_PLOT, results_folder),
-            tags={"metric": name, "type": "Lick_Interval"},
+            tags={"type": "Licking", "group": "Lick Intervals"},
         )
         for name, value, limit in specs
     ]

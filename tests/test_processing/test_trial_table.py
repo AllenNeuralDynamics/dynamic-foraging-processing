@@ -12,8 +12,11 @@ from aind_behavior_dynamic_foraging.task_logic import (
 from aind_behavior_dynamic_foraging.task_logic.trial_generators import (
     CoupledTrialGeneratorSpec,
     CoupledWarmupTrialGeneratorSpec,
-    TrialGeneratorCompositeSpec,
     UncoupledTrialGeneratorSpec,
+    WarmupTrialGeneratorSpec,
+)
+from aind_behavior_dynamic_foraging.task_logic.trial_generators.coupled_trial_generators.warmup_trial_generator import (
+    WarmupTrialGenerationEndConditions,
 )
 from aind_behavior_dynamic_foraging.task_logic.trial_models import TrialOutcome
 from aind_behavior_services.rig.aind_manipulator import Axis, MicrostepResolution
@@ -387,25 +390,26 @@ def test_build_full_dataset():
     # ``ITI_min`` comes from the scaling offset, not the truncation minimum.
     assert first["ITI_min"] == 0.5 and first["ITI_max"] == 10.0
     assert first["block_beta"] == pytest.approx(20.0)
-    # Only block_max takes the floor adjustment: the configured 20/60 truncation
-    # yields a longest realizable block of 59 trials.
-    assert first["block_min"] == 20.0 and first["block_max"] == 59.0
-    assert pd.isna(first["delay_beta"])  # scalar quiescent distribution
-    # Scalar has neither a scale nor truncation parameters -> null bounds.
-    assert pd.isna(first["delay_min"])
-    assert pd.isna(first["delay_max"])
+    # A coupled generator takes no floor adjustment: block_max is the configured
+    # 20/60 truncation maximum as is.
+    assert first["block_min"] == 20.0 and first["block_max"] == 60.0
+    # A scalar quiescent distribution (value 0.0) is a fixed delay: its value is
+    # both bounds, and it has no beta.
+    assert pd.isna(first["delay_beta"])
+    assert first["delay_min"] == 0.0
+    assert first["delay_max"] == 0.0
     # No per-block reward minimum on this generator -> a floor of 0, not null.
     assert first["min_reward_each_block"] == 0
     assert first["base_reward_probability_sum"] == pytest.approx(0.8)
 
     # Lickspout positions from AccumulatedSteps (microsteps * 0.00125 mm),
-    # sampled at each trial start and re-referenced to session start. The first
-    # sample is the baseline (all zero); x then moves +5.0 mm for the second trial.
-    assert first["lickspout_position_x"] == 0.0
-    assert first["lickspout_position_y1"] == 0.0
-    assert first["lickspout_position_y2"] == 0.0
-    assert first["lickspout_position_z"] == 0.0
-    assert second["lickspout_position_x"] == 5.0
+    # sampled at each trial start, in absolute manipulator coordinates (not
+    # re-referenced to session start); x then moves +5.0 mm for the second trial.
+    assert first["lickspout_position_x"] == 10.0
+    assert first["lickspout_position_y1"] == 2.0
+    assert first["lickspout_position_y2"] == 3.0
+    assert first["lickspout_position_z"] == 5.0
+    assert second["lickspout_position_x"] == 15.0
 
     # Per-trial reward volumes (uL) from trial.reward_size; second trial uses the default.
     assert first["reward_size_left"] == 2.0
@@ -425,15 +429,13 @@ def test_build_full_dataset():
     assert second["anti_bias_lickspout_movement"] == 0.0
 
 
-def test_build_missing_task_logic_leaves_session_columns_null():
-    """A missing TaskLogic stream still builds; session distribution columns are null."""
+def test_build_raises_when_task_logic_missing_with_trials():
+    """A missing TaskLogic stream is an error when there are trials."""
     dataset = _full_dataset()
     input_schemas = dataset.children["Behavior"].children["InputSchemas"]
     input_schemas.children["TaskLogic"] = _FailedStream()
-    table = TrialTableBuilder(dataset).build()
-    assert len(table) == 2
-    assert table["ITI_beta"].isna().all()
-    assert table["block_beta"].isna().all()
+    with pytest.raises(ValueError, match="TaskLogic stream is required"):
+        TrialTableBuilder(dataset).build()
 
 
 def test_build_raises_when_rig_missing_with_trials():
@@ -600,49 +602,101 @@ def test_build_end_session_does_not_close_a_mid_session_gap():
 
 
 # --------------------------------------------------------------------------- #
-# _summary_generator — composite trial generators
+# Task-logic columns — scalar distributions and the warmup wrapper
 # --------------------------------------------------------------------------- #
-def test_summary_generator_returns_single_generator_unchanged():
-    """A non-composite generator (no ``.generators``) is returned as-is."""
-    spec = _task_logic().task_parameters.trial_generator
-    assert TrialTableBuilder._summary_generator(spec) is spec
+def _scalar(value):
+    """Build a scalar (fixed-value) distribution."""
+    return Scalar(distribution_parameters=ScalarDistributionParameter(value=value))
 
 
-def test_summary_generator_prefers_coupled_over_uncoupled():
-    """A coupled sub-generator is preferred even when an uncoupled one precedes it."""
-    coupled = _task_logic().task_parameters.trial_generator
-    composite = TrialGeneratorCompositeSpec(generators=[UncoupledTrialGeneratorSpec(), coupled])
-    resolved = TrialTableBuilder._summary_generator(composite)
-    assert resolved.type == "CoupledTrialGenerator"
-    assert resolved is coupled
+def _warmup_task_logic(min_trial=2):
+    """Build a ``CoupledWarmupTrialGenerator`` task logic with a short warmup.
 
-
-def test_summary_generator_falls_back_to_uncoupled():
-    """An uncoupled sub-generator is used when no coupled generator is present."""
-    composite = TrialGeneratorCompositeSpec(
-        generators=[CoupledWarmupTrialGeneratorSpec(), UncoupledTrialGeneratorSpec()]
+    The warmup spec has a fixed block length (1) and delay (0.1) and ends after
+    ``min_trial`` balanced, responded trials; the coupled spec is ``_task_logic``'s.
+    """
+    warmup = WarmupTrialGeneratorSpec(
+        block_length=_scalar(1.0),
+        quiescent_duration=_scalar(0.1),
+        min_block_reward=1,
+        trial_generation_end_parameters=WarmupTrialGenerationEndConditions(
+            min_trial=min_trial, evaluation_window=min_trial
+        ),
     )
-    resolved = TrialTableBuilder._summary_generator(composite)
-    assert resolved.type == "UncoupledTrialGenerator"
-
-
-def test_summary_generator_none_when_no_coupled_or_uncoupled(caplog):
-    """A composite with neither coupled nor uncoupled generators yields ``None`` and warns."""
-    composite = TrialGeneratorCompositeSpec(generators=[CoupledWarmupTrialGeneratorSpec()])
-    assert TrialTableBuilder._summary_generator(composite) is None
-    assert "No coupled or uncoupled generator" in caplog.text
-
-
-def test_session_columns_empty_when_no_summary_generator():
-    """With no coupled/uncoupled generator, the session columns dict is empty."""
-    task_logic = AindDynamicForagingTaskLogic(
+    coupled = _task_logic().task_parameters.trial_generator
+    return AindDynamicForagingTaskLogic(
         task_parameters=AindDynamicForagingTaskParameters(
-            trial_generator=TrialGeneratorCompositeSpec(
-                generators=[CoupledWarmupTrialGeneratorSpec()]
-            ),
+            trial_generator=CoupledWarmupTrialGeneratorSpec(
+                warmup_generator_spec=warmup, coupled_generator_spec=coupled
+            )
         )
     )
-    assert TrialTableBuilder(_Node({}))._session_columns(task_logic) == {}
+
+
+def _choices(*is_right_choice):
+    """Build ``TrialOutcome`` models with the given choices (``None`` = ignored)."""
+    return [
+        TrialOutcome.model_validate(_outcome(0.8, 0.2, choice, False)) for choice in is_right_choice
+    ]
+
+
+def test_distribution_stats_scalar_value_is_both_bounds():
+    """A scalar reports its (scaled) value as min and max, and no beta."""
+    assert TrialTableBuilder._distribution_stats(
+        Scalar(
+            distribution_parameters=ScalarDistributionParameter(value=2.0),
+            scaling_parameters=ScalingParameters(scale=3.0, offset=1.0),
+        )
+    ) == (None, 7.0, 7.0)
+
+
+def test_generator_columns_scalar_block_length_has_no_beta():
+    """A fixed block length reports its value as min and max, and no beta."""
+    spec = WarmupTrialGeneratorSpec(block_length=_scalar(1.0))
+    columns = TrialTableBuilder(_Node({}))._generator_columns(spec)
+    assert (columns["block_beta"], columns["block_min"], columns["block_max"]) == (None, 1.0, 1.0)
+
+
+def test_warmup_switch_index_is_first_trial_after_end_conditions_met():
+    """The switch is the first trial at which the warmup end conditions hold."""
+    spec = _warmup_task_logic(min_trial=4).task_parameters.trial_generator
+    # Balanced, fully responded choices meet the end conditions after 4 trials.
+    outcomes = _choices(False, True, False, True, False, True)
+    assert TrialTableBuilder._warmup_switch_index(spec, outcomes) == 4
+
+
+def test_warmup_switch_index_never_met_is_whole_session():
+    """Ignored trials never meet the response-rate condition: the whole session is warmup."""
+    spec = _warmup_task_logic(min_trial=4).task_parameters.trial_generator
+    outcomes = _choices(None, None, None, None, None, None)
+    assert TrialTableBuilder._warmup_switch_index(spec, outcomes) == len(outcomes)
+
+
+def test_session_columns_warmup_splits_at_switch():
+    """Warmup trials take the warmup spec's columns; later trials the coupled spec's."""
+    task_logic = _warmup_task_logic(min_trial=2)
+    columns = TrialTableBuilder(_Node({}))._session_columns(
+        task_logic, _choices(False, True, False, True)
+    )
+    assert len(columns) == 4
+    warmup, coupled = columns[0], columns[2]
+    assert columns[1] == warmup and columns[3] == coupled
+    # Warmup spec: fixed block length and delay, a per-block reward minimum.
+    assert (warmup["block_beta"], warmup["block_min"], warmup["block_max"]) == (None, 1.0, 1.0)
+    assert warmup["delay_beta"] is None
+    assert (warmup["delay_min"], warmup["delay_max"]) == (0.1, 0.1)
+    assert warmup["min_reward_each_block"] == 1
+    # Coupled spec (``_task_logic``): exponential block length 20/20/60, no minimum.
+    assert coupled["block_beta"] == pytest.approx(20.0)
+    assert (coupled["block_min"], coupled["block_max"]) == (20.0, 60.0)
+    assert coupled["min_reward_each_block"] == 0
+
+
+def test_session_columns_flat_generator_applies_to_every_trial():
+    """A flat spec summarises every trial with the same columns."""
+    columns = TrialTableBuilder(_Node({}))._session_columns(_task_logic(), _choices(False, True))
+    assert len(columns) == 2 and columns[0] == columns[1]
+    assert columns[0]["ITI_beta"] == pytest.approx(5.0)
 
 
 def test_side_bias_parses_dict_model_json_and_none():
@@ -667,17 +721,6 @@ def test_build_missing_trial_metrics_leaves_side_bias_null():
     assert table["side_bias"].isna().all()
 
 
-def test_session_columns_warmup_generator_populates_min_reward_each_block():
-    """A warmup generator exposes ``min_block_reward``, populating ``min_reward_each_block``."""
-    task_logic = AindDynamicForagingTaskLogic(
-        task_parameters=AindDynamicForagingTaskParameters(
-            trial_generator=CoupledWarmupTrialGeneratorSpec()
-        )
-    )
-    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic)
-    assert columns["min_reward_each_block"] == CoupledWarmupTrialGeneratorSpec().min_block_reward
-
-
 def test_session_columns_uncoupled_has_null_reward_sum():
     """An uncoupled generator populates distribution columns but no coupled-only fields."""
     task_logic = AindDynamicForagingTaskLogic(
@@ -685,13 +728,16 @@ def test_session_columns_uncoupled_has_null_reward_sum():
             trial_generator=UncoupledTrialGeneratorSpec()
         )
     )
-    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic)
+    columns = TrialTableBuilder(_Node({}))._session_columns(task_logic, _choices(False))[0]
     # Distribution summaries are common to all block-based generators.
     assert "ITI_beta" in columns
     # Coupled-only fields are absent / null for an uncoupled generator.
     assert columns["base_reward_probability_sum"] is None
     # No ``min_block_reward`` on this generator -> no per-block minimum (0).
     assert columns["min_reward_each_block"] == 0
+    # Only the uncoupled generator floors its block length: the default uniform
+    # 20/60 bounds yield a longest realizable block of 59 trials.
+    assert (columns["block_min"], columns["block_max"]) == (20.0, 59.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -1254,16 +1300,16 @@ def test_manipulator_mm_per_step_missing_axis_raises():
         builder._manipulator_mm_per_step(rig)
 
 
-def test_manipulator_positions_converts_steps_to_mm_relative_to_start():
-    """EVENT rows convert to mm and are re-referenced to the session-start sample."""
+def test_manipulator_positions_converts_steps_to_absolute_mm():
+    """EVENT rows convert to absolute mm, not re-referenced to the session start."""
     builder = TrialTableBuilder(_Node({}))
     steps = _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)])
     positions = builder._manipulator_positions(steps, _rig())
     assert list(positions.index) == [8.0, 15.0]
-    # First sample is the baseline (zeroed); x then moves +5.0 mm (4000 steps).
-    assert positions.loc[8.0, "lickspout_position_x"] == 0.0
-    assert positions.loc[15.0, "lickspout_position_x"] == 5.0
-    assert positions.loc[8.0, "lickspout_position_z"] == 0.0
+    # The first sample keeps its absolute position; x then moves +5.0 mm (4000 steps).
+    assert positions.loc[8.0, "lickspout_position_x"] == 10.0
+    assert positions.loc[15.0, "lickspout_position_x"] == 15.0
+    assert positions.loc[8.0, "lickspout_position_z"] == 5.0
 
 
 def test_manipulator_positions_filters_non_event_rows():
@@ -1307,7 +1353,7 @@ def test_manipulator_positions_incomplete_calibration_raises():
 
 
 def _two_sample_positions(builder):
-    """Build a position frame relative to session start: t=8.0 (x=0.0), t=15.0 (x=5.0)."""
+    """Build an absolute position frame: t=8.0 (x=10.0), t=15.0 (x=15.0)."""
     return builder._manipulator_positions(
         _accumulated_steps([8.0, 15.0], [(8000, 1600, 2400, 4000), (12000, 1600, 2400, 4000)]),
         _rig(),
@@ -1318,10 +1364,10 @@ def test_sample_lickspout_picks_sample_nearest_start_in_window():
     """A trial takes the in-window sample nearest its start."""
     builder = TrialTableBuilder(_Node({}))
     positions = _two_sample_positions(builder)
-    # Window [7.0, 12.0) contains only the t=8.0 baseline sample (0.0).
-    assert builder._sample_lickspout(positions, 7.0, 12.0)["lickspout_position_x"] == 0.0
-    # Window [14.0, 20.0) contains only the t=15.0 sample (+5.0 mm).
-    assert builder._sample_lickspout(positions, 14.0, 20.0)["lickspout_position_x"] == 5.0
+    # Window [7.0, 12.0) contains only the t=8.0 sample (x=10.0).
+    assert builder._sample_lickspout(positions, 7.0, 12.0)["lickspout_position_x"] == 10.0
+    # Window [14.0, 20.0) contains only the t=15.0 sample (x=15.0).
+    assert builder._sample_lickspout(positions, 14.0, 20.0)["lickspout_position_x"] == 15.0
 
 
 def test_sample_lickspout_no_sample_in_window_is_null():

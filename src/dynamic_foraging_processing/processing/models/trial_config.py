@@ -131,7 +131,7 @@ class TrialConfig(BaseModel):
     # --- block_information ---
     block_beta: Optional[float] = Field(
         default=None,
-        description="The beta of exponential distribution to generate the block length",
+        description="The beta of exponential distribution to generate the block length; None for a fixed (scalar) block length or a uniform distribution",
     )
     block_min: Optional[float] = Field(
         default=None, description="The minimum length allowed for each block"
@@ -139,7 +139,7 @@ class TrialConfig(BaseModel):
     block_max: Optional[float] = Field(
         default=None,
         description=(
-            "The maximum length allowed for each block; one below the configured maximum, which accounts for the floor applied upstream"
+            "The maximum length allowed for each block; for the uncoupled generator, one below the configured maximum, which accounts for the floor it applies to the block length"
         ),
     )
     min_reward_each_block: float = Field(
@@ -152,7 +152,7 @@ class TrialConfig(BaseModel):
     # --- delay_duration ---
     delay_beta: Optional[float] = Field(
         default=None,
-        description="The beta of exponential distribution to generate the delay duration(s). Can be none depending on distribution type (scalar for example)",
+        description="The beta of exponential distribution to generate the delay duration(s). None for a fixed (scalar) delay or a uniform distribution",
     )
     delay_min: Optional[float] = Field(
         default=None, description="The minimum duration(s) allowed for each delay"
@@ -228,19 +228,19 @@ class TrialConfig(BaseModel):
     # --- lickspout_position (mapping's `lickspout_positions` -> these four components) ---
     lickspout_position_x: Optional[float] = Field(
         default=None,
-        description="x lickspout position (mm), relative to session start (left-right)",
+        description="x lickspout position (mm), absolute manipulator coordinates (left-right)",
     )
     lickspout_position_y1: Optional[float] = Field(
         default=None,
-        description="y1 left lickspout position (mm), relative to session start (forward-backward)",
+        description="y1 left lickspout position (mm), absolute manipulator coordinates (forward-backward)",
     )
     lickspout_position_y2: Optional[float] = Field(
         default=None,
-        description="y2 right lickspout position (mm), relative to session start (forward-backward)",
+        description="y2 right lickspout position (mm), absolute manipulator coordinates (forward-backward)",
     )
     lickspout_position_z: Optional[float] = Field(
         default=None,
-        description="z lickspout position (mm), relative to session start (up-down)",
+        description="z lickspout position (mm), absolute manipulator coordinates (up-down)",
     )
 
     @classmethod

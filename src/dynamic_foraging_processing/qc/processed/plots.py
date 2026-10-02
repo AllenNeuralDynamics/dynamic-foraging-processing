@@ -269,6 +269,10 @@ def _add_lickspout_position_plot(
 ) -> None:
     """Draw lickspout x/y/z positions relative to session start (mm).
 
+    The trial table stores absolute manipulator coordinates; each axis is
+    re-referenced here to its first recorded value so the panel shows how far
+    the spouts moved within the session.
+
     Trials where the spouts moved are marked with ticks along the bottom of the
     panel, split by who moved them: the anti-bias algorithm (same flag as the
     markers on the side-bias panel) versus the experimenter, which is any other
@@ -288,9 +292,10 @@ def _add_lickspout_position_plot(
         if position is None or len(position) == 0:
             continue
         values = np.asarray(position, dtype=float)
-        # Values already come in relative to session start (normalized by the
-        # trial-table builder), so plot them directly.
-        ax.plot(values, color, label=label)
+        # Re-reference to the first trial with a sample; a trial whose window
+        # held no manipulator sample is NaN, so skip those when picking it.
+        recorded = values[np.isfinite(values)]
+        ax.plot(values - recorded[0] if recorded.size else values, color, label=label)
         plotted = True
 
     # Ticks sit in axes-fraction coordinates on y so they stay pinned to the

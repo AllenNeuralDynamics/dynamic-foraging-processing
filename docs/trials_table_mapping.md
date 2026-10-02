@@ -78,11 +78,23 @@ Columns are grouped by the raw source they map from.
 
 ### From `task_logic_input` (under `Logs`, `trial_generator` key)
 
+These columns summarize the trial generator spec that produced each trial. A
+flat spec (`CoupledTrialGenerator`, `UncoupledTrialGenerator`) produces every
+trial. A `CoupledWarmupTrialGenerator` wraps two specs and switches mid-session:
+trials before the switch take `warmup_generator_spec`, the rest
+`coupled_generator_spec`. No software event records the switch, so it is found
+by replaying the session's `TrialOutcome`s through the library's own warmup
+generator and taking the first trial at which its end conditions hold.
+
+Per distribution family: an exponential reports `beta = scale / rate` with
+`min` / `max` from its truncation; a uniform reports its own `min` / `max` and
+no beta; a scalar reports its value as both `min` and `max`.
+
 | Trials column | Source field |
 | --- | --- |
 | `ITI_beta`, `ITI_min`, `ITI_max`, `ITI_duration` | `inter_trial_interval_duration`. `ITI_min` is the distribution's scaling `offset` (the sampled value is shifted by it, so the offset is the shortest possible ITI) rather than the truncation minimum. |
-| `block_beta`, `block_duration`, `block_min`, `block_max` | `block_length`. `block_max` is one below the configured maximum, which accounts for the floor applied upstream. |
-| `delay_beta`, `delay_duration`, `delay_min`, `delay_max` | `quiescent_duration_key` (scalar distribution, so no beta/min/max) |
+| `block_beta`, `block_duration`, `block_min`, `block_max` | `block_length`. For an `UncoupledTrialGenerator`, `block_max` is one below the configured maximum, which accounts for the floor that generator applies to its block-length draw; other generators report the configured maximum as is. A scalar block length reports its value as `block_min` / `block_max` and no `block_beta`. |
+| `delay_beta`, `delay_duration`, `delay_min`, `delay_max` | `quiescent_duration`. A scalar delay reports its value as `delay_min` / `delay_max` and no `delay_beta`. |
 
 ### From `TrialMetrics.json` (`SoftwareEvents` stream)
 
@@ -119,7 +131,7 @@ Columns are grouped by the raw source they map from.
 | Trials column | Mapping |
 | --- | --- |
 | `base_reward_probability_sum` | If `type == "CoupledTrialGenerator"`, look at `reward_probability_parameters`. |
-| `min_reward_each_block` | `min_block_reward` when `type == "CoupledWarmupTrialGenerator"`; otherwise `0`, since a generator without that field enforces no per-block reward minimum. |
+| `min_reward_each_block` | `min_block_reward` of the warmup spec (`WarmupTrialGenerator`) for warmup trials; otherwise `0`, since a generator without that field enforces no per-block reward minimum. |
 
 ### Trial period timing (the four period `SoftwareEvents` streams)
 
@@ -198,7 +210,7 @@ seconds, far too coarse for the ~tens-of-ms valve pulse.
 
 | Trials column | Mapping |
 | --- | --- |
-| `lickspout_position_x` / `y1` / `y2` / `z` | Per-motor cumulative microstep count from the `AccumulatedSteps` stream, converted to millimetres via the rig manipulator calibration (`full_step_to_mm / microstep_resolution`) and re-referenced to the session-start position (displacement **relative to session start**, mm). The manipulator is a continuously-sampled hardware value, so — like the go cue — each trial takes the sample within its `[start_time, stop_time)` window nearest the start. `Motor{i}` drives `Axis(i + 1)` (X, Y1, Y2, Z). `None` when no sample falls in the trial window. The rig and `AccumulatedSteps` streams are required inputs (`build` raises if either is missing with trials present). |
+| `lickspout_position_x` / `y1` / `y2` / `z` | Per-motor cumulative microstep count from the `AccumulatedSteps` stream, converted to millimetres via the rig manipulator calibration (`full_step_to_mm / microstep_resolution`) and left in the manipulator's absolute frame (mm, zero-referenced at the homing position — the same frame as the `InitialManipulatorPosition` / `FinalManipulatorPosition` software events and the rig's `initial_position`), so positions are comparable across sessions: a session's first trial matches its `InitialManipulatorPosition`, which carries over from the previous session's final position unless the lickspouts were repositioned in between. The manipulator is a continuously-sampled hardware value, so — like the go cue — each trial takes the sample within its `[start_time, stop_time)` window nearest the start. `Motor{i}` drives `Axis(i + 1)` (X, Y1, Y2, Z). `None` when no sample falls in the trial window. The rig and `AccumulatedSteps` streams are required inputs (`build` raises if either is missing with trials present). |
 
 ### From `trainer_state.json` and `acquisition.json` (autoTrain — can be disregarded)
 
@@ -243,3 +255,5 @@ These were mapped during exploration but are no longer in scope:
 | 2026-09-15 | **Breaking:** experimenter water is now read from the four side-specific software-event streams the acquisition software emits (`LeftManualWater` / `RightManualWater`, not aligned to a go cue, and `LeftManualAutoReward` / `RightManualAutoReward`, aligned to it) instead of the single `GiveManualWaterRight` stream whose `data` payload selected the side. The `GiveManualWaterRight` path is removed, not deprecated. A fourth reward-delivery label, `manual_go_cue_aligned`, joins `earned` / `auto` / `manual`. **This fixes a mislabel:** manual auto-rewards fire at the go cue but leave `is_auto_reward_right` unset, so they previously fell through to `earned` — water the animal never worked for, counted as earned. The QC `side_bias.png` behavior raster gains an `L` / `R Manual Water (go cue)` row per side (now 11 rows, y-limits `[-0.8, 1.8]`), drawn dotted where unaligned manual water is dashed. |
 | 2026-09-21 | `auto_waterL` / `auto_waterR` and `anti_bias_left_water` / `anti_bias_right_water` are `0` / `False` for manual go-cue-aligned water: it is not autowater, though `TrialOutcome` reports it as such. The `{Left,Right}ManualAutoReward` streams are what distinguish it, matching the `manual_go_cue_aligned` label in the reward-delivery series. Sessions without those streams are unchanged. |
 | 2026-09-29 | Reward-delivery labels are now assigned per trial rather than by matching each manual-water event to its nearest valve opening. Those event timestamps are when the operator pressed the button, not when water was delivered, and a `ManualAutoReward` press precedes its water by seconds, so nearest matching often claimed the wrong delivery. Each trial now has at most one task delivery: `auto` at the go cue on the watered port, or `earned` on the chosen port after it. A `ManualAutoReward` request relabels the next `auto` delivery on its port, and every other delivery is `manual`. Validated against a ground-truth session (23/23 deliveries). On 872547_2026-09-17 this changes five labels: trial 207 left becomes `manual_go_cue_aligned`, and four valve openings that were not at a go cue become `manual`. `auto_waterL` for trial 207 becomes `0`. |
+| 2026-09-30 | `lickspout_position_x` / `y1` / `y2` / `z` are now **absolute** manipulator coordinates (mm) rather than displacement relative to the session start: the first-sample re-reference is removed. `AccumulatedSteps` is already zero-referenced at the homing position, so the values match `InitialManipulatorPosition` / `FinalManipulatorPosition` and carry over between sessions (verified on subject 872547, 2026-09-21 → 09-29: each session's first trial equals its `InitialManipulatorPosition`, and its last trial equals `FinalManipulatorPosition` and, apart from one repositioning between 09-24 and 09-25, the next session's `InitialManipulatorPosition`). The QC `side_bias.png` lickspout panel still plots position relative to session start, re-referencing to each axis's first recorded value itself. |
+| 2026-10-01 | **Breaking:** `aind-behavior-dynamic-foraging` v0.0.3 made `CoupledWarmupTrialGenerator` a wrapper of `warmup_generator_spec` + `coupled_generator_spec` (the warmup switches to the coupled spec mid-session), replacing the `TrialGeneratorCompositeSpec(generators=[...])` layout. The older pin parsed it silently with library defaults, so STAGE_1_WARMUP sessions reported default `block_*` / `ITI_*` / `delay_*` / `base_reward_probability_sum` values. The task-logic columns are now per generator and assigned per trial: warmup trials (before the replayed switch) take the warmup spec's values, the rest the coupled spec's. Scalar distributions now report their value as `min` / `max` (previously null) and no beta. The `block_max` floor adjustment (one below the configured maximum) now applies to `UncoupledTrialGenerator` only; coupled and warmup generators report the configured maximum. A missing `TaskLogic` stream now raises a `ValueError` when there are trials (as `Rig` and `AccumulatedSteps` do) instead of leaving these columns null. Verified on 875711_2026-09-28_13-24-26: switch at trial index 50. |

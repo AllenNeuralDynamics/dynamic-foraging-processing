@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -38,8 +38,8 @@ wheels = [
 
 [[package]]
 name = "aind-behavior-dynamic-foraging"
-version = "0.0.2rc37"
-source = { git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=4e4faa4941c8d9cc8024e760fdaec30339b626dc#4e4faa4941c8d9cc8024e760fdaec30339b626dc" }
+version = "0.0.3"
+source = { git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=b90e613125ca93751f28818c5fdc75a43b74924a#b90e613125ca93751f28818c5fdc75a43b74924a" }
 dependencies = [
     { name = "aind-behavior-services" },
     { name = "contraqctor" },
@@ -847,7 +847,7 @@ wheels = [
 
 [[package]]
 name = "dynamic-foraging-processing"
-version = "0.5.0"
+version = "0.5.3"
 source = { editable = "." }
 dependencies = [
     { name = "aind-behavior-dynamic-foraging", extra = ["data"] },
@@ -884,7 +884,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=4e4faa4941c8d9cc8024e760fdaec30339b626dc" },
+    { name = "aind-behavior-dynamic-foraging", extras = ["data"], git = "https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging.git?rev=b90e613125ca93751f28818c5fdc75a43b74924a" },
     { name = "aind-data-schema", marker = "extra == 'qc'", specifier = ">=2.4.1" },
     { name = "aind-nwb-utils", marker = "extra == 'nwb'" },
     { name = "dynamic-foraging-processing", extras = ["qc", "nwb"], marker = "extra == 'full'" },

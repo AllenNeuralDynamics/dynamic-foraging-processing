@@ -124,7 +124,8 @@ All carry `reference="lick_intervals.png"`.
   - Side bias trace — the per-trial `side_bias` column read from the trial
     table (no confidence-interval band).
   - Lickspout position over trials — `stage_positions` (x / y1 / y2 / z,
-    relative to session start, in mm).
+    relative to session start, in mm; the trial table itself stores absolute
+    manipulator coordinates).
   - Behavior event raster — `animal_response` (L/R choice, ignore),
     `rewarded_history` (L/R earned water), manual water times, and
     `auto_water` (L/R) per trial.
@@ -165,15 +166,15 @@ status_converter = {
 
 For each `qc.Result`:
 
-- `name = f"{result.suite_name}::{result.test_name}"`
+- `name = f"{result.test_name}:{group_name}"` (unique per session)
 - `description = f"Test: {result.description} // Message: {result.message}"`
 - `value = convert_numpy_to_python_data_type(result.result)`
 - `status_history = [QCStatus(evaluator="Automated", status=..., timestamp=now_utc)]`
 - `modality = Modality.BEHAVIOR`, `stage = Stage.RAW`
-- `tags = {"test_suite": result.suite_name, result.suite_name: group_name}`
-  — one fixed `"test_suite"` key whose value is the suite name, plus a
-  dynamic key (the suite name) whose value is the runner group (defaulting
-  to `"NoGroup"`).
+- `tags = {"type": "Harp QC Suite", "group": group_name}` — the shared
+  portal group plus the runner group, i.e. the device/stream being checked
+  (defaulting to `"NoGroup"`), which also implies the suite. The same suite runs once per device, so the
+  name alone is not unique; name + tags is.
 - `reference`: if `result.context["asset"]` is a `matplotlib.figure.Figure`,
   save it under the results folder and store the relative path.
 
@@ -214,3 +215,9 @@ test_suite
 | 2026-06-03 | metrics | Confirmed kept QC metrics: side bias, lick intervals, and Harp/contract QA via `make_qc_runner`. Dropped checks tied to old `behavior.json` (dropped frames, basic configuration). | Meeting with Alex. |
 | 2026-06-03 | qa | Adopt contraqctor `qc.Runner` output (`make_qc_runner(dataset)`) as the source for Harp / camera / contract / DynamicForaging QA, converted into `QCMetric`s. | Meeting with Alex. |
 | 2026-06-22 | metrics, data inputs, plots | Side bias is read from the precomputed per-trial `side_bias` column (averaged via `nanmean`) instead of being recomputed from `animal_response`; dropped the `B_Bias_CI` confidence-interval band. | Reflect implemented `side_bias_result` / `plot_side_bias`. |
+| 2026-09-30 | qa | Contract QC metrics are named by test only and tagged `{"type": "Harp QC Suite", "group": device}`. | Suite-prefixed names duplicated across devices; portal identifies metrics by name + tags. |
+| 2026-09-30 | grouping | `default_grouping = ["type"]` with every metric tagged `type` = "Harp QC Suite" (contract QC), "Side Bias", or "Licking". | Three top-level groups in the QC portal. |
+| 2026-09-30 | grouping | `default_grouping = ["type", "group"]`; every metric carries exactly those two tags (dropped `test_suite` and `metric`). Behavior groups: "Side Bias", "Lick Intervals", "Lick Latency". | Portal needs every metric to carry exactly the grouping keys to build the tree. |
+| 2026-10-01 | qa | Contract QC metric names are `"<test>:<group>"` and figure files `<group>_<suite>_<test>.png`. | Metric names must be unique; the same suite runs once per device, so test names (and figure files) repeated. |
+| 2026-10-02 | qa | A test that yields several results in one group (e.g. `HarpHubTestSuite`'s per-device `test_devices_are_subordinate` / `test_is_read_dump_synchronized`) is numbered `"<test>:<group>:<n>"` in yield order, and its figure files `<group>_<suite>_<test>_<n>.png`. | Those results shared `"<test>:<group>"`, so the portal dropped them as duplicates; the device is only in the message (the metric description). |
+| 2026-10-02 | builder | `build_quality_control` raises `ValueError` listing any duplicated metric names. | The portal silently drops every metric whose name repeats; failing processing surfaces a future collision instead. |
