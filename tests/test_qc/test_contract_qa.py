@@ -102,6 +102,28 @@ def test_results_to_metrics_same_suite_across_devices_is_unique():
     assert {m.tags["group"] for m in metrics} == {"HarpBehavior", "HarpLickometer"}
 
 
+def test_results_to_metrics_numbers_a_test_yielding_several_results(tmp_path):
+    """Same-named results in one group get ``:<n>`` suffixes; single results do not."""
+    figs = [plt.figure(), plt.figure()]
+    results = {
+        "HarpHub": [
+            _result(cqc.Status.PASSED, suite="HubSuite", test="t_sub", context={"asset": figs[0]}),
+            _result(cqc.Status.FAILED, suite="HubSuite", test="t_sub", context={"asset": figs[1]}),
+            _result(cqc.Status.PASSED, suite="HubSuite", test="t_clock"),
+        ]
+    }
+    metrics = _contract_qa.results_to_metrics(results, str(tmp_path))
+    for fig in figs:
+        plt.close(fig)
+
+    assert [m.name for m in metrics] == ["t_sub:HarpHub:0", "t_sub:HarpHub:1", "t_clock:HarpHub"]
+    # Each numbered result keeps its own figure instead of overwriting the other.
+    assert metrics[0].reference == f"{tmp_path.name}/HarpHub_HubSuite_t_sub_0.png"
+    assert metrics[1].reference == f"{tmp_path.name}/HarpHub_HubSuite_t_sub_1.png"
+    assert os.path.exists(tmp_path / "HarpHub_HubSuite_t_sub_0.png")
+    assert os.path.exists(tmp_path / "HarpHub_HubSuite_t_sub_1.png")
+
+
 def test_contract_qc_metrics_uses_runner(monkeypatch, tmp_path):
     """``contract_qc_metrics`` runs the runner and converts its results."""
 

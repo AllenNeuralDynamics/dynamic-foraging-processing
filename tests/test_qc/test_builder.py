@@ -5,6 +5,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import pytest
 from aind_data_schema.core.quality_control import QualityControl
 
 from dynamic_foraging_processing.qc._core import builder as _builder
@@ -101,3 +102,16 @@ def test_build_quality_control_overrides():
     assert qc.default_grouping == ["behavior"]
     assert qc.allow_tag_failures == ["behavior"]
     assert qc.notes == "hello"
+
+
+def test_build_quality_control_rejects_duplicate_metric_names():
+    """Duplicate metric names raise, naming each duplicate once."""
+    metrics = to_metrics(
+        _results.behavior_qc_results(
+            pd.DataFrame({"animal_response": [0, 1], "side_bias": [0.1, -0.1]}),
+            np.array([1.0]),
+            np.array([2.0]),
+        )
+    )
+    with pytest.raises(ValueError, match=r"duplicated: \['average side bias'\]"):
+        _builder.build_quality_control(metrics + metrics[:1])
