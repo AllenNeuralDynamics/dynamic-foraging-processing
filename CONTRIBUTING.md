@@ -1,5 +1,10 @@
 # Contributing
 
+This page covers the **mechanics** — environment, linting, tests, commit/PR
+conventions, and releasing. For **where in the code to plug in** (adding a trials-table
+column, a QC check, or prototyping in a notebook), see
+[`docs/architecture/extending.md`](docs/architecture/extending.md).
+
 ### Linters and testing
 
 This project uses [uv](https://docs.astral.sh/uv/) to manage its environment and
