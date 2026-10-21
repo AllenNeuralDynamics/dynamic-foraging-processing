@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 qc = [
+    "aind-contraqctor-to-schema-export @ git+https://github.com/AllenNeuralDynamics/aind-contraqctor-to-schema-export.git@v0.1.0",
     "aind-data-schema>=2.4.1",
     "matplotlib",
 ]
