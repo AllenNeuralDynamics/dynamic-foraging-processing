@@ -35,7 +35,7 @@ from aind_data_schema.core.processing import (
     ProcessName,
     ProcessStage,
 )
-from aind_data_schema.core.quality_control import QualityControl
+from aind_data_schema.core.quality_control import QCMetric, QualityControl
 from aind_nwb_utils.utils import create_base_nwb_file
 from hdmf.common import DynamicTable, VectorData
 from hdmf_zarr.nwb import NWBZarrIO
@@ -95,6 +95,27 @@ _LEFT_LICK_SERIES = "left_lick_time"
 _RIGHT_LICK_SERIES = "right_lick_time"
 _LEFT_REWARD_SERIES = "left_reward_delivery_time"
 _RIGHT_REWARD_SERIES = "right_reward_delivery_time"
+
+
+def _allow_all_failures(metrics: t.Sequence[QCMetric]) -> t.List[str]:
+    """Return ``allow_tag_failures`` entries excusing every metric type present.
+
+    No QC check in this pipeline blocks a session: contract QA (``Harp QC
+    Suite``) and behavior metrics (``Side Bias``, ``Licking``) alike are reported
+    as failing in the portal without failing the overall QC. Deriving the list
+    from the metrics' ``type`` tags keeps any metric type added later covered.
+
+    Parameters
+    ----------
+    metrics : sequence of QCMetric
+        The session's metrics; each carries a ``type`` tag.
+
+    Returns
+    -------
+    list of str
+        Sorted ``"type:<value>"`` entries, one per distinct metric type.
+    """
+    return sorted({f"type:{metric.tags['type']}" for metric in metrics})
 
 
 class Pipeline:
@@ -442,7 +463,9 @@ class Pipeline:
         -------
         QualityControl
             The combined raw (contract QA) + processed (behavior) metrics as a
-            single flat metric list.
+            single flat metric list. Every metric type is allowed to fail (see
+            ``_allow_all_failures``), so a failing check is reported without
+            failing the session's overall QC.
         """
         raw_metrics = RawQC().run(self.loader.dataset, results_folder)
         processed_metrics = ProcessedQC().run(
@@ -454,7 +477,8 @@ class Pipeline:
             manual_right=manual_right,
             bias_threshold=get_bias_threshold(self._trainer_state()),
         )
-        return build_quality_control([*raw_metrics, *processed_metrics])
+        metrics = [*raw_metrics, *processed_metrics]
+        return build_quality_control(metrics, allow_tag_failures=_allow_all_failures(metrics))
 
     def _trainer_state(self) -> t.Optional[TrainerState]:
         """Return the session's curriculum trainer state, or ``None`` if unavailable."""

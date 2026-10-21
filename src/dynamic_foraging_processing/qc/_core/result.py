@@ -9,15 +9,10 @@ pass/fail). It converts into an ``aind_data_schema`` ``QCMetric`` via
 import dataclasses
 import datetime
 import typing as t
-from zoneinfo import ZoneInfo
 
 from aind_contraqctor_to_schema_export import to_builtin
 from aind_data_schema.core.quality_control import QCMetric, QCStatus, Stage, Status
 from aind_data_schema_models.modalities import Modality
-
-#: Pacific timezone used for behavior-metric timestamps (schema requires
-#: timezone-aware datetimes).
-SEATTLE_TZ = ZoneInfo("America/Los_Angeles")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -53,9 +48,9 @@ class QCResult:
         """Convert this result into a schema ``QCMetric``.
 
         The metric is a behavior-modality, raw-stage metric with one automated
-        status, timestamped now (Seattle time): ``PASS`` / ``FAIL`` from
-        ``passed``, or ``PENDING`` when ``passed`` is ``None``. Numpy values are
-        converted to Python builtins.
+        status, timestamped now in UTC (like the contract QC metrics):
+        ``PASS`` / ``FAIL`` from ``passed``, or ``PENDING`` when ``passed`` is
+        ``None``. Numpy values are converted to Python builtins.
 
         Returns
         -------
@@ -75,7 +70,7 @@ class QCResult:
                 QCStatus(
                     evaluator="Automated",
                     status=status,
-                    timestamp=datetime.datetime.now(SEATTLE_TZ),
+                    timestamp=datetime.datetime.now(datetime.timezone.utc),
                 )
             ],
             description=self.description,
