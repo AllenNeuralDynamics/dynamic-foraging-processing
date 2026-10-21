@@ -1,6 +1,7 @@
 """Smoke tests for ``dynamic_foraging_processing.qc._core.result``."""
 
 import dataclasses
+import datetime
 
 import numpy as np
 import pytest
@@ -27,7 +28,7 @@ def test_to_metrics_converts_fields_and_statuses():
     )
     assert passed.tags == {"type": "T", "group": "G"}
     assert passed.modality == Modality.BEHAVIOR and passed.stage == Stage.RAW
-    assert passed.status_history[0].timestamp.tzinfo is not None
+    assert passed.status_history[0].timestamp.utcoffset() == datetime.timedelta(0)
     assert [m.status_history[0].status for m in (passed, failed, pending)] == [
         "Pass",
         "Fail",

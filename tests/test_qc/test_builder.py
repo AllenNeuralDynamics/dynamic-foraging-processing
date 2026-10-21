@@ -68,8 +68,8 @@ def test_behavior_qc_results_writes_plots(tmp_path):
     assert os.path.exists(tmp_path / "lick_latency.png")
 
 
-def test_build_quality_control_excuses_contract_failures_only():
-    """A failing contract check does not fail the session; a failing behavior metric does."""
+def test_build_quality_control_excuses_contract_failures_by_default():
+    """By default only contract checks are excused; the pipeline allows the rest explicitly."""
     contract = results_to_metrics(
         {"HarpBehavior": [cqc.Result(cqc.Status.FAILED, False, "test_x", "Suite")]}
     )
@@ -81,5 +81,10 @@ def test_build_quality_control_excuses_contract_failures_only():
         )
     )
     assert build_quality_control(contract).evaluate_status() == Status.PASS
-    # The behavior results include failing checks (too few licks), which still count.
+    # The behavior results include failing checks (too few licks), which the
+    # package default does not excuse...
     assert build_quality_control(contract + behavior).evaluate_status() == Status.FAIL
+    # ...but allowing every type present (as the pipeline does) does.
+    allow = sorted({f"type:{m.tags['type']}" for m in contract + behavior})
+    qc = build_quality_control(contract + behavior, allow_tag_failures=allow)
+    assert qc.evaluate_status() == Status.PASS
