@@ -7,11 +7,12 @@ pass/fail). It converts into an ``aind_data_schema`` ``QCMetric`` via
 """
 
 import dataclasses
+import datetime
 import typing as t
 
-from aind_data_schema.core.quality_control import QCMetric
-
-from dynamic_foraging_processing.qc._core.schema import bool_to_status, make_metric
+from aind_contraqctor_to_schema_export import to_builtin
+from aind_data_schema.core.quality_control import QCMetric, QCStatus, Stage, Status
+from aind_data_schema_models.modalities import Modality
 
 
 @dataclasses.dataclass(frozen=True)
@@ -33,7 +34,7 @@ class QCResult:
     reference : str, optional
         Relative path to a supporting asset (e.g. a plot).
     tags : dict of str to str
-        Grouping tags (e.g. ``{"behavior": name}``).
+        Grouping tags (e.g. ``{"type": "Licking", "group": "Lick Intervals"}``).
     """
 
     name: str
@@ -46,15 +47,32 @@ class QCResult:
     def to_metric(self) -> QCMetric:
         """Convert this result into a schema ``QCMetric``.
 
+        The metric is a behavior-modality, raw-stage metric with one automated
+        status, timestamped now in UTC (like the contract QC metrics):
+        ``PASS`` / ``FAIL`` from ``passed``, or ``PENDING`` when ``passed`` is
+        ``None``. Numpy values are converted to Python builtins.
+
         Returns
         -------
         QCMetric
             A metric carrying this result's value, pass/fail status, and tags.
         """
-        return make_metric(
+        if self.passed is None:
+            status = Status.PENDING
+        else:
+            status = Status.PASS if self.passed else Status.FAIL
+        return QCMetric(
             name=self.name,
-            value=self.value,
-            status=bool_to_status(self.passed),
+            modality=Modality.BEHAVIOR,
+            stage=Stage.RAW,
+            value=to_builtin(self.value),
+            status_history=[
+                QCStatus(
+                    evaluator="Automated",
+                    status=status,
+                    timestamp=datetime.datetime.now(datetime.timezone.utc),
+                )
+            ],
             description=self.description,
             reference=self.reference,
             tags=self.tags,

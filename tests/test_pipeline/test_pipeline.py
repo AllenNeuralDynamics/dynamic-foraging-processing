@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -183,8 +184,11 @@ def test_write_uses_zarr_io(monkeypatch):
 
 
 def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch):
-    """``_assemble_quality_control`` flattens raw and processed metrics into one list."""
+    """Raw and processed metrics are flattened into one list, every type allowed to fail."""
     captured = {}
+    raw1 = SimpleNamespace(tags={"type": "Harp QC Suite"})
+    raw2 = SimpleNamespace(tags={"type": "Harp QC Suite"})
+    proc1 = SimpleNamespace(tags={"type": "Side Bias"})
 
     class _FakeRawQC:
         """Raw QC stub returning two sentinel metrics."""
@@ -192,7 +196,7 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
         def run(self, dataset, results_folder):
             """Record args and return raw metrics."""
             captured["raw"] = (dataset, results_folder)
-            return ["raw1", "raw2"]
+            return [raw1, raw2]
 
     class _FakeProcessedQC:
         """Processed QC stub returning one sentinel metric."""
@@ -209,12 +213,16 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
                 "manual_right": manual_right,
                 "bias_threshold": bias_threshold,
             }
-            return ["proc1"]
+            return [proc1]
 
     trainer_state = object()
     monkeypatch.setattr(_pipeline, "RawQC", _FakeRawQC)
     monkeypatch.setattr(_pipeline, "ProcessedQC", _FakeProcessedQC)
-    monkeypatch.setattr(_pipeline, "build_quality_control", lambda metrics: metrics)
+    monkeypatch.setattr(
+        _pipeline,
+        "build_quality_control",
+        lambda metrics, allow_tag_failures: (metrics, allow_tag_failures),
+    )
     monkeypatch.setattr(
         _pipeline, "get_bias_threshold", lambda state: 0.5 if state is trainer_state else None
     )
@@ -232,7 +240,7 @@ def test_assemble_quality_control_combines_metrics_into_single_list(monkeypatch)
         "out",
     )
 
-    assert result == ["raw1", "raw2", "proc1"]
+    assert result == ([raw1, raw2, proc1], ["type:Harp QC Suite", "type:Side Bias"])
     assert captured["raw"] == (pipeline.loader.dataset, "out")
     np.testing.assert_array_equal(captured["processed"]["left"], np.array([1.0]))
     np.testing.assert_array_equal(captured["processed"]["right"], np.array([2.0]))

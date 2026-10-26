@@ -1,47 +1,43 @@
-"""Tests for ``dynamic_foraging_processing.qc._core.result``."""
+"""Smoke tests for ``dynamic_foraging_processing.qc._core.result``."""
 
-from dynamic_foraging_processing.qc._core import result as _result
+import dataclasses
+import datetime
+
+import numpy as np
+import pytest
+from aind_data_schema.core.quality_control import Stage
+from aind_data_schema_models.modalities import Modality
+
+from dynamic_foraging_processing.qc._core.result import QCResult, to_metrics
 
 
-def _result_obj(passed=True):
-    """Build a simple QCResult for conversion tests."""
-    return _result.QCResult(
-        name="m",
-        value=0.25,
-        passed=passed,
-        description="d",
-        reference="r.png",
-        tags={"behavior": "m"},
+def test_to_metrics_converts_fields_and_statuses():
+    """Results become behavior/raw metrics; ``passed`` maps to Pass / Fail / Pending."""
+    results = [
+        QCResult("m", np.float64(0.25), True, "d", "r.png", {"type": "T", "group": "G"}),
+        QCResult("f", 1, False),
+        QCResult("p", 2, None),
+    ]
+    passed, failed, pending = to_metrics(results)
+
+    assert (passed.name, passed.value, passed.description, passed.reference) == (
+        "m",
+        0.25,
+        "d",
+        "r.png",
     )
-
-
-def test_to_metric_carries_fields_and_status():
-    """``to_metric`` produces a QCMetric with the result's fields and status."""
-    metric = _result_obj(passed=True).to_metric()
-    assert metric.name == "m"
-    assert metric.value == 0.25
-    assert metric.reference == "r.png"
-    assert metric.tags == {"behavior": "m"}
-    assert metric.status_history[0].status == "Pass"
-
-
-def test_to_metric_failing_status():
-    """A failing result converts to a failing metric."""
-    assert _result_obj(passed=False).to_metric().status_history[0].status == "Fail"
-
-
-def test_to_metrics_converts_each_result():
-    """``to_metrics`` converts a sequence of results into metrics."""
-    metrics = _result.to_metrics([_result_obj(True), _result_obj(False)])
-    assert [m.status_history[0].status for m in metrics] == ["Pass", "Fail"]
+    assert passed.tags == {"type": "T", "group": "G"}
+    assert passed.modality == Modality.BEHAVIOR and passed.stage == Stage.RAW
+    assert passed.status_history[0].timestamp.utcoffset() == datetime.timedelta(0)
+    assert [m.status_history[0].status for m in (passed, failed, pending)] == [
+        "Pass",
+        "Fail",
+        "Pending",
+    ]
+    assert failed.tags == {}
 
 
 def test_qc_result_is_frozen():
     """``QCResult`` is immutable."""
-    result = _result_obj()
-    try:
-        result.passed = False
-    except Exception as exc:  # FrozenInstanceError
-        assert "cannot assign" in str(exc) or "frozen" in str(exc).lower()
-    else:  # pragma: no cover
-        raise AssertionError("QCResult should be frozen")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        QCResult("m", 1, True).passed = False
