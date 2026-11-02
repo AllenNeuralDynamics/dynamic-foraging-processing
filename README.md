@@ -8,17 +8,30 @@
 ![Python](https://img.shields.io/badge/python->=3.12-blue?logo=python)
 
 THIS LIBRARY IS CURRENTLY UNDER DEVLOPMENT AND IS SUBJECT TO CHANGE.
-Tries to follow this [diagram](https://github.com/AllenNeuralDynamics/aind-software-docs/blob/main/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg). There are some slight differences so the diagram will be updated to reflect this as this repository further develops.
+Tries to follow this [diagram](https://github.com/AllenNeuralDynamics/aind-software-docs/blob/main/docs/source/diagrams/dynamic_foraging/low_level/dynamic-foraging-low-level-processing.svg). The relationship is a two-way street: the diagram guides the design here, and where the code deliberately diverges (or discovers something the diagram didn't anticipate), the diagram will get updated to match. Equally, now that the foundation has been built, the code could be refactored to match the diagram where that's the better fit. Both are treated as living artifacts kept in sync as this repository develops — see [`docs/architecture.md`](docs/architecture.md) for where they currently differ and why.
 
-Tools for processing raw [dynamic foraging](https://github.com/AllenNeuralDynamics/dynamic-foraging-task)
+This library contains tools for processing raw [dynamic foraging](https://github.com/AllenNeuralDynamics/dynamic-foraging-task)
 acquisition data into derived containers for NWB. The package loads raw acquisition
 streams through the
 [aind-behavior-dynamic-foraging](https://github.com/AllenNeuralDynamics/Aind.Behavior.DynamicForaging)
-data contract and assembles higher-level tables (currently the NWB `trials` table)
-from those streams.
+data contract and assembles higher-level tables (currently the NWB `trials` table), arrays, and does QC from those streams.
 
 > **Note:** Data must be acquired in the `aind-behavior-dynamic-foraging` data
 > contract format to be compatible with these tools.
+
+## Architecture
+For the design overview — how the pieces map to the reference diagram, how the stages
+compose, how to extend them, and the rationale behind the design choices — see
+[`docs/architecture.md`](docs/architecture.md).
+
+## Contributing
+Two entry points, depending on what you're doing:
+
+- **How to set up and submit** — environment, linting, tests, commit/PR conventions,
+  and releasing: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- **Where to add code** — the small, self-contained plug-in points (add a trials-table
+  column, add a QC check, prototype in a notebook), each with a worked example:
+  [`docs/architecture/extending.md`](docs/architecture/extending.md).
 
 ## Inputs and outputs
 **Input** — a raw acquisition directory in the `aind-behavior-dynamic-foraging`
@@ -39,6 +52,12 @@ rig / session input schemas), loaded via `RawDataLoader`.
     so the full raw dataset travels alongside the derived series.
 - **Trials table.** Built by `TrialTableBuilder`, one row per trial written to the
   NWB `trials` table (see [`docs/trials_table_mapping.md`](docs/trials_table_mapping.md)).
+- **Quality control.** A single `aind-data-schema` `QualityControl` object assembled by
+  `build_quality_control` from the raw (contract QC) and processed (behavior metrics)
+  QC stages, written to `quality_control.json`. Each check contributes a metric (a value
+  and pass/fail), and some attach a reference media (e.g. side bias, lick intervals)
+  saved as a PNG alongside the report for the QC portal to render. Unlike the two above,
+  this is a sidecar report rather than an NWB container.
 
 ## Level of Support
  - [x] Supported: We are releasing this code to the public as a tool we expect others to use. Issues are welcomed, and we expect to address them promptly; pull requests will be vetted by our staff before inclusion.
