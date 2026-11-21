@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
+from contraqctor.contract.camera import CameraData
 
 from dynamic_foraging_processing.nwb.acquisition import AcquisitionBuilder
 from dynamic_foraging_processing.nwb.acquisition.models import (
@@ -352,3 +353,17 @@ def test_build_acquisition_defaults_none_description_to_empty_string():
     table = builder.build_acquisition()[0]
 
     assert table.description == ""
+
+
+def test_build_acquisition_skips_camera_streams():
+    """Camera streams are not packaged; only behavior tables reach acquisition."""
+    loader = _make_loader()
+    loader.get_all_raw_data.return_value["BehaviorVideos.FaceCamera"] = CameraData(
+        metadata=pd.DataFrame({"ReferenceTime": [0.0]}), video_path="video.mp4"
+    )
+    builder = AcquisitionBuilder(loader=loader)
+
+    names = [entry.name for entry in builder.build_acquisition()]
+
+    assert "BehaviorVideos.FaceCamera" not in names
+    assert "Behavior.RawStream" in names
