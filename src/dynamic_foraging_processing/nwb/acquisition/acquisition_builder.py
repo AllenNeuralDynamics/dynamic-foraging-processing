@@ -4,6 +4,7 @@ import typing as t
 
 import numpy as np
 import pandas as pd
+from contraqctor.contract.camera import CameraData
 
 from dynamic_foraging_processing.nwb.acquisition.models import (
     AcquisitionSeries,
@@ -311,6 +312,9 @@ class AcquisitionBuilder:
         acquisiton_entries: t.List[t.Union[AcquisitionSeries, AcquisitionTable]] = []
 
         for stream_name, stream_data in acquisition_streams.items():
+            # The NWB packages behavior data only; videos are out of scope.
+            if isinstance(stream_data, CameraData):
+                continue
             description = acqusition_streams_descriptions.get(stream_name)
             if description is None:
                 description = ""
